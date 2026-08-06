@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "id": "animessenger-anima-recommended",
+  "name": "AniMessenger Recommended ANIMA Image Pack",
+  "workflow": "anima-recommended-api.json",
+  "mapping": "anima-recommended-api.mapping.json",
+  "totalBytes": 5905499670,
+  "providerTerms": [
+    {
+      "provider": "Civitai",
+      "url": "https://civitai.com/content/tos"
+    }
+  ],
+  "authentication": {
+    "provider": "Civitai",
+    "required": true,
+    "accountUrl": "https://civitai.com/user/account",
+    "storage": "memory-only"
+  },
+  "notes": [
+    "Model files are not distributed with AniMessenger.",
+    "Review each provider page and its current terms before downloading.",
+    "Downloads may require a provider account or acceptance of provider terms."
+  ],
+  "assets": [
+    {
+      "id": "wai-anima-v1-base",
+      "kind": "diffusion_model",
+      "required": true,
+      "filename": "waiANIMA_v10Base10.safetensors",
+      "targetSubdirectory": "diffusion_models",
+      "bytes": 4182233976,
+      "sha256": "9d5a1e1393c2978d6a979fab38fb0dee00bc2a94e354196c9f3cf2f6f56d5fbf",
+      "source": {
+        "provider": "Civitai",
+        "modelId": 2544636,
+        "modelVersionId": 2983680,
+        "pageUrl": "https://civitai.com/models/2544636?modelVersionId=2983680",
+        "downloadUrl": "https://civitai.com/api/download/models/2983680"
+      }
+    },
+    {
+      "id": "anima-qwen-text-encoder",
+      "kind": "text_encoder",
+      "required": true,
+      "filename": "qwen_3_06b_base.safetensors",
+      "targetSubdirectory": "text_encoders",
+      "bytes": 1192135096,
+      "sha256": "cd2a512003e2f9f3cd3c32a9c3573f820bb28c940f73c57b1ddaa983d9223eba",
+      "source": {
+        "provider": "Civitai",
+        "modelId": 2544636,
+        "modelVersionId": 2983680,
+        "remoteFilename": "waiANIMA_v10Base10_txt.safetensors",
+        "pageUrl": "https://civitai.com/models/2544636?modelVersionId=2983680",
+        "downloadUrl": "https://civitai.com/api/download/models/2983680?type=Text%20Encoder&format=Other&fp=fp16"
+      }
+    },
+    {
+      "id": "anima-qwen-vae",
+      "kind": "vae",
+      "required": true,
+      "filename": "qwen_image_vae.safetensors",
+      "targetSubdirectory": "vae",
+      "bytes": 253806246,
+      "sha256": "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f",
+      "source": {
+        "provider": "Civitai",
+        "modelId": 2544636,
+        "modelVersionId": 2983680,
+        "pageUrl": "https://civitai.com/models/2544636?modelVersionId=2983680",
+        "downloadUrl": "https://civitai.com/api/download/models/2983680?type=VAE&format=SafeTensor&size=pruned&fp=fp8"
+      }
+    },
+    {
+      "id": "anima-highres-aesthetic-boost",
+      "kind": "lora",
+      "required": true,
+      "filename": "anima-highres-aesthetic-boost.safetensors",
+      "targetSubdirectory": "loras",
+      "bytes": 138662176,
+      "sha256": "db5b2dcc4e1afa215058b7a85fb9377124c2e9aabd48c25e595af7199207c299",
+      "source": {
+        "provider": "Civitai",
+        "modelId": 2540444,
+        "modelVersionId": 2855073,
+        "pageUrl": "https://civitai.com/models/2540444?modelVersionId=2855073",
+        "downloadUrl": "https://civitai.com/api/download/models/2855073"
+      }
+    },
+    {
+      "id": "anima-masterpiece-v51",
+      "kind": "lora",
+      "required": true,
+      "filename": "anima-base-1-masterpiece-v51.safetensors",
+      "targetSubdirectory": "loras",
+      "bytes": 138662176,
+      "sha256": "b330b46df1c71e4409d7b60ecf45df4ee26310fa914c398226c7800cc2912936",
+      "source": {
+        "provider": "Civitai",
+        "modelId": 929497,
+        "modelVersionId": 2961717,
+        "pageUrl": "https://civitai.com/models/929497?modelVersionId=2961717",
+        "downloadUrl": "https://civitai.com/api/download/models/2961717"
+      }
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+# Local and private runtime data
+backups/
+data/
+logs/
+outputs/
+work/
+charasms.config.json
+
+# Development and machine state
+.git/
+.github/
+.codex/
+.agents/
+.release-audit/
+.npm-cache/
+.pnpm-store/
+.deps-staging/
+.wrangler/
+.next/
+.vinext/
+.openai/
+.vercel/
+node_modules/
+dist/
+out/
+coverage/
+*.tgz
+*.tsbuildinfo

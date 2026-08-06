@@ -1,0 +1,36 @@
+{
+  "name": "animessenger",
+  "version": "0.2.0",
+  "private": true,
+  "license": "MIT",
+  "description": "A local-first character messenger powered by AnimaDex, Ollama, and ComfyUI.",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "packageManager": "pnpm@11.9.0",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:detached": "node scripts/start-detached.mjs",
+    "dev:lan": "node scripts/dev.mjs --lan",
+    "build": "tsc -p tsconfig.json && vite build",
+    "start": "node server/index.mjs --serve-dist",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test tests/*.test.mjs",
+    "release:audit": "node scripts/release-audit.mjs",
+    "assets:verify": "node scripts/verify-image-assets.mjs",
+    "check": "npm run typecheck && npm run test && npm run build"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "6.0.2",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "vite": "8.0.13"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.19",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "typescript": "5.9.3"
+  },
+  "type": "module"
+}

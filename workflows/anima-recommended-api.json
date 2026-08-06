@@ -1,0 +1,76 @@
+{
+  "1": {
+    "inputs": { "unet_name": "waiANIMA_v10Base10.safetensors", "weight_dtype": "default" },
+    "class_type": "UNETLoader",
+    "_meta": { "title": "Load WAI-ANIMA" }
+  },
+  "5": {
+    "inputs": {
+      "lora_name": "anima-highres-aesthetic-boost.safetensors",
+      "strength_model": 1,
+      "model": ["1", 0]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": { "title": "ANIMA Highres Aesthetic Boost" }
+  },
+  "60": {
+    "inputs": {
+      "lora_name": "anima-base-1-masterpiece-v51.safetensors",
+      "strength_model": 0.9,
+      "model": ["5", 0]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": { "title": "ANIMA Masterpiece" }
+  },
+  "6": {
+    "inputs": {
+      "seed": 191030508227809,
+      "steps": 24,
+      "cfg": 5,
+      "sampler_name": "er_sde",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": ["60", 0],
+      "positive": ["57", 0],
+      "negative": ["58", 0],
+      "latent_image": ["59", 0]
+    },
+    "class_type": "KSampler",
+    "_meta": { "title": "KSampler" }
+  },
+  "14": {
+    "inputs": { "filename_prefix": "CharaSMS/Unknown Character/1970-01-01/ANIMA", "images": ["46", 0] },
+    "class_type": "SaveImage",
+    "_meta": { "title": "Save Image" }
+  },
+  "20": {
+    "inputs": { "clip_name": "qwen_3_06b_base.safetensors", "type": "stable_diffusion", "device": "default" },
+    "class_type": "CLIPLoader",
+    "_meta": { "title": "Load CLIP" }
+  },
+  "25": {
+    "inputs": { "vae_name": "qwen_image_vae.safetensors" },
+    "class_type": "VAELoader",
+    "_meta": { "title": "Load VAE" }
+  },
+  "46": {
+    "inputs": { "samples": ["6", 0], "vae": ["25", 0] },
+    "class_type": "VAEDecode",
+    "_meta": { "title": "VAE Decode" }
+  },
+  "57": {
+    "inputs": { "text": "", "clip": ["20", 0] },
+    "class_type": "CLIPTextEncode",
+    "_meta": { "title": "Positive Prompt" }
+  },
+  "58": {
+    "inputs": { "text": "", "clip": ["20", 0] },
+    "class_type": "CLIPTextEncode",
+    "_meta": { "title": "Negative Prompt" }
+  },
+  "59": {
+    "inputs": { "width": 1024, "height": 1536, "batch_size": 1 },
+    "class_type": "EmptyLatentImage",
+    "_meta": { "title": "Empty Latent Image" }
+  }
+}

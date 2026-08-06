@@ -1,0 +1,30 @@
+{
+  "name": "AniMessenger - Recommended ANIMA",
+  "workflow_file": "anima-recommended-api.json",
+  "asset_manifest_file": "animessenger-anima-assets.json",
+  "defaults": {
+    "model_kind": "diffusion",
+    "model_name": "waiANIMA_v10Base10.safetensors",
+    "image_settings": {
+      "width": 1024,
+      "height": 1536,
+      "steps": 24,
+      "cfg": 5,
+      "sampler": "er_sde",
+      "scheduler": "simple"
+    }
+  },
+  "fields": {
+    "positive_prompt": { "node_id": "57", "input": "text" },
+    "negative_prompt": { "node_id": "58", "input": "text" },
+    "seed": { "node_id": "6", "input": "seed" },
+    "diffusion_model": { "node_id": "1", "input": "unet_name" },
+    "width": { "node_id": "59", "input": "width" },
+    "height": { "node_id": "59", "input": "height" },
+    "steps": { "node_id": "6", "input": "steps" },
+    "cfg": { "node_id": "6", "input": "cfg" },
+    "sampler": { "node_id": "6", "input": "sampler_name" },
+    "scheduler": { "node_id": "6", "input": "scheduler" },
+    "filename_prefix": { "node_id": "14", "input": "filename_prefix" }
+  }
+}

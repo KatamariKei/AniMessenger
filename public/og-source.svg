@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <radialGradient id="tealGlow" cx="0" cy="0" r="1" gradientTransform="translate(165 88) rotate(38) scale(540 400)" gradientUnits="userSpaceOnUse"><stop stop-color="#43c7b8" stop-opacity=".18"/><stop offset="1" stop-color="#43c7b8" stop-opacity="0"/></radialGradient>
+    <radialGradient id="emberGlow" cx="0" cy="0" r="1" gradientTransform="translate(1060 600) rotate(-142) scale(520 380)" gradientUnits="userSpaceOnUse"><stop stop-color="#f08a70" stop-opacity=".12"/><stop offset="1" stop-color="#f08a70" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="#0b0d0f"/><rect width="1200" height="630" fill="url(#tealGlow)"/><rect width="1200" height="630" fill="url(#emberGlow)"/>
+  <rect x="42" y="42" width="1116" height="546" rx="28" fill="#111416" stroke="#e8edee" stroke-opacity=".09"/>
+  <g transform="translate(82 106) scale(.242)">
+    <rect width="950.32" height="950.32" fill="#0f0f12"/>
+    <path fill="#43c7b8" d="M733.91,191.88H216.41c-52.87,0-95.72,42.86-95.72,95.72v289.58c0,52.87,42.86,95.72,95.72,95.72h304.94l169,85.53-28.74-85.53h72.3c52.87,0,95.72-42.86,95.72-95.72v-289.58c0-52.87-42.86-95.72-95.72-95.72ZM304.02,505.05c-24.33,0-44.05-19.72-44.05-44.05s19.72-44.05,44.05-44.05,44.05,19.72,44.05,44.05-19.72,44.05-44.05,44.05ZM475.16,505.05c-24.33,0-44.05-19.72-44.05-44.05s19.72-44.05,44.05-44.05,44.05,19.72,44.05,44.05-19.72,44.05-44.05,44.05ZM646.3,505.05c-24.33,0-44.05-19.72-44.05-44.05s19.72-44.05,44.05-44.05,44.05,19.72,44.05,44.05-19.72,44.05-44.05,44.05Z"/>
+    <rect x="514.66" y="240.01" width="263.28" height="89.86" rx="44.93" fill="#e8dccb"/>
+  </g>
+  <g transform="translate(355 135) scale(.9525)">
+    <path d="M127.5,67.8v-9.6h-19.3l-5.8,9.6h-20.4L127.7,1.3h16.8v66.6h-17ZM127.5,26.3h-.2l-11,18.4h11.2s0-18.4,0-18.4Z" fill="#43c7b8"/>
+    <path d="M192.5,67.8l-25.6-40.7.4,40.7h-16.3V1.3h14.7l25.9,42.1-.7-42.1h16.3v66.6h-14.8.1Z" fill="#43c7b8"/>
+    <path d="M214,67.8V1.3h17v66.6h-17Z" fill="#43c7b8"/>
+    <path d="M292.3,67.8l.5-49.8-.2-.2-14.2,50h-11.2l-14.4-50.5.5,50.5h-15.7V1.3h21.9l13.2,43.8h.2l13-43.8h22v66.6h-15.7.1Z" fill="#e8dccb"/>
+    <path d="M314.6,67.8V1.3h37v14.9h-20.7v10.3h20.1v14.9h-20.1v11.4h20.7v14.9h-37Z" fill="#e8dccb"/>
+    <path d="M386.4,20.7c-.7-4.8-2.7-6.5-6-6.5s-5.8,2.2-5.8,5.2,3.6,5.8,10.9,8.9c14.7,6.3,18.4,11.6,18.4,20.3,0,12.9-8.8,20.4-23.2,20.4s-24-7.6-24-21.9v-1.4h16.9c0,5.5,2.8,9.1,7,9.1s6.4-2.8,6.4-6.4c0-5.3-7.4-7.6-13.4-10.1-10.9-4.4-15.8-10.2-15.8-18.8S368.6,0,380.8,0s8.3,1,11.8,2.8c7.1,3.7,10.5,9,10.6,17.9h-16.8Z" fill="#e8dccb"/>
+    <path d="M437.9,20.7c-.7-4.8-2.7-6.5-6-6.5s-5.8,2.2-5.8,5.2,3.6,5.8,10.9,8.9c14.7,6.3,18.4,11.6,18.4,20.3,0,12.9-8.8,20.4-23.2,20.4s-24-7.6-24-21.9v-1.4h16.9c0,5.5,2.8,9.1,7,9.1s6.4-2.8,6.4-6.4c0-5.3-7.4-7.6-13.4-10.1-10.9-4.4-15.8-10.2-15.8-18.8S420.1,0,432.4,0s8.3,1,11.8,2.8c7.1,3.7,10.5,9,10.6,17.9h-16.9Z" fill="#e8dccb"/>
+    <path d="M459.8,67.8V1.3h37v14.9h-20.7v10.3h20.1v14.9h-20.1v11.4h20.7v14.9h-37ZM543.3,67.8l-25.6-40.7.5,40.7h-16.3V1.3h14.7l25.9,42.1-.7-42.1h16.3v66.6h-14.8Z" fill="#e8dccb"/>
+    <path d="M634.6,33.7c0,17.9-13.1,35.4-35.5,35.4s-35.4-15.4-35.4-34.9S580,0,599.3,0s29.5,10.2,33.3,23.6h-19.1c-3.1-5.5-8.3-8.6-14.7-8.6-10.7,0-18.2,8.6-18.2,19.3s7,20,18.3,20,13.9-3.9,15.9-10.7h-19.9v-13.6h39.6v3.8h.1Z" fill="#e8dccb"/>
+    <path d="M641.6,67.8V1.3h37v14.9h-20.7v10.3h20.1v14.9h-20.1v11.4h20.7v14.9h-37ZM715.6,67.8l-15.4-21.5h-.2v21.5h-16.3V1.3h21.8c6.9,0,12.2.9,15.7,2.4,7.2,3.2,12.2,11.1,12.2,20.5s-6.3,19.2-16.6,21l18.1,22.7h-19.4.1ZM706.3,34.7c6.7,0,10.9-3.1,10.9-9.5s-4.3-9-10.7-9h-6.5v18.5h6.3Z" fill="#e8dccb"/>
+    <path d="M72,1.3H11.2C5,1.3,0,6.3,0,12.5v34c0,6.2,5,11.2,11.2,11.2h35.8l19.8,10-3.4-10h8.5c6.2,0,11.2-5,11.2-11.2V12.5c0-6.2-5-11.2-11.2-11.2ZM21.5,38c-2.9,0-5.2-2.3-5.2-5.2s2.3-5.2,5.2-5.2,5.2,2.3,5.2,5.2-2.3,5.2-5.2,5.2ZM41.6,38c-2.9,0-5.2-2.3-5.2-5.2s2.3-5.2,5.2-5.2,5.2,2.3,5.2,5.2-2.3,5.2-5.2,5.2ZM61.7,38c-2.9,0-5.2-2.3-5.2-5.2s2.3-5.2,5.2-5.2,5.2,2.3,5.2,5.2-2.3,5.2-5.2,5.2Z" fill="#43c7b8"/>
+    <rect x="46.2" y="6.9" width="30.9" height="10.5" rx="5.3" fill="#e8dccb"/>
+  </g>
+  <text x="358" y="265" fill="#9a9da1" font-family="Segoe UI,Arial,sans-serif" font-size="31">An adventure in every chat</text>
+  <line x1="358" y1="320" x2="1075" y2="320" stroke="#e8edee" stroke-opacity=".09"/>
+  <text x="358" y="383" fill="#d9d8d4" font-family="Segoe UI,Arial,sans-serif" font-size="28">Characters that remember. Images that follow the moment.</text>
+  <text x="358" y="430" fill="#858b8e" font-family="Segoe UI,Arial,sans-serif" font-size="23">Local-first conversations powered by AnimaDex, Ollama, and ComfyUI.</text>
+  <g transform="translate(358 494)" font-family="Segoe UI,Arial,sans-serif" font-size="18">
+    <rect width="150" height="45" rx="9" fill="#43c7b8" fill-opacity=".07" stroke="#43c7b8" stroke-opacity=".25"/><circle cx="23" cy="22.5" r="5" fill="#43c7b8"/><text x="39" y="29" fill="#aad1cc">LOCAL AI</text>
+    <rect x="166" width="178" height="45" rx="9" fill="#e8dccb" fill-opacity=".045" stroke="#e8dccb" stroke-opacity=".17"/><circle cx="189" cy="22.5" r="5" fill="#e8dccb"/><text x="205" y="29" fill="#c8c0b5">PRIVATE DATA</text>
+    <rect x="360" width="184" height="45" rx="9" fill="#f08a70" fill-opacity=".055" stroke="#f08a70" stroke-opacity=".22"/><circle cx="383" cy="22.5" r="5" fill="#f08a70"/><text x="399" y="29" fill="#d5aaa0">ANIMA IMAGES</text>
+  </g>
+</svg>

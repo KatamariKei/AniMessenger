@@ -1,0 +1,30 @@
+{
+  "name": "AniMessenger - ANIMA Fast Standard LoRAs (Test)",
+  "workflow_file": "anima-fast-standard-loras-api.json",
+  "ui_workflow_file": "anima-fast-standard-loras-ui.json",
+  "defaults": {
+    "model_kind": "diffusion",
+    "model_name": "waiANIMA_v10Base10.safetensors",
+    "image_settings": {
+      "width": 1024,
+      "height": 1536,
+      "steps": 24,
+      "cfg": 5,
+      "sampler": "er_sde",
+      "scheduler": "simple"
+    }
+  },
+  "fields": {
+    "positive_prompt": { "node_id": "57", "input": "text", "ui_widget_index": 0 },
+    "negative_prompt": { "node_id": "58", "input": "text", "ui_widget_index": 0 },
+    "seed": { "node_id": "6", "input": "seed", "ui_widget_index": 0 },
+    "diffusion_model": { "node_id": "1", "input": "unet_name", "ui_widget_index": 0 },
+    "width": { "node_id": "59", "input": "width", "ui_widget_index": 0 },
+    "height": { "node_id": "59", "input": "height", "ui_widget_index": 1 },
+    "steps": { "node_id": "6", "input": "steps", "ui_widget_index": 2 },
+    "cfg": { "node_id": "6", "input": "cfg", "ui_widget_index": 3 },
+    "sampler": { "node_id": "6", "input": "sampler_name", "ui_widget_index": 4 },
+    "scheduler": { "node_id": "6", "input": "scheduler", "ui_widget_index": 5 },
+    "filename_prefix": { "node_id": "14", "input": "filename_prefix", "ui_widget_index": 0 }
+  }
+}
