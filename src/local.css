@@ -60,13 +60,6 @@
 .settings-grid input:not([type="checkbox"]), .settings-grid textarea, .settings-grid select { width: 100%; padding: 10px 11px; border: 1px solid rgba(255,255,255,.08); border-radius: var(--radius-sm); outline: 0; background: #1d1723; color: #ddd5e5; font-size: 10px; line-height: 1.5; }
 .settings-grid textarea { resize: vertical; min-height: 66px; }
 .settings-grid input:focus, .settings-grid textarea:focus, .settings-grid select:focus { border-color: rgba(var(--accent-rgb),.38); }
-.accent-picker { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
-.accent-picker button { display: flex; min-height: 48px; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid rgba(255,255,255,.08); border-radius: var(--radius-md); background: rgba(255,255,255,.025); color: #a79dab; font-size: 13px; text-align: left; cursor: pointer; }
-.accent-picker button.active { border-color: rgba(var(--accent-rgb),.48); background: rgba(var(--accent-rgb),.1); color: #f4eff7; box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb),.12); }
-.accent-picker i { width: 18px; height: 18px; flex: 0 0 auto; border-radius: 50%; box-shadow: 0 0 14px currentColor; }
-.accent-picker [data-theme="electric"] i { background: #f3ef18; color: #f3ef18; }
-.accent-picker [data-theme="miku"] i { background: #39e6d0; color: #39e6d0; }
-.accent-picker [data-theme="orange"] i { background: #ff5a1f; color: #ff5a1f; }
 .settings-grid select:disabled { opacity: .45; }
 .contact-portrait { position: relative; display: block; flex: 0 0 auto; }
 .contact-portrait .portrait { display: block; }
@@ -273,7 +266,6 @@
   .settings-layer { z-index: 20; }
   .settings-card { min-height: 100%; border: 0; border-radius: 0; }
   .settings-grid { grid-template-columns: 1fr; }
-  .accent-picker { grid-template-columns: 1fr; }
   .settings-wide { grid-column: auto; }
   .setup-layer { position: fixed; padding: 0; place-items: stretch; }
   .setup-card { width: 100%; min-height: 100%; margin: 0; overflow-y: auto; padding: calc(24px + env(safe-area-inset-top)) 20px calc(18px + env(safe-area-inset-bottom)); border: 0; border-radius: 0; }
@@ -384,7 +376,6 @@
   background: #171e20;
 }
 
-:root[data-accent="signal"] .accent-picker button,
 :root[data-accent="signal"] .settings-actions button,
 :root[data-accent="signal"] .identity-editor-actions button,
 :root[data-accent="signal"] .delete-actions button,
@@ -393,7 +384,6 @@
   background: #1a1f22;
   color: #9ba1a3;
 }
-:root[data-accent="signal"] .accent-picker button:hover,
 :root[data-accent="signal"] .settings-actions button:hover,
 :root[data-accent="signal"] .identity-editor-actions button:hover,
 :root[data-accent="signal"] .delete-actions button:hover,
@@ -401,12 +391,6 @@
   border-color: rgba(232, 237, 239, .17);
   background: #20262a;
   color: var(--ink);
-}
-:root[data-accent="signal"] .accent-picker button.active {
-  border-color: rgba(var(--accent-rgb), .46);
-  background: rgba(var(--accent-rgb), .095);
-  color: #ece9e4;
-  box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), .1);
 }
 :root[data-accent="signal"] .settings-actions button[type="submit"],
 :root[data-accent="signal"] .identity-editor-actions .identity-save,
@@ -680,11 +664,6 @@
 }
 
 /* Signal & Ember preview: a neutral messaging canvas with restrained brand color. */
-.accent-picker [data-theme="signal"] i {
-  background: linear-gradient(135deg, #43c7b8 0 56%, #f08a70 56% 100%);
-  color: #43c7b8;
-}
-
 :root[data-accent="signal"] body {
   background: #0b0d0f;
   color: var(--ink);

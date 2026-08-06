@@ -168,7 +168,7 @@ export type AppConfig = {
   proactivePace: "off" | "relaxed" | "normal" | "lively";
   proactiveDeliveryStart: string;
   proactiveDeliveryEnd: string;
-  accentTheme: "signal" | "electric" | "miku" | "orange";
+  accentTheme: "signal";
 };
 
 export type OllamaModelOption = {

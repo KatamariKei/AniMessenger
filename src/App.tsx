@@ -206,7 +206,6 @@ type SettingsProps = {
   initial: AppConfig;
   onClose: () => void;
   onSaved: (config: AppConfig) => void;
-  onAccentPreview: (theme: AppConfig["accentTheme"]) => void;
   onOpenSetup: () => void;
 };
 
@@ -382,7 +381,7 @@ function ImagePackInstaller({ modelsDirectory, outputDirectory = "", onModelsDir
   );
 }
 
-function Settings({ initial, onClose, onSaved, onAccentPreview, onOpenSetup }: SettingsProps) {
+function Settings({ initial, onClose, onSaved, onOpenSetup }: SettingsProps) {
   const [config, setConfig] = useState(initial);
   const [models, setModels] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -415,7 +414,6 @@ function Settings({ initial, onClose, onSaved, onAccentPreview, onOpenSetup }: S
 
   const update = (key: keyof AppConfig, value: string | boolean) => {
     setConfig((current) => ({ ...current, [key]: value }));
-    if (key === "accentTheme") onAccentPreview(value as AppConfig["accentTheme"]);
   };
 
   const save = async (event: FormEvent) => {
@@ -459,26 +457,6 @@ function Settings({ initial, onClose, onSaved, onAccentPreview, onOpenSetup }: S
         <button type="button" className="settings-guide-link" onClick={onOpenSetup}>Run the guided setup</button>
         <div className="settings-grid">
           <label className="settings-wide"><span>Your name or nickname</span><input value={config.userName || ""} onChange={(e) => update("userName", e.target.value)} placeholder="What characters should call you" autoComplete="nickname" /></label>
-          <div className="settings-wide settings-field"><span>Accent color</span>
-            <div className="accent-picker" role="radiogroup" aria-label="Accent color">
-              {([
-                ["signal", "Signal & Ember"],
-                ["electric", "Electric yellow"],
-                ["miku", "Miku teal"],
-                ["orange", "Hot orange"],
-              ] as const).map(([value, label]) => (
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={config.accentTheme === value}
-                  className={config.accentTheme === value ? "active" : ""}
-                  data-theme={value}
-                  key={value}
-                  onClick={() => update("accentTheme", value)}
-                ><i />{label}</button>
-              ))}
-            </div>
-          </div>
           <label><span>Ollama URL</span><input value={config.ollamaUrl} onChange={(e) => update("ollamaUrl", e.target.value)} /></label>
           <label><span>Chat model</span><input list="ollama-models" value={config.chatModel} onChange={(e) => update("chatModel", e.target.value)} placeholder="e.g. qwen3:14b" /></label>
           <label><span>Profile model</span><input list="ollama-models" value={config.profileModel} onChange={(e) => update("profileModel", e.target.value)} placeholder="Defaults to chat model" /></label>
@@ -1090,7 +1068,6 @@ export function CharaSmsApp() {
   const [retryingImageIds, setRetryingImageIds] = useState<Set<string>>(() => new Set());
   const [imageReloadVersion, setImageReloadVersion] = useState(0);
   const [config, setConfig] = useState<AppConfig | null>(null);
-  const [accentPreview, setAccentPreview] = useState<AppConfig["accentTheme"] | null>(null);
   const [health, setHealth] = useState({ ollama: false, comfy: false, animadex: false });
   const [healthReady, setHealthReady] = useState(false);
   const [healthChecking, setHealthChecking] = useState(false);
@@ -1148,7 +1125,6 @@ export function CharaSmsApp() {
   const visibleMessages = useMemo(() => active?.messages.slice(-visibleMessageLimit) ?? [], [active?.messages, visibleMessageLimit]);
   const hiddenMessageCount = Math.max(0, (active?.messages.length ?? 0) - visibleMessages.length);
   const selectedLightboxImage = fullScreenImage?.items[fullScreenImage.index];
-  const activeAccentTheme = accentPreview || config?.accentTheme || "signal";
   const filteredEmoji = useMemo(() => {
     const query = emojiSearch.trim().toLowerCase();
     if (!query) return emojiCatalog;
@@ -1317,8 +1293,8 @@ export function CharaSmsApp() {
   };
 
   useEffect(() => {
-    document.documentElement.dataset.accent = activeAccentTheme;
-  }, [activeAccentTheme]);
+    document.documentElement.dataset.accent = "signal";
+  }, []);
 
   useEffect(() => {
     if (mode !== "discover") return;
@@ -2568,10 +2544,9 @@ export function CharaSmsApp() {
         )}
         {showSettings && config && <Settings
           initial={config}
-          onAccentPreview={setAccentPreview}
-          onClose={() => { setAccentPreview(null); setShowSettings(false); }}
-          onSaved={(saved) => { setConfig(saved); setAccentPreview(null); }}
-          onOpenSetup={() => { setAccentPreview(null); setShowSettings(false); setShowSetup(true); }}
+          onClose={() => setShowSettings(false)}
+          onSaved={setConfig}
+          onOpenSetup={() => { setShowSettings(false); setShowSetup(true); }}
         />}
         {showSetup && config && createPortal(<SetupGuide
           initial={config}

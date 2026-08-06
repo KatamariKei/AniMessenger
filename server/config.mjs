@@ -32,7 +32,7 @@ export const defaultConfig = {
 export async function readConfig() {
   try {
     const saved = JSON.parse(await fs.readFile(configPath, "utf8"));
-    return { ...defaultConfig, ...saved };
+    return { ...defaultConfig, ...saved, accentTheme: "signal" };
   } catch (error) {
     if (error && error.code !== "ENOENT") throw error;
     return { ...defaultConfig };
@@ -44,6 +44,7 @@ export async function writeConfig(input) {
   for (const key of Object.keys(defaultConfig)) {
     if (typeof input?.[key] === typeof defaultConfig[key]) next[key] = input[key];
   }
+  next.accentTheme = "signal";
   await fs.writeFile(configPath, JSON.stringify(next, null, 2) + "\n", "utf8");
   return next;
 }
