@@ -1,6 +1,12 @@
-# AniMessenger
+<p align="center">
+  <img src="public/animessenger-logo.svg" alt="AniMessenger" width="520">
+</p>
 
-**An adventure in every chat.**
+<p align="center"><strong>An adventure in every chat.</strong></p>
+
+<p align="center">
+  <img src="docs/images/animessenger-main.png" alt="AniMessenger desktop interface showing a local conversation with 2B" width="1100">
+</p>
 
 AniMessenger is a mobile-first, local character messenger powered by:
 

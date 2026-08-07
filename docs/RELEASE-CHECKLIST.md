@@ -9,7 +9,7 @@ This checklist prepares a public repository without exposing the creator's local
 - [x] Add a repeatable `pnpm release:audit` check for private paths and common secrets.
 - [x] Run the release audit and full test/build check from a clean copy.
 - [x] Inspect the current pre-branding public candidate (81 files; no private runtime paths included).
-- [x] Inspect the final proposed file list (101 public files; private runtime data and generated output excluded) before creating a remote repository.
+- [x] Inspect the final proposed file list (102 public files; private runtime data and generated output excluded) before creating a remote repository.
 
 ## First-run experience
 
