@@ -449,7 +449,7 @@ function Settings({ initial, onClose, onSaved, onOpenSetup }: SettingsProps) {
       <form ref={cardRef} className="settings-card" onSubmit={save} onClick={(event) => event.stopPropagation()} tabIndex={-1}>
         <button type="button" className="profile-close" onClick={requestClose} aria-label="Close settings">×</button>
         <div className="settings-brand">
-          <div className="brand-lockup"><img src="/animessenger-logo.svg?v=2" alt="ANIMESSENGER" /></div>
+          <div className="brand-lockup"><img src="/animessenger-logo.svg?v=3" alt="ANIMESSENGER" /></div>
           <span id="settings-title">Settings</span>
         </div>
         <p className="eyebrow">Local connections</p>
@@ -2125,7 +2125,7 @@ export function CharaSmsApp() {
         <aside className="inbox-panel">
           <header className="inbox-header">
             <div>
-              <div className="brand-lockup"><img src="/animessenger-logo.svg?v=2" alt="ANIMESSENGER" /></div>
+              <div className="brand-lockup"><img src="/animessenger-logo.svg?v=3" alt="ANIMESSENGER" /></div>
               <p>An adventure in every chat</p>
             </div>
           </header>
