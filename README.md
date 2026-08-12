@@ -8,7 +8,7 @@
   <img src="docs/images/animessenger-main-v3.png" alt="AniMessenger desktop interface showing a local conversation with 2B" width="1100">
 </p>
 
-AniMessenger is a mobile-first, local character messenger powered by:
+AniMessenger is a responsively designed, local character messenger powered by:
 
 - [AnimaDex](https://github.com/zetaneko/AnimaDex) for searchable character identity and visual tags;
 - [Ollama](https://ollama.com/) for character profiles, conversation, memory, mannerisms, and photo reactions;
@@ -16,7 +16,7 @@ AniMessenger is a mobile-first, local character messenger powered by:
 
 Chats, profiles, memories, relationship state, and settings stay in local files on your computer. No hosted language model or hosted conversation database is required. AniMessenger uses the public AnimaDex catalogue by default, so a local AnimaDex installation is optional.
 
-Experimental guest chats allow one researched character to join an existing conversation. Private chats remain separate storylines: the guest sees only the shared encounter, while each character retains their own profile, voice, relationship, and earlier private history. Turn-taking follows direct address and conversational focus, with restrained character-driven interjections. Both participants can inspect an attached photo, send separate solo images, and carry meaningful relationship progress plus a bounded shared-event memory back into their private chat.
+Guest chats allow one researched character to join an existing conversation. Private chats remain separate storylines: the guest sees only the shared encounter, while each character retains their own profile, voice, relationship, and earlier private history. Turn-taking follows direct address and conversational focus, with restrained character-driven interjections. Both participants can inspect an attached photo, send separate solo images, and carry meaningful relationship progress plus a bounded shared-event memory back into their private chat.
 
 > AniMessenger is currently a pre-release project. Back up the `data/` folder before testing major changes.
 
