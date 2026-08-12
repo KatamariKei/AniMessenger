@@ -37,7 +37,7 @@ const rhetoricFamilies = [
   },
   {
     name: "conditional warning or challenge ending",
-    pattern: /\b(?:just\s+don['â€™]t|make sure (?:you|that)|be careful|don['â€™]t (?:act|expect|get|come|think))\b/i,
+    pattern: /\b(?:just\s+don['’]t|make sure (?:you|that)|be careful|don['’]t (?:act|expect|get|come|think))\b/i,
   },
   {
     name: "danger, fire, light, or shadow metaphor",

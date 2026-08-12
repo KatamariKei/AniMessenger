@@ -9,6 +9,8 @@ const photoContext = [
 test("recognizes direct photo requests", () => {
   assert.equal(isExplicitPhotoRequest("Send me another pic please"), true);
   assert.equal(isExplicitPhotoRequest("I want to see a picture of what you're doing"), true);
+  assert.equal(isExplicitPhotoRequest("Both of you send pictures."), true);
+  assert.equal(isExplicitPhotoRequest("Could you two share selfies?"), true);
 });
 
 test("recognizes natural follow-up requests in an active photo context", () => {

@@ -2,11 +2,13 @@ import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { checkAnimaDex, searchCharacters } from "./animadex.mjs";
-import { checkComfy, diagnoseComfy, fetchComfyImage, generationStatus, queueCharacterImage } from "./comfy.mjs";
+import { checkComfy, diagnoseComfy, fetchComfyImage, generationStatus, listComfyDiffusionModels, queueCharacterImage } from "./comfy.mjs";
 import { recoverClientTurn } from "./chat-recovery.mjs";
 import { dataDir, readConfig, rootDir, writeConfig } from "./config.mjs";
 import { applyDisplayName } from "./display-name.mjs";
+import { appendCameoMessage, cameoInterjectionEligible, cameoPromptContext, GUEST_CAMEO_VERSION, normalizeCameoState, resumeCameoSession, routeCameoSpeakers, summarizeCameoEncounter, threadForCameoSpeaker } from "./guest-cameo.mjs";
 import { inferOutfitCorrection, inferSceneCue, portraitExpression, portraitWardrobe } from "./identity.mjs";
+import { loadImageJobEntries, saveImageJobEntries } from "./image-job-store.mjs";
 import { findRetryableImageMessage, replaceRetriedImage, retryPromptOverrides } from "./image-retry.mjs";
 import { buildCharacterProfile, chatAsCharacter, checkOllama, enforceAdultCharacterProfile, extractHistoricalMemories, generateProactiveOutreach, generateReactionFollowup, listOllamaModelOptions } from "./ollama.mjs";
 import { forgetMemory, mergeMemories } from "./memory.mjs";
@@ -24,8 +26,13 @@ import { cancelImagePackInstall, detectComfyModelsDirectories, imagePackInstallS
 const port = Number(process.env.PORT || 5174);
 const host = process.env.HOST || "127.0.0.1";
 const serveDist = process.argv.includes("--serve-dist");
-const imageJobs = new Map();
+const imageJobs = new Map(await loadImageJobEntries());
 const reactionResponseJobs = new Set();
+
+async function rememberImageJob(promptId, job) {
+  imageJobs.set(promptId, { ...job, updatedAt: new Date().toISOString() });
+  await saveImageJobEntries(imageJobs.entries());
+}
 
 function generationMetadata(job, currentConfig) {
   return {
@@ -91,6 +98,10 @@ function nowMessage(from, text, extra = {}) {
   };
 }
 
+function characterDisplayNameForServer(character) {
+  return String(character?.displayName || character?.name || "Guest").replace(/\s+/g, " ").trim().slice(0, 100);
+}
+
 function mergeScene(existing, update) {
   const next = { ...existing };
   for (const key of ["location", "activity", "outfit", "expression", "lighting", "presence"]) {
@@ -133,7 +144,7 @@ async function queueAvatarJob(config, thread) {
       negative: "full body, three-quarter body, waist-up shot, medium shot, upper-body composition, distant subject, small face, excessive background, visible hands, cropped head, face out of frame, extreme angle, multiple panels, statue, sculpture, marble bust, pedestal, mannequin, severed torso, abrupt chest cutoff, exaggerated expression, screaming, crying, distorted face, white background, bright background, pure black background",
     },
   );
-  imageJobs.set(job.promptId, {
+  await rememberImageJob(job.promptId, {
     kind: "avatar",
     characterId: thread.id,
     appended: false,
@@ -158,7 +169,7 @@ async function completeImageJob(config, promptId, status) {
       proactive: { ...normalizeProactiveState(thread.proactive), pending: false },
       messages: [...thread.messages, message],
     });
-    imageJobs.set(promptId, { ...job, appended: true });
+    await rememberImageJob(promptId, { ...job, appended: true });
     return saved;
   }
   if (status.status !== "complete") return null;
@@ -167,17 +178,18 @@ async function completeImageJob(config, promptId, status) {
       ...thread,
       character: { ...thread.character, avatarUrl: status.imageUrl },
     });
-    imageJobs.set(promptId, { ...job, appended: true });
+    await rememberImageJob(promptId, { ...job, appended: true });
     return saved;
   }
   if (job.kind === "retry") {
     const saved = await saveThread(replaceRetriedImage(thread, job.messageId, status.imageUrl, job.generation));
-    imageJobs.set(promptId, { ...job, appended: true });
+    await rememberImageJob(promptId, { ...job, appended: true });
     return saved;
   }
   const message = nowMessage("character", job.caption || "", {
     image: status.imageUrl,
     generated: true,
+    ...(job.speakerId ? { speakerId: job.speakerId } : {}),
     ...(job.kind === "proactive" ? { proactive: true } : {}),
     ...(job.kind === "proactive" && job.proactiveIntent ? { proactiveIntent: job.proactiveIntent } : {}),
     ...(job.kind === "proactive" && job.proactiveTopicKey ? { proactiveTopicKey: job.proactiveTopicKey } : {}),
@@ -192,7 +204,7 @@ async function completeImageJob(config, promptId, status) {
     } : {}),
     messages: [...thread.messages, message],
   });
-  imageJobs.set(promptId, { ...job, appended: true });
+  await rememberImageJob(promptId, { ...job, appended: true });
   return saved;
 }
 
@@ -222,6 +234,7 @@ async function checkProactiveOutreach(config, activeCharacterId) {
       deliveryEnd: config.proactiveDeliveryEnd,
     };
     const due = threads
+      .filter((thread) => !normalizeCameoState(thread.cameo, thread.character?.id)?.activeGuest)
       .filter((thread) => canProactivelyReachOut(thread, proactiveContext, now))
       .sort((a, b) => proactiveCandidateScore(b, now) - proactiveCandidateScore(a, now));
     const dueCandidate = due[0];
@@ -265,7 +278,7 @@ async function checkProactiveOutreach(config, activeCharacterId) {
             proactive,
             photoCadence: resetPhotoCadence(candidate.relationship),
           });
-          imageJobs.set(job.promptId, {
+          await rememberImageJob(job.promptId, {
             kind: "proactive",
             characterId: candidate.id,
             appended: false,
@@ -322,6 +335,10 @@ async function handleApi(request, response, url) {
   if (request.method === "POST" && url.pathname === "/api/comfy/diagnostics") {
     const candidate = { ...config, ...(await jsonBody(request)) };
     sendJson(response, 200, await diagnoseComfy(candidate));
+    return true;
+  }
+  if (request.method === "GET" && url.pathname === "/api/comfy/models") {
+    sendJson(response, 200, await listComfyDiffusionModels(config));
     return true;
   }
   if (request.method === "POST" && url.pathname === "/api/image-assets/detect") {
@@ -415,6 +432,83 @@ async function handleApi(request, response, url) {
     sendJson(response, 200, { thread: await saveThread({ ...thread, unreadCount: 0 }) });
     return true;
   }
+  const guestMatch = /^\/api\/threads\/([^/]+)\/guest$/.exec(url.pathname);
+  if (request.method === "POST" && guestMatch) {
+    const id = decodeURIComponent(guestMatch[1]);
+    const body = await jsonBody(request);
+    const thread = await loadThread(id);
+    if (!thread?.profile) throw new Error("Open a ready character conversation before inviting a guest.");
+    const guestId = String(body.guestCharacterId || "").trim();
+    if (!guestId || guestId === thread.character.id) throw new Error("Choose another researched character as the guest.");
+    const [guestThread, guestProfile] = await Promise.all([loadThread(guestId), loadProfile(guestId)]);
+    if (!guestThread?.character || !guestProfile) throw new Error("That guest needs a completed local profile first.");
+    const currentCameo = normalizeCameoState(thread.cameo, thread.character.id);
+    if (currentCameo?.activeGuest) throw new Error("End the current guest encounter before inviting someone else.");
+    const joined = nowMessage("system", characterDisplayNameForServer(guestThread.character) + " joined this chat.");
+    const activeGuest = {
+      characterId: guestThread.character.id,
+      profileId: guestProfile.id || guestThread.character.id,
+      name: characterDisplayNameForServer(guestThread.character),
+      joinedAtMessageId: joined.id,
+      joinedAt: joined.time,
+    };
+    const encounter = {
+      id: joined.id,
+      characterId: activeGuest.characterId,
+      profileId: activeGuest.profileId,
+      name: activeGuest.name,
+      joinedAtMessageId: joined.id,
+      leftAtMessageId: "",
+      summary: "",
+    };
+    const saved = await saveThread({
+      ...thread,
+      messages: [...thread.messages, joined],
+      cameo: {
+        version: GUEST_CAMEO_VERSION,
+        hostCharacterId: thread.character.id,
+        activeGuest,
+        encounters: [...(currentCameo?.encounters || []), encounter],
+      },
+    });
+    sendJson(response, 200, { thread: saved, guest: guestThread.character });
+    return true;
+  }
+  if (request.method === "DELETE" && guestMatch) {
+    const id = decodeURIComponent(guestMatch[1]);
+    const thread = await loadThread(id);
+    if (!thread) throw new Error("That conversation no longer exists.");
+    const cameo = normalizeCameoState(thread.cameo, thread.character.id);
+    if (!cameo?.activeGuest) {
+      sendJson(response, 200, { thread });
+      return true;
+    }
+    const left = nowMessage("system", cameo.activeGuest.name + " left this chat.");
+    const summary = summarizeCameoEncounter(thread, cameo.activeGuest);
+    const encounters = cameo.encounters.map((encounter) => encounter.joinedAtMessageId === cameo.activeGuest.joinedAtMessageId
+      ? { ...encounter, leftAtMessageId: left.id, summary }
+      : encounter);
+    const saved = await saveThread({
+      ...thread,
+      messages: [...thread.messages, left],
+      memories: mergeMemories(thread.memories, [{ kind: "shared_event", text: summary, importance: 3 }], left.id),
+      cameo: { ...cameo, activeGuest: null, encounters },
+    });
+    let relatedThread;
+    try {
+      const guestThread = await loadThread(cameo.activeGuest.characterId);
+      if (guestThread) {
+        relatedThread = await saveThread({
+          ...guestThread,
+          memories: mergeMemories(guestThread.memories, [{ kind: "shared_event", text: summary, importance: 3 }], left.id),
+        });
+      }
+    } catch (error) {
+      console.warn("Guest encounter carryover skipped:", error instanceof Error ? error.message : error);
+    }
+    sendJson(response, 200, { thread: saved, ...(relatedThread ? { relatedThread } : {}) });
+    return true;
+  }
   const reactionMatch = /^\/api\/threads\/([^/]+)\/messages\/([^/]+)\/reaction$/.exec(url.pathname);
   if (request.method === "POST" && reactionMatch) {
     const id = decodeURIComponent(reactionMatch[1]);
@@ -459,13 +553,22 @@ async function handleApi(request, response, url) {
     const thread = await loadThread(id);
     if (!thread?.profile) throw new Error("That character profile is not ready yet.");
     const message = findRetryableImageMessage(thread, messageId);
+    let imageThread = thread;
+    if (message.speakerId && message.speakerId !== thread.character.id) {
+      const [speakerThread, speakerProfile] = await Promise.all([
+        loadThread(message.speakerId),
+        loadProfile(message.speakerId),
+      ]);
+      if (!speakerThread?.character || !speakerProfile) throw new Error("That guest character profile is no longer available.");
+      imageThread = { ...thread, character: speakerThread.character, profile: speakerProfile };
+    }
     const job = await queueCharacterImage(
       config,
-      thread,
+      imageThread,
       message.imageContext || "a candid message photo",
-      retryPromptOverrides(message, thread.character, config, thread.profile, thread.scene?.outfit),
+      retryPromptOverrides(message, imageThread.character, config, imageThread.profile, imageThread.scene?.outfit),
     );
-    imageJobs.set(job.promptId, {
+    await rememberImageJob(job.promptId, {
       kind: "retry",
       characterId: thread.id,
       messageId,
@@ -595,6 +698,144 @@ async function handleApi(request, response, url) {
     if (existingIndex < 0) await saveThread(working);
     let imageBase64;
     if (body.image) imageBase64 = (await readLocalAsset(body.image)).toString("base64");
+    const cameo = normalizeCameoState(working.cameo, working.character.id);
+    if (cameo?.activeGuest) {
+      const [guestThread, guestProfile] = await Promise.all([
+        loadThread(cameo.activeGuest.characterId),
+        loadProfile(cameo.activeGuest.profileId || cameo.activeGuest.characterId),
+      ]);
+      if (!guestThread?.character || !guestProfile) throw new Error("The guest's local profile is unavailable. End the guest encounter and invite them again.");
+      let session = resumeCameoSession({ hostThread: working, guestCharacter: guestThread.character, guestProfile, guestThread });
+      const speakerIds = routeCameoSpeakers({
+        text: body.image ? "both of you" : String(body.text || ""),
+        host: working.character,
+        guest: guestThread.character,
+        lastSpeakerId: session.lastSpeakerId,
+        focusSpeakerId: body.focusSpeakerId,
+      });
+      const initialSpeakerCount = speakerIds.length;
+      const allowInterjection = initialSpeakerCount === 1 && cameoInterjectionEligible({
+        text: String(body.text || ""),
+        host: working.character,
+        guest: guestThread.character,
+        messages: session.messages,
+        image: Boolean(body.image),
+      });
+      const replies = [];
+      const photoCandidates = [];
+      const speakerErrors = [];
+      let hostRelationship = working.relationship;
+      let hostRelationshipMomentum = working.relationshipMomentum;
+      let hostMemories = working.memories;
+      let nextGuestThread = guestThread;
+      let guestParticipated = false;
+      for (let speakerIndex = 0; speakerIndex < speakerIds.length; speakerIndex += 1) {
+        const speakerId = speakerIds[speakerIndex];
+        const isInterjection = initialSpeakerCount === 1 && speakerIndex > 0;
+        try {
+          const speakerThread = threadForCameoSpeaker(session, speakerId);
+          const contextThread = body.image
+            ? { ...speakerThread, messages: speakerThread.messages.filter((message) => message.id !== userMessage.id) }
+            : speakerThread;
+          const result = await chatAsCharacter(config, contextThread, String(body.text || ""), imageBase64 || null, {
+            currentTurnAlreadyInHistory: !body.image,
+            extraSystemContext: cameoPromptContext(session, speakerId, {
+              groupTurn: initialSpeakerCount > 1 || isInterjection,
+              allowInterjection: allowInterjection && speakerIndex === 0,
+              interjection: isInterjection,
+            }),
+            photoOpportunity: false,
+          });
+          const reply = nowMessage("character", result.reply, {
+            speakerId,
+            ...(isInterjection ? { cameoInterjection: true } : {}),
+          });
+          replies.push(reply);
+          photoCandidates.push({ speakerId, result });
+          session = appendCameoMessage(session, reply);
+          if (speakerId === working.character.id) {
+            const progression = applyRelationshipDelta(hostRelationship, result.relationshipDelta, hostRelationshipMomentum);
+            hostRelationship = progression.relationship;
+            hostRelationshipMomentum = progression.relationshipMomentum;
+            hostMemories = mergeMemories(hostMemories, result.memoryCandidates, reply.id);
+          } else {
+            guestParticipated = true;
+            const progression = applyRelationshipDelta(nextGuestThread.relationship, result.relationshipDelta, nextGuestThread.relationshipMomentum);
+            nextGuestThread = {
+              ...nextGuestThread,
+              relationship: progression.relationship,
+              relationshipMomentum: progression.relationshipMomentum,
+              memories: mergeMemories(nextGuestThread.memories, result.memoryCandidates, reply.id),
+            };
+            session.guest.relationship = progression.relationship;
+          }
+          if (allowInterjection && speakerIndex === 0 && result.otherShouldRespond) {
+            const otherSpeakerId = speakerId === working.character.id
+              ? guestThread.character.id
+              : working.character.id;
+            if (!speakerIds.includes(otherSpeakerId)) speakerIds.push(otherSpeakerId);
+          }
+        } catch (error) {
+          speakerErrors.push({ speakerId, message: error instanceof Error ? error.message : "The character could not reply." });
+        }
+      }
+      if (!replies.length) throw new Error(speakerErrors[0]?.message || "Neither character could reply this time.");
+      const latestThread = await loadThread(working.id);
+      const latestCameo = normalizeCameoState(latestThread?.cameo, working.character.id);
+      if (!latestCameo?.activeGuest || latestCameo.activeGuest.characterId !== cameo.activeGuest.characterId) {
+        sendJson(response, 200, { thread: latestThread || working, replies: [], cancelled: true });
+        return true;
+      }
+      thread = await saveThread({
+        ...latestThread,
+        messages: [...latestThread.messages, ...replies],
+        relationship: hostRelationship,
+        relationshipMomentum: hostRelationshipMomentum,
+        memories: hostMemories,
+      });
+      let relatedThread;
+      if (guestParticipated) relatedThread = await saveThread(nextGuestThread);
+      const explicitlyRequestedPhoto = !body.image && isExplicitPhotoRequest(String(body.text || ""), thread.messages);
+      const queuedImageJobs = [];
+      let imageWarning;
+      if (explicitlyRequestedPhoto && (!config.comfyWorkflowFile || !config.comfyMappingFile)) {
+        imageWarning = "Image generation is not configured yet. Open Settings and complete Image setup.";
+      }
+      if (explicitlyRequestedPhoto && config.comfyWorkflowFile && config.comfyMappingFile) {
+        for (const candidate of photoCandidates) {
+          try {
+            const imageThread = threadForCameoSpeaker(session, candidate.speakerId);
+            const imageContext = candidate.result.photoBrief || "a candid message photo showing what this character is doing right now";
+            const imageJob = await queueCharacterImage(config, imageThread, imageContext);
+            await rememberImageJob(imageJob.promptId, {
+              characterId: thread.id,
+              speakerId: candidate.speakerId,
+              appended: false,
+              caption: candidate.result.photoMessage || null,
+              imageContext,
+              generation: generationMetadata(imageJob, config),
+            });
+            queuedImageJobs.push({ promptId: imageJob.promptId });
+          } catch (error) {
+            imageWarning = error instanceof Error ? error.message : "One of the pictures could not be started.";
+          }
+        }
+      }
+      sendJson(response, 200, {
+        thread,
+        reply: replies.at(-1),
+        replies,
+        ...(relatedThread ? { relatedThreads: [relatedThread] } : {}),
+        ...(speakerErrors.length ? {
+          replyWarning: speakerErrors.map((item) => (item.speakerId === working.character.id
+            ? characterDisplayNameForServer(working.character)
+            : cameo.activeGuest.name) + " could not reply this time.").join(" "),
+        } : {}),
+        ...(queuedImageJobs.length ? { imageJobs: queuedImageJobs } : {}),
+        ...(imageWarning ? { imageWarning } : {}),
+      });
+      return true;
+    }
     // `working` already contains the new user turn for persistence. Give Ollama the
     // prior thread and append the current turn exactly once inside chatAsCharacter.
     const presenceCue = presenceSceneCue(priorThread, String(body.text || ""));
@@ -644,7 +885,7 @@ async function handleApi(request, response, url) {
         imageJob = await queueCharacterImage(config, thread, correctedPhotoBrief, outfitCorrection?.excluded?.length
           ? { negative: outfitCorrection.excluded.join(", ") }
           : {});
-        imageJobs.set(imageJob.promptId, {
+        await rememberImageJob(imageJob.promptId, {
           characterId: thread.id,
           appended: false,
           caption: result.photoMessage || null,
@@ -668,7 +909,7 @@ async function handleApi(request, response, url) {
     const thread = await loadThread(body.characterId);
     if (!thread?.profile) throw new Error("Build the character profile before asking for a picture.");
     const job = await queueCharacterImage(config, thread, String(body.brief || ""));
-    imageJobs.set(job.promptId, {
+    await rememberImageJob(job.promptId, {
       characterId: thread.id,
       appended: false,
       caption: null,
@@ -745,5 +986,5 @@ const server = http.createServer(async (request, response) => {
 });
 
 server.listen(port, host, () => {
-  console.log("CharaSMS local service listening on http://" + host + ":" + port);
+  console.log("AniMessenger local service listening on http://" + host + ":" + port);
 });

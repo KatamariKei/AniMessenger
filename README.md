@@ -16,9 +16,11 @@ AniMessenger is a mobile-first, local character messenger powered by:
 
 Chats, profiles, memories, relationship state, and settings stay in local files on your computer. No hosted language model or hosted conversation database is required. AniMessenger uses the public AnimaDex catalogue by default, so a local AnimaDex installation is optional.
 
+Experimental guest chats allow one researched character to join an existing conversation. Private chats remain separate storylines: the guest sees only the shared encounter, while each character retains their own profile, voice, relationship, and earlier private history. Turn-taking follows direct address and conversational focus, with restrained character-driven interjections. Both participants can inspect an attached photo, send separate solo images, and carry meaningful relationship progress plus a bounded shared-event memory back into their private chat.
+
 > AniMessenger is currently a pre-release project. Back up the `data/` folder before testing major changes.
 
-AniMessenger is available under the [MIT License](LICENSE). Before contributing or reporting a problem, review the [contribution guide](CONTRIBUTING.md), [privacy notes](PRIVACY.md), [content notice](CONTENT-NOTICE.md), and [security policy](SECURITY.md).
+AniMessenger is available under the [MIT License](LICENSE). See the [changelog](CHANGELOG.md) for the current update. Before contributing or reporting a problem, review the [contribution guide](CONTRIBUTING.md), [privacy notes](PRIVACY.md), [content notice](CONTENT-NOTICE.md), and [security policy](SECURITY.md).
 
 ## Requirements
 
@@ -68,6 +70,22 @@ See [Ollama model setup](docs/OLLAMA-SETUP.md) for copy-and-paste commands, veri
 5. Follow the guided setup to choose Ollama models and either configure images, use your own workflow, or add images later.
 6. For the recommended image setup, AniMessenger can locate the ComfyUI `models` folder, check the five required files, and download only the missing ones after you review the provider pages and terms.
 7. Search for a character and start a chat. The first conversation builds and caches a local character profile, so it takes longer than later replies.
+
+### Git-free Windows package (experimental)
+
+Run `npm run package:windows` to prepare an unpacked Windows test package under `release/AniMessenger-Windows`. Its PowerShell installer creates shortcuts and keeps private data under `%LOCALAPPDATA%\AniMessenger`, separate from replaceable application files. The current foundation still requires Node.js 22+, but it does not require Git or pnpm on the destination PC. See [Windows installer foundation](docs/WINDOWS-INSTALLER.md).
+
+## Updating AniMessenger
+
+Existing source-clone users can update without replacing local chats or settings:
+
+    git pull --ff-only
+    pnpm install --frozen-lockfile
+    pnpm check
+
+Then launch AniMessenger normally with `pnpm dev` or `pnpm dev:lan`. Private runtime files are excluded from Git, and newly introduced saved-data fields are normalized backward-compatibly.
+
+If you have edited tracked application files or bundled workflows, commit or copy those changes before pulling. Store custom ComfyUI workflows outside the bundled workflow filenames so an update cannot overwrite them. See [Updating AniMessenger](docs/UPDATING.md) for clone, packaged-install, backup, and troubleshooting guidance.
 
 Default service addresses:
 
@@ -161,7 +179,7 @@ The identity lock stays stable while contextual outfits can replace the default 
 
 ## Local files and privacy
 
-These paths are deliberately excluded from the future public repository:
+These paths are deliberately excluded from the public repository:
 
 - `charasms.config.json` — local models, service addresses, prompts, and machine paths;
 - `data/profiles/` — cached character dossiers;
@@ -182,5 +200,6 @@ Before publishing or packaging, run the release safety check. It inspects the pr
     pnpm test            # unit tests
     pnpm check           # typecheck, tests, and production build
     pnpm release:audit   # public-file privacy and secret scan
+    npm run package:windows # build the experimental Git-free Windows package
 
-The remaining work toward a first public release is tracked in `docs/RELEASE-CHECKLIST.md`.
+Current pre-release milestones are tracked in `docs/RELEASE-CHECKLIST.md`.

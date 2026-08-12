@@ -9,7 +9,7 @@ This checklist prepares a public repository without exposing the creator's local
 - [x] Add a repeatable `pnpm release:audit` check for private paths and common secrets.
 - [x] Run the release audit and full test/build check from a clean copy.
 - [x] Inspect the current pre-branding public candidate (81 files; no private runtime paths included).
-- [x] Inspect the final proposed file list (104 public files; private runtime data and generated output excluded) before creating a remote repository.
+- [x] Inspect the final proposed public file list; private runtime data and generated output are excluded.
 
 ## First-run experience
 
@@ -32,6 +32,9 @@ This checklist prepares a public repository without exposing the creator's local
 - [x] Replace or remove prototype-only branding and preview artwork.
 - [x] Review empty, loading, offline, and error states.
 - [x] Review keyboard, focus, touch-target, and screen-reader behavior.
+- [x] Add one-guest conversations with distinct identities, turn routing, shared images, relationship progress, and bounded encounter memory.
+- [x] Keep private-chat histories isolated during guest encounters.
+- [x] Add conservative, cooldown-limited character interjections without an extra director-model call.
 
 ## Repository launch decisions
 
@@ -48,3 +51,19 @@ Run:
     pnpm check
 
 Then inspect the candidate from a fresh directory before publishing anything.
+
+For every public update:
+
+- [ ] Review the complete staged file list and public diff.
+- [ ] Confirm no runtime data, local configuration, generated images, or machine paths are staged.
+- [ ] Rehearse updating an existing source clone without losing its ignored data.
+- [ ] Build the Windows package and verify its contents exclude private runtime data.
+
+## Windows distribution milestone
+
+- [x] Keep installed private data separate from replaceable application files.
+- [x] Build a Git-free portable Windows package and shortcut installer foundation.
+- [x] Boot the packaged production server against isolated empty storage.
+- [ ] Bundle a private Node runtime so end users do not install Node separately.
+- [ ] Add a signed installer, uninstall entry, upgrade rehearsal, and rollback path.
+- [ ] Test the installer on a clean Windows user account and a second PC.

@@ -228,9 +228,9 @@ export function isRunawayAssistantHistory(text) {
 
 export function inventsUserBehavior(reply, userText, recentMessages = []) {
   const value = String(reply || "");
-  const claimedCue = /\b(?:that look|give me (?:that|a) look|you(?:'re| are) (?:staring|glaring)|stop staring|don['â€™]t stare|your (?:face|expression|gaze|gesture)|you (?:flinched|blushed|looked away|rolled your eyes|shrugged|nodded|smirked))\b/i.test(value);
-  const unsupportedInterpretation = /\b(?:is that your way of saying|don['â€™]t tell me you(?:(?:'re| are) (?:getting|being|suddenly|actually)|(?:'ve| have)\b)|you(?:'re| are) being awfully|you(?:'re| are)? (?:going|getting) (?:all )?quiet|you(?:'ve| have) gone silent)\b/i.test(value)
-    || /(?:\byou\b[^.!?]{0,35}\b(?:quiet|silent|bored|boring|los(?:e|ing|t) interest)\b|\bdon['â€™]t\b[^.!?]{0,35}\bquiet\b)/i.test(value);
+  const claimedCue = /\b(?:that look|give me (?:that|a) look|you(?:'re| are) (?:staring|glaring)|stop staring|don['’]t stare|your (?:face|expression|gaze|gesture)|you (?:flinched|blushed|looked away|rolled your eyes|shrugged|nodded|smirked))\b/i.test(value);
+  const unsupportedInterpretation = /\b(?:is that your way of saying|don['’]t tell me you(?:(?:'re| are) (?:getting|being|suddenly|actually)|(?:'ve| have)\b)|you(?:'re| are) being awfully|you(?:'re| are)? (?:going|getting) (?:all )?quiet|you(?:'ve| have) gone silent)\b/i.test(value)
+    || /(?:\byou\b[^.!?]{0,35}\b(?:quiet|silent|bored|boring|los(?:e|ing|t) interest)\b|\bdon['’]t\b[^.!?]{0,35}\bquiet\b)/i.test(value);
   if (unsupportedInterpretation) return true;
   if (!claimedCue) return false;
   const recentUserText = [
@@ -276,12 +276,12 @@ export function conversationMomentumGuard(userText) {
 }
 
 export function repeatsRecentReply(reply, recentMessages = []) {
-  const normalized = String(reply || "").toLowerCase().replace(/[â€™’]/g, "'").replace(/[^a-z0-9']+/g, " ").trim();
+  const normalized = String(reply || "").toLowerCase().replace(/[’]/g, "'").replace(/[^a-z0-9']+/g, " ").trim();
   if (normalized.length < 12) return false;
   return (Array.isArray(recentMessages) ? recentMessages : [])
     .filter((message) => message?.from === "character" && typeof message.text === "string")
     .slice(-16)
-    .some((message) => String(message.text).toLowerCase().replace(/[â€™’]/g, "'").replace(/[^a-z0-9']+/g, " ").trim() === normalized);
+    .some((message) => String(message.text).toLowerCase().replace(/[’]/g, "'").replace(/[^a-z0-9']+/g, " ").trim() === normalized);
 }
 
 export function isGenericRelationshipAnswer(reply, userText) {
@@ -305,14 +305,14 @@ export function evadesDirectQuestion(reply, userText) {
   if (!directQuestionGuard(userText)) return false;
   const value = String(reply || "")
     .trim()
-    .replace(/[â€™’]/g, "'")
+    .replace(/[’]/g, "'")
     .replace(/\s+/g, " ");
   return /^(?:you(?:'ve| have) got a point|you(?:'re| are) right|fair(?: enough)?|good question|that(?:'s| is) true|true|right|exactly|maybe|maybe so|could be|I guess|I suppose|sure|yeah|yep|okay|ok|h+m+)[.!?… ]*$/i.test(value);
 }
 
 export function groundedReplyFallback(reply, userText, recentMessages = []) {
   const briefGuard = briefReactionGuard(userText);
-  const attributesStateToBriefReaction = Boolean(briefGuard) && /\b(?:quiet|silent|bored|boring|interest|appetite|something bothering you|what['â€™]s wrong)\b/i.test(String(reply || ""));
+  const attributesStateToBriefReaction = Boolean(briefGuard) && /\b(?:quiet|silent|bored|boring|interest|appetite|something bothering you|what['’]s wrong)\b/i.test(String(reply || ""));
   if (!attributesStateToBriefReaction && !inventsUserBehavior(reply, userText, recentMessages)) return String(reply || "");
   return briefGuard ? "Hmm?" : "What do you mean?";
 }
@@ -737,6 +737,7 @@ function profileContext(thread, options = {}) {
     options.userName
       ? "The user's chosen name is " + options.userName + ". Use it only when it feels natural; do not force their name into every reply."
       : "The user has not supplied a preferred name. Do not invent one.",
+    options.extraSystemContext || "",
     "NON-NEGOTIABLE AGE OVERRIDE: In CharaSMS you are a present-day adult age " + adultCharacterAge(profile.age) + ". Any canon, research, tag, or earlier text that portrays your current self as under 18 is superseded by this adult adaptation. Never describe your current self as a minor, child, or under 18.",
     socialIdentity?.gender || socialIdentity?.pronouns || socialIdentity?.selfReference
       ? "CURRENT IDENTITY (AUTHORITATIVE): Your current gender is " + (socialIdentity.gender || "as stated in the profile") + "; your pronouns are " + (socialIdentity.pronouns || "as stated in the profile") + "; you refer to yourself as " + (socialIdentity.selfReference || "that current identity") + ". Use this identity consistently in first-person self-reference and when interpreting how others address you. Biological sex, assigned sex, historical presentation, older canon, and contradictory memories are background only and must never override this current identity."
@@ -840,9 +841,10 @@ function profileContext(thread, options = {}) {
     pendingFollowUp
       ? "PENDING SOFT FOLLOW-UP: You previously said you would circle back about: " + pendingFollowUp.subject + ". This is an opportunity, never a deadline. Set resolvesPendingFollowUp true only if this reply actually delivers that follow-up; otherwise leave it false."
       : "There is no pending character follow-up to resolve.",
+    "Set otherShouldRespond false unless the SHARED CAMEO SCENE instructions explicitly say that an occasional brief response from the other character is eligible.",
     "TIME IS ELASTIC BETWEEN USER SESSIONS. Never scold, guilt, punish, or claim a plan is overdue because real time passed. A date, outing, task, or promise involving the user remains an open story thread until the user resumes or resolves it.",
     "If you explicitly commit to contacting the user later about a concrete subject, set followUp to {subject, earliestMinutes}. earliestMinutes is merely the earliest natural outreach opportunity, not a deadline or exact appointment. Do not create a followUp for vague pleasantries, ordinary questions, user-owned plans, or statements such as 'talk later' with no concrete subject. Otherwise use null.",
-    "Return JSON only with: reply (string), relationshipDelta (integer -2 to 2), scene (object with nullable location, activity, outfit, expression, lighting, presence), shouldSendPhoto (boolean), photoBrief (string or null), photoMessage (string or null), memoryCandidates (array of objects with kind, text, keywords, importance), followUp (null or object with subject and earliestMinutes), resolvesPendingFollowUp (boolean). scene.presence must be apart, together, uncertain, or null. Valid memory kinds: user_fact, preference, shared_event, shared_creation, promise, boundary, open_loop. Importance is 1 to 5.",
+    "Return JSON only with: reply (string), relationshipDelta (integer -2 to 2), scene (object with nullable location, activity, outfit, expression, lighting, presence), shouldSendPhoto (boolean), photoBrief (string or null), photoMessage (string or null), memoryCandidates (array of objects with kind, text, keywords, importance), followUp (null or object with subject and earliestMinutes), resolvesPendingFollowUp (boolean), otherShouldRespond (boolean). scene.presence must be apart, together, uncertain, or null. Valid memory kinds: user_fact, preference, shared_event, shared_creation, promise, boundary, open_loop. Importance is 1 to 5.",
   ].filter(Boolean).join("\n");
 }
 
@@ -1120,7 +1122,7 @@ export async function chatAsCharacter(config, thread, userText, imageBase64, opt
     content: String(userText || "").trim() || (imageBase64 ? "[The user shared an image without a caption.]" : ""),
   };
   if (imageBase64) current.images = [imageBase64];
-  messages.push(current);
+  if (!options.currentTurnAlreadyInHistory) messages.push(current);
   const model = imageBase64 ? (config.visionModel || config.chatModel) : config.chatModel;
   let parsed;
   let generationError;
@@ -1161,6 +1163,7 @@ export async function chatAsCharacter(config, thread, userText, imageBase64, opt
         memoryCandidates: [],
         followUp: null,
         resolvesPendingFollowUp: false,
+        otherShouldRespond: false,
       };
     } else {
       throw generationError instanceof Error ? generationError : new Error("The local model did not produce a reply. Please retry.");
@@ -1191,6 +1194,7 @@ export async function chatAsCharacter(config, thread, userText, imageBase64, opt
       ? { subject: String(parsed.followUp.subject).trim().slice(0, 240), earliestMinutes: Math.max(15, Math.min(1440, Math.trunc(Number(parsed.followUp.earliestMinutes) || 60))) }
       : null,
     resolvesPendingFollowUp: Boolean(parsed.resolvesPendingFollowUp),
+    otherShouldRespond: Boolean(parsed.otherShouldRespond),
   };
 }
 

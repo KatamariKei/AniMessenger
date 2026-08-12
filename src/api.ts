@@ -77,6 +77,10 @@ export type SceneState = {
 export type Message = {
   id: string;
   from: "user" | "character" | "system";
+  /** Character speaker for guest cameos. Missing means the thread's host character. */
+  speakerId?: string;
+  /** An occasional second-speaker contribution in a guest chat. */
+  cameoInterjection?: boolean;
   text?: string;
   time: string;
   image?: string;
@@ -146,6 +150,12 @@ export type Thread = {
   summary?: boolean;
   messageCount?: number;
   memoryCount?: number;
+  cameo?: {
+    version: number;
+    hostCharacterId: string;
+    activeGuest: null | { characterId: string; profileId: string; name: string; joinedAtMessageId: string; joinedAt: string };
+    encounters: Array<{ id: string; characterId: string; profileId: string; name: string; joinedAtMessageId: string; leftAtMessageId: string; summary: string }>;
+  };
 };
 
 export type AppConfig = {
@@ -159,6 +169,7 @@ export type AppConfig = {
   comfyUrl: string;
   comfyOutputDir: string;
   comfyModelsDir: string;
+  comfyDiffusionModel: string;
   comfyWorkflowFile: string;
   comfyMappingFile: string;
   globalPositivePrompt: string;
@@ -199,6 +210,12 @@ export type ComfyDiagnostics = {
   status: "ready" | "warning" | "error" | "offline";
   summary: string;
   issues: ComfyDiagnosticIssue[];
+};
+
+export type ComfyModelCatalog = {
+  online: boolean;
+  models: string[];
+  workflowDefault: string;
 };
 
 export type ImagePackAssetStatus = {
@@ -265,6 +282,7 @@ export const api = {
     body: JSON.stringify(config),
   }),
   models: () => request<OllamaModelCatalog>("/api/ollama/models"),
+  comfyModels: () => request<ComfyModelCatalog>("/api/comfy/models"),
   comfyDiagnostics: (config: AppConfig) => request<ComfyDiagnostics>("/api/comfy/diagnostics", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -296,6 +314,14 @@ export const api = {
   }),
   markRead: (characterId: string) => request<{ thread: Thread }>(`/api/threads/${encodeURIComponent(characterId)}/read`, {
     method: "POST",
+  }),
+  inviteGuest: (characterId: string, guestCharacterId: string) => request<{ thread: Thread; guest: AnimaCharacter }>(`/api/threads/${encodeURIComponent(characterId)}/guest`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ guestCharacterId }),
+  }),
+  removeGuest: (characterId: string) => request<{ thread: Thread; relatedThread?: Thread }>(`/api/threads/${encodeURIComponent(characterId)}/guest`, {
+    method: "DELETE",
   }),
   reactToMessage: (characterId: string, messageId: string, reaction: string | null) => request<{ thread: Thread; reactionReply?: Message }>(`/api/threads/${encodeURIComponent(characterId)}/messages/${encodeURIComponent(messageId)}/reaction`, {
     method: "POST",
@@ -330,10 +356,10 @@ export const api = {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ characterId, reset: overrides === null, overrides, currentOutfit, displayName }),
   }),
-  chat: (characterId: string, text: string, image?: string, clientMessageId?: string) => request<{ thread: Thread; reply: Message; imageJob?: { promptId: string }; imageWarning?: string }>("/api/chat", {
+  chat: (characterId: string, text: string, image?: string, clientMessageId?: string, focusSpeakerId?: string) => request<{ thread: Thread; reply?: Message; replies?: Message[]; relatedThreads?: Thread[]; imageJob?: { promptId: string }; imageJobs?: Array<{ promptId: string }>; imageWarning?: string; replyWarning?: string; cancelled?: boolean }>("/api/chat", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ characterId, text, image, clientMessageId }),
+    body: JSON.stringify({ characterId, text, image, clientMessageId, focusSpeakerId }),
   }, 180000),
   upload: (dataUrl: string) => request<{ url: string }>("/api/uploads", {
     method: "POST",

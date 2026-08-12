@@ -9,6 +9,7 @@
   "comfyUrl": "http://127.0.0.1:8188",
   "comfyOutputDir": "",
   "comfyModelsDir": "",
+  "comfyDiffusionModel": "",
   "comfyWorkflowFile": "workflows/anima-recommended-api.json",
   "comfyMappingFile": "workflows/anima-recommended-api.mapping.json",
   "globalPositivePrompt": "masterpiece, best quality, highres, detailed face, detailed eyes, coherent anatomy, clean linework, polished anime illustration",

@@ -21,6 +21,10 @@ With the default configuration, Ollama and ComfyUI use loopback addresses on the
 
 Character search and research queries may reveal the character or series being requested to AnimaDex, AniList, or Wikipedia. AniMessenger does not intentionally send private chat history to those catalogue and research services.
 
+## Guest chats
+
+Private character-chat histories remain separate during a guest encounter. A guest receives the shared conversation only from the point at which they join, not the host character's earlier private transcript. When the encounter ends, AniMessenger may save a short local summary of the shared event to both participating characters so that the encounter can be remembered later.
+
 ## Phone and network access
 
 LAN mode makes the AniMessenger interface reachable on the local network. It currently has no account system or multi-user authentication, so it should only be used on a trusted private network. Do not expose its ports directly to the public internet.

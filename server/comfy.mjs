@@ -12,6 +12,43 @@ export async function checkComfy(config) {
   }
 }
 
+function unetModelsFromObjectInfo(objectInfo) {
+  const choices = objectInfo?.UNETLoader?.input?.required?.unet_name?.[0];
+  return Array.isArray(choices)
+    ? [...new Set(choices.map((value) => String(value || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b))
+    : [];
+}
+
+export function isAnimaDiffusionModel(modelName) {
+  return /anima(?!t)/i.test(String(modelName || ""));
+}
+
+export function selectedDiffusionModel(config, mapping) {
+  return String(config?.comfyDiffusionModel || mapping?.defaults?.model_name || "").trim();
+}
+
+export async function listComfyDiffusionModels(config) {
+  let workflowDefault = "";
+  try {
+    const mapping = await readJson(config.comfyMappingFile, "workflow mapping");
+    workflowDefault = String(mapping?.defaults?.model_name || "").trim();
+  } catch {
+    // Keep model discovery useful while a custom mapping is being corrected.
+  }
+
+  try {
+    const response = await fetch(config.comfyUrl + "/object_info/UNETLoader", { signal: AbortSignal.timeout(7000) });
+    if (!response.ok) throw new Error("ComfyUI did not provide its diffusion-model list.");
+    return {
+      online: true,
+      models: unetModelsFromObjectInfo(await response.json()).filter(isAnimaDiffusionModel),
+      workflowDefault,
+    };
+  } catch {
+    return { online: false, models: [], workflowDefault };
+  }
+}
+
 async function readJson(filePath, label) {
   if (!filePath) throw new Error("Choose an ANIMA " + label + " file in CharaSMS settings.");
   try {
@@ -128,6 +165,9 @@ export async function diagnoseComfy(config) {
   let uiWorkflow = null;
   if (workflow && mapping) {
     issues.push(...validateWorkflowMapping(workflow, mapping));
+    if (!issues.some((issue) => issue.severity === "error")) {
+      setInput(workflow, mapping.fields?.diffusion_model, selectedDiffusionModel(config, mapping), "diffusion model");
+    }
     if (mapping.ui_workflow_file) {
       const uiFile = resolveCompanionFile(path.resolve(config.comfyMappingFile), mapping.ui_workflow_file);
       uiWorkflow = await readDiagnosticJson(uiFile, "UI workflow", issues);
@@ -235,6 +275,7 @@ export async function queueCharacterImage(config, thread, brief = "", overrides 
   const fields = mapping.fields || {};
   const defaults = mapping.defaults || {};
   const settings = defaults.image_settings || {};
+  const diffusionModel = selectedDiffusionModel(config, mapping);
   const visual = effectiveVisual(thread.profile);
   const sceneOutfit = String(thread.scene?.outfit || "").trim();
   const usesDefaultWardrobe = !sceneOutfit
@@ -258,7 +299,7 @@ export async function queueCharacterImage(config, thread, brief = "", overrides 
   setInput(workflow, fields.cfg, settings.cfg, "cfg");
   setInput(workflow, fields.sampler, settings.sampler, "sampler");
   setInput(workflow, fields.scheduler, settings.scheduler, "scheduler");
-  setInput(workflow, fields.diffusion_model, defaults.model_name, "diffusion model");
+  setInput(workflow, fields.diffusion_model, diffusionModel, "diffusion model");
   setInput(workflow, fields.filename_prefix, filenamePrefix, "filename prefix");
 
   let uiWorkflow = null;
@@ -275,7 +316,7 @@ export async function queueCharacterImage(config, thread, brief = "", overrides 
       cfg: settings.cfg,
       sampler: settings.sampler,
       scheduler: settings.scheduler,
-      diffusion_model: defaults.model_name,
+      diffusion_model: diffusionModel,
       filename_prefix: filenamePrefix,
     });
   }

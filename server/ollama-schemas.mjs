@@ -161,10 +161,11 @@ export const characterChatSchema = {
     memoryCandidates: { type: "array", items: memoryCandidateSchema },
     followUp: softFollowUpSchema,
     resolvesPendingFollowUp: { type: "boolean" },
+    otherShouldRespond: { type: "boolean" },
   },
   required: [
     "reply", "relationshipDelta", "scene", "shouldSendPhoto", "photoBrief", "photoMessage",
-    "memoryCandidates", "followUp", "resolvesPendingFollowUp",
+    "memoryCandidates", "followUp", "resolvesPendingFollowUp", "otherShouldRespond",
   ],
 };
 

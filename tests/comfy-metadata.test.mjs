@@ -1,7 +1,21 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import test from "node:test";
-import { characterImageOutputPrefix, syncUiWorkflow } from "../server/comfy.mjs";
+import { characterImageOutputPrefix, isAnimaDiffusionModel, selectedDiffusionModel, syncUiWorkflow } from "../server/comfy.mjs";
+
+test("ANIMA model discovery excludes similarly named animation models", () => {
+  assert.equal(isAnimaDiffusionModel("waiANIMA_v10Base10.safetensors"), true);
+  assert.equal(isAnimaDiffusionModel("variants/anima_xl_v2.safetensors"), true);
+  assert.equal(isAnimaDiffusionModel("Wan2_2_Animate_14B_fp8.safetensors"), false);
+  assert.equal(isAnimaDiffusionModel("wan_animation_model.safetensors"), false);
+});
+
+test("a saved ANIMA model overrides the workflow default without changing the mapping", () => {
+  const mapping = { defaults: { model_name: "waiANIMA_v10Base10.safetensors" } };
+  assert.equal(selectedDiffusionModel({}, mapping), "waiANIMA_v10Base10.safetensors");
+  assert.equal(selectedDiffusionModel({ comfyDiffusionModel: "waiANIMA_v11Variant.safetensors" }, mapping), "waiANIMA_v11Variant.safetensors");
+  assert.equal(mapping.defaults.model_name, "waiANIMA_v10Base10.safetensors");
+});
 
 test("embedded Comfy workflow receives exact per-image settings", async () => {
   const [mapping, uiWorkflow] = await Promise.all([

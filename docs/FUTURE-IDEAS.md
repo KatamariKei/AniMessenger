@@ -1,14 +1,14 @@
 # AniMessenger Future Ideas
 
-These concepts are intentionally deferred. They are not part of the current implementation or release scope.
+This document tracks experimental work and intentionally deferred concepts.
 
-## Guest character cameos
+## Guest character cameos — experimental implementation
 
-Create temporary, believable guest appearances inside an existing private chat.
+Temporary guest appearances are now implemented for one already-researched character inside an existing chat.
 
 Example: the user and Misty go out for ramen, encounter Ash, and Ash joins the conversation for a while before leaving.
 
-### Intended experience
+### Implemented experience
 
 - The original character remains the host and owner of the chat.
 - One researched guest may temporarily join.
@@ -16,10 +16,10 @@ Example: the user and Misty go out for ramen, encounter Ash, and Ash joins the c
 - The guest uses the normal cached character profile and research system.
 - The guest only knows the conversation from the point at which they entered.
 - A visible event marks when the guest joins and leaves.
-- The guest does not automatically clutter Active Chats.
-- Tapping the guest or finding them later in Discover offers **Start private chat**.
-- A later private chat reuses the completed profile and carries forward a concise memory of the encounter.
-- The guest receives a conservative first impression rather than inheriting the host character's relationship level.
+- Guests are selected from already-built private character profiles.
+- The guest controls include **Open private chat**.
+- Each participating character can gain relationship progress and durable memories without exposing their earlier private transcript.
+- Ending an encounter writes a bounded shared-event memory to both private character records.
 - An existing private relationship with the guest is preserved, without exposing private memories unprompted in front of the host.
 
 ### Performance approach
@@ -30,40 +30,27 @@ Example: the user and Misty go out for ramen, encounter Ash, and Ash joins the c
 - Use local routing rules instead of an additional director-model call on every turn.
 - Keep one active guest maximum at first.
 - Cache researched profiles.
-- Summarize the encounter asynchronously after the guest leaves.
+- Summarize the encounter locally when the guest leaves.
 - Do not run a persistent background guest simulation.
 
-### Image boundary
+### Images
 
-The first version should be chat-only.
+Either participant can send a solo image using their own profile. A request addressed to both queues two separate solo images. Both characters can independently inspect the same user attachment through the selected vision model. Multi-character compositions are not planned for the current design.
 
-Later, either participant could send a solo image using their own profile. Multi-character images should remain deferred until regional prompting, identity-specific LoRAs, bounding-box conditioning, or another reliable multi-subject workflow is available.
+### Still deferred
 
-### Safe development sequence
+- automatic character discovery or organic entrances;
+- more than one simultaneous guest;
+- persistent background guest simulation;
+- proactive guest messages outside an active shared encounter.
 
-Do not add this directly to the current production chat path.
+### Multiverse collision continuity
 
-1. Preserve a known-good AniMessenger release in Git.
-2. Build an isolated developer experiment using two already-cached profiles.
-3. Test only voice separation, conversational flow, and latency.
-4. Add an experimental feature flag if the prototype succeeds.
-5. Add guest bubble rendering.
-6. Add one manually selected cached guest.
-7. Add single-speaker routing, then occasional two-speaker turns.
-8. Add join and leave events.
-9. Add encounter summaries and promotion into a private chat.
-10. Add automatic detection of clearly established guest entrances last.
+Private chats currently behave as separate storylines. A deliberate guest encounter creates a temporary crossover, and only a bounded shared-event memory carries back afterward.
 
-### Prototype exclusions
+A future expanded mode could preserve explicit cross-timeline discoveries and contradictions without blending entire private histories. It would require character-specific knowledge provenance: who knew a fact before entering, who stated it during the crossover, who witnessed it, what remains unresolved, and what each participant is allowed to remember afterward. Relationship claims should remain attributed (for example, “Marie said she is dating the user”) rather than silently rewritten as universal truth.
 
-The initial experiment should not modify real thread files and should have:
-
-- no automatic character discovery;
-- no relationship changes;
-- no permanent memories;
-- no images;
-- no proactive messages;
-- no changes to existing chat behavior when the experiment is disabled.
+This mode should be opt-in and should contain conflict through high-confidence facts, one contradiction at a time, no forced jealousy or reconciliation, and cooldowns that let the story move on. It is intentionally outside the current guest-chat polish scope.
 
 ### Success gates
 
@@ -130,4 +117,3 @@ Before remote access can be considered release-ready, AniMessenger should have:
 ### Performance expectations
 
 Chat generation should remain dominated by local Ollama speed. Remote image delivery will depend on the home connection's upload speed, so thumbnails and appropriately sized previews should load before full-resolution files.
-

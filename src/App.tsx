@@ -54,6 +54,40 @@ function characterDisplayName(character: AnimaCharacter) {
   return character.displayName?.trim() || character.name;
 }
 
+function messageSpeakerCharacter(message: Message, host: Thread, threads: Thread[]) {
+  if (message.from !== "character" || !message.speakerId || message.speakerId === host.character.id) return host.character;
+  return threads.find((thread) => thread.character.id === message.speakerId)?.character || host.character;
+}
+
+function characterAddressAliases(character: AnimaCharacter) {
+  const full = characterDisplayName(character).replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+  return [...new Set([full, ...full.split(/\s+/).filter((part) => part.length >= 3)])].filter(Boolean);
+}
+
+function textAddressesCharacter(text: string, character: AnimaCharacter) {
+  const value = text.toLowerCase();
+  return characterAddressAliases(character).some((alias) => {
+    const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp("(^|[^a-z0-9])" + escaped + "([^a-z0-9]|$)", "i").test(value);
+  });
+}
+
+function anticipatedCameoSpeakerId(thread: Thread, guest: Thread | undefined, text: string) {
+  if (!guest || !thread.cameo?.activeGuest) return thread.character.id;
+  const hostId = thread.character.id;
+  const guestId = guest.character.id;
+  const lastCharacterMessage = [...thread.messages].reverse().find((message) => message.from === "character");
+  const lastSpeakerId = lastCharacterMessage?.speakerId || (lastCharacterMessage ? hostId : "");
+  const hostMentioned = textAddressesCharacter(text, thread.character);
+  const guestMentioned = textAddressesCharacter(text, guest.character);
+  const groupAddress = /\b(?:both of you|you both|you two|either of you|everyone|all of you|what do (?:you two|you guys|all of you) think)\b/i.test(text);
+  if ((hostMentioned && guestMentioned) || groupAddress) return lastSpeakerId === hostId ? guestId : hostId;
+  if (guestMentioned) return guestId;
+  if (hostMentioned) return hostId;
+  if (lastSpeakerId === hostId || lastSpeakerId === guestId) return lastSpeakerId;
+  return hostId;
+}
+
 type ChatListSwipe = {
   startX: number;
   startY: number;
@@ -65,6 +99,13 @@ type ChatListSwipe = {
 type PendingPhoto = {
   dataUrl: string;
   name: string;
+};
+
+type RelationshipMilestone = {
+  id: string;
+  character: AnimaCharacter;
+  relationship: number;
+  label: string;
 };
 
 function accentFor(value: string) {
@@ -88,6 +129,10 @@ function relationshipColor(value: number) {
   return "#77727b";
 }
 
+function crossedRelationshipThreshold(previous: number, next: number) {
+  return next > previous && relationshipLabel(previous) !== relationshipLabel(next);
+}
+
 function sceneContextLabel(thread: Thread) {
   const location = String(thread.scene?.location || "").replace(/\s+/g, " ").trim();
   const meaningfulLocation = location && location.toLowerCase() !== "somewhere familiar" ? location : "";
@@ -106,6 +151,11 @@ function localMessageId() {
   return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2) + "-" + Math.random().toString(36).slice(2);
 }
 
+function cameoReplyDelay(message: Message) {
+  const length = String(message.text || "").trim().length;
+  return Math.min(4200, Math.max(1800, 1100 + length * 11));
+}
+
 function RetryIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -122,6 +172,16 @@ function SettingsIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z" />
       <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+function GuestIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="8" cy="8" r="3" />
+      <path d="M2.8 19c.5-3.3 2.2-5 5.2-5s4.7 1.7 5.2 5" />
+      <path d="M18 8v6M15 11h6" />
     </svg>
   );
 }
@@ -384,6 +444,8 @@ function ImagePackInstaller({ modelsDirectory, outputDirectory = "", onModelsDir
 function Settings({ initial, onClose, onSaved, onOpenSetup }: SettingsProps) {
   const [config, setConfig] = useState(initial);
   const [models, setModels] = useState<string[]>([]);
+  const [comfyModels, setComfyModels] = useState<string[]>([]);
+  const [comfyWorkflowDefault, setComfyWorkflowDefault] = useState("");
   const [saving, setSaving] = useState(false);
   const [diagnosingComfy, setDiagnosingComfy] = useState(false);
   const [comfyDiagnostics, setComfyDiagnostics] = useState<ComfyDiagnostics | null>(null);
@@ -402,6 +464,10 @@ function Settings({ initial, onClose, onSaved, onOpenSetup }: SettingsProps) {
 
   useEffect(() => {
     api.models().then((result) => setModels(result.models)).catch(() => undefined);
+    api.comfyModels().then((result) => {
+      setComfyModels(result.models);
+      setComfyWorkflowDefault(result.workflowDefault);
+    }).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -466,6 +532,7 @@ function Settings({ initial, onClose, onSaved, onOpenSetup }: SettingsProps) {
           <label><span>ComfyUI URL</span><input value={config.comfyUrl} onChange={(e) => update("comfyUrl", e.target.value)} /></label>
           <label className="settings-wide"><span>ComfyUI output folder</span><input value={config.comfyOutputDir} onChange={(e) => update("comfyOutputDir", e.target.value)} placeholder="Optional; keeps completed images available while ComfyUI is closed" /></label>
           <label className="settings-wide"><span>ComfyUI models folder</span><input value={config.comfyModelsDir} onChange={(e) => update("comfyModelsDir", e.target.value)} placeholder="Used by the recommended image-pack installer" /></label>
+          <label className="settings-wide"><span>ANIMA diffusion model</span><select value={config.comfyDiffusionModel || ""} onChange={(e) => update("comfyDiffusionModel", e.target.value)}><option value="">Workflow default{comfyWorkflowDefault ? ` · ${comfyWorkflowDefault}` : ""}</option>{config.comfyDiffusionModel && !comfyModels.includes(config.comfyDiffusionModel) && <option value={config.comfyDiffusionModel}>{config.comfyDiffusionModel} · Not currently available</option>}{comfyModels.map((model) => <option value={model} key={model}>{model}</option>)}</select><small className="settings-field-help">Select an installed UNET model from ComfyUI. This applies to profile pictures, new images, and retries.</small></label>
           <label className="settings-wide"><span>ANIMA workflow file</span><input value={config.comfyWorkflowFile} onChange={(e) => update("comfyWorkflowFile", e.target.value)} placeholder="C:\...\anima-workflow-api.json" /></label>
           <label className="settings-wide"><span>Workflow mapping file</span><input value={config.comfyMappingFile} onChange={(e) => update("comfyMappingFile", e.target.value)} placeholder="C:\...\anima-workflow.mapping.json" /></label>
           <div className="settings-wide comfy-diagnostics">
@@ -1041,10 +1108,14 @@ export function CharaSmsApp() {
   const [pendingPhoto, setPendingPhoto] = useState<PendingPhoto | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [typing, setTyping] = useState(false);
+  const [typingSpeakerId, setTypingSpeakerId] = useState("");
   const [searching, setSearching] = useState(false);
   const [building, setBuilding] = useState<AnimaCharacter | null>(null);
   const [avatarGenerating, setAvatarGenerating] = useState<Record<string, boolean>>({});
   const [showProfile, setShowProfile] = useState(false);
+  const [showGuestPicker, setShowGuestPicker] = useState(false);
+  const [guestSearch, setGuestSearch] = useState("");
+  const [cameoUpdating, setCameoUpdating] = useState(false);
   const [showIdentityEditor, setShowIdentityEditor] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Thread | null>(null);
   const [deletingChat, setDeletingChat] = useState(false);
@@ -1072,6 +1143,7 @@ export function CharaSmsApp() {
   const [healthReady, setHealthReady] = useState(false);
   const [healthChecking, setHealthChecking] = useState(false);
   const [notice, setNotice] = useState("");
+  const [relationshipMilestones, setRelationshipMilestones] = useState<RelationshipMilestone[]>([]);
   const [visibleMessageLimit, setVisibleMessageLimit] = useState(MESSAGE_BATCH_SIZE);
   const [loadingThreadId, setLoadingThreadId] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
@@ -1079,6 +1151,7 @@ export function CharaSmsApp() {
   const emojiSearchRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const profileCardRef = useRef<HTMLElement>(null);
+  const guestCardRef = useRef<HTMLElement>(null);
   const deleteCardRef = useRef<HTMLElement>(null);
   const lightboxRef = useRef<HTMLDivElement>(null);
   const proactiveCheckingRef = useRef(false);
@@ -1100,6 +1173,7 @@ export function CharaSmsApp() {
   const chatListSwipeRef = useRef<ChatListSwipe | null>(null);
   const chatListSwipeTimerRef = useRef<number | null>(null);
   useDialogFocus(profileCardRef, showProfile);
+  useDialogFocus(guestCardRef, showGuestPicker);
   useDialogFocus(deleteCardRef, Boolean(deleteTarget));
   useDialogFocus(lightboxRef, Boolean(fullScreenImage));
 
@@ -1107,12 +1181,30 @@ export function CharaSmsApp() {
     if (chatListSwipeTimerRef.current !== null) window.clearTimeout(chatListSwipeTimerRef.current);
   }, []);
 
+  useEffect(() => {
+    const milestone = relationshipMilestones[0];
+    if (!milestone) return;
+    const timer = window.setTimeout(() => {
+      setRelationshipMilestones((current) => current.filter((item) => item.id !== milestone.id));
+    }, 5200);
+    return () => window.clearTimeout(timer);
+  }, [relationshipMilestones]);
+
   const active = threads.find((thread) => thread.id === activeId) ?? threads[0];
+  const relationshipMilestone = relationshipMilestones[0];
+  const activeGuestId = active?.cameo?.activeGuest?.characterId || "";
+  const activeGuestThread = threads.find((thread) => thread.character.id === activeGuestId);
+  const typingCharacter = threads.find((thread) => thread.character.id === typingSpeakerId)?.character || active?.character;
+  const guestOptions = useMemo(() => {
+    const query = guestSearch.trim().toLowerCase();
+    return threads.filter((thread) => thread.profile && thread.id !== active?.id && (!query
+      || (characterDisplayName(thread.character) + " " + thread.character.name + " " + thread.character.series).toLowerCase().includes(query)));
+  }, [active?.id, guestSearch, threads]);
   const activeVisualIdentity = active?.profile?.visual.userOverrides?.identity ?? active?.profile?.visual.identity ?? [];
   const activeGallery = useMemo<LightboxItem[]>(() => {
     if (!active) return [];
     return active.messages
-      .filter((message) => message.from === "character" && Boolean(message.image) && !unavailableImageIds.has(message.id))
+      .filter((message) => message.from === "character" && Boolean(message.image) && (!message.speakerId || message.speakerId === active.character.id) && !unavailableImageIds.has(message.id))
       .map((message) => ({
         id: message.id,
         src: message.image!,
@@ -1434,10 +1526,43 @@ export function CharaSmsApp() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [deleteTarget, deletingChat]);
 
+  useEffect(() => {
+    if (!showGuestPicker) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !cameoUpdating) setShowGuestPicker(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [showGuestPicker, cameoUpdating]);
+
   function mergeThread(next: Thread, activate = false) {
     setThreads((current) => {
-      const exists = current.some((thread) => thread.id === next.id);
-      const merged = exists ? current.map((thread) => thread.id === next.id ? next : thread) : [next, ...current];
+      const existing = current.find((thread) => thread.id === next.id);
+      const nextUpdatedAt = String(next.updatedAt || "");
+      const existingUpdatedAt = String(existing?.updatedAt || "");
+      const newestSnapshot = !existing || nextUpdatedAt >= existingUpdatedAt ? next : existing;
+      const olderSnapshot = newestSnapshot === next ? existing : next;
+      const messagesById = new Map(
+        (olderSnapshot?.messages || []).map((message) => [message.id, message]),
+      );
+      for (const message of newestSnapshot.messages) {
+        const mergedMessage: Message = { ...messagesById.get(message.id), ...message };
+        if (!Object.hasOwn(message, "delivery")) delete mergedMessage.delivery;
+        messagesById.set(message.id, mergedMessage);
+      }
+      const orderedMessageIds = [
+        ...newestSnapshot.messages.map((message) => message.id),
+        ...(olderSnapshot?.messages || [])
+          .map((message) => message.id)
+          .filter((id) => !newestSnapshot.messages.some((message) => message.id === id)),
+      ];
+      const mergedThread = {
+        ...newestSnapshot,
+        messages: orderedMessageIds.map((id) => messagesById.get(id)!),
+      };
+      const merged = existing
+        ? current.map((thread) => thread.id === next.id ? mergedThread : thread)
+        : [mergedThread, ...current];
       return [...merged].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
     });
     if (activate) setActiveId(next.id);
@@ -1450,6 +1575,39 @@ export function CharaSmsApp() {
   const openProfile = () => {
     setProfileTab("profile");
     setShowProfile(true);
+  };
+
+  const inviteGuest = async (guestCharacterId: string) => {
+    if (!active || cameoUpdating) return;
+    setCameoUpdating(true);
+    setNotice("");
+    try {
+      const result = await api.inviteGuest(active.id, guestCharacterId);
+      replaceThread(result.thread);
+      setPendingPhoto(null);
+      setGuestSearch("");
+      setShowGuestPicker(false);
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : "That guest could not join the conversation.");
+    } finally {
+      setCameoUpdating(false);
+    }
+  };
+
+  const removeGuest = async () => {
+    if (!active || cameoUpdating) return;
+    setCameoUpdating(true);
+    setNotice("");
+    try {
+      const result = await api.removeGuest(active.id);
+      replaceThread(result.thread);
+      if (result.relatedThread) mergeThread(result.relatedThread, false);
+      setShowGuestPicker(false);
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : "The guest encounter could not be ended.");
+    } finally {
+      setCameoUpdating(false);
+    }
   };
 
   const backfillActiveMemories = async () => {
@@ -1867,18 +2025,20 @@ export function CharaSmsApp() {
       delivery: "sending",
       time: new Date().toISOString(),
     };
+    const focusSpeakerId = anticipatedCameoSpeakerId(active, activeGuestThread, text);
     replaceThread({
       ...active,
       messages: [...active.messages.filter((message) => message.id !== clientMessageId), optimisticMessage],
       updatedAt: new Date().toISOString(),
     });
     setTyping(true);
+    setTypingSpeakerId(focusSpeakerId);
     setReactionTarget(null);
     setNotice("");
     try {
       let response;
       try {
-        response = await api.chat(active.id, text, image, clientMessageId);
+        response = await api.chat(active.id, text, image, clientMessageId, focusSpeakerId);
       } catch (reason) {
         setThreads((current) => current.map((thread) => thread.id === active.id
           ? { ...thread, messages: thread.messages.map((message) => message.id === clientMessageId ? { ...message, delivery: "failed" } : message) }
@@ -1895,18 +2055,63 @@ export function CharaSmsApp() {
         }
         return;
       }
-      replaceThread(response.thread);
+      const relationshipUpdates = [response.thread, ...(response.relatedThreads || [])];
+      const newMilestones = relationshipUpdates.flatMap((nextThread) => {
+        const previousThread = nextThread.id === active.id
+          ? active
+          : threads.find((thread) => thread.id === nextThread.id);
+        if (!previousThread || !crossedRelationshipThreshold(previousThread.relationship, nextThread.relationship)) return [];
+        return [{
+          id: clientMessageId + "-" + nextThread.id + "-" + nextThread.relationship,
+          character: nextThread.character,
+          relationship: nextThread.relationship,
+          label: relationshipLabel(nextThread.relationship),
+        } satisfies RelationshipMilestone];
+      });
+      if (newMilestones.length) {
+        setRelationshipMilestones((current) => [
+          ...current,
+          ...newMilestones.filter((milestone) => !current.some((item) => item.id === milestone.id)),
+        ]);
+      }
+      for (const relatedThread of response.relatedThreads || []) mergeThread(relatedThread, false);
+      const cameoReplies = response.replies?.filter((reply) => reply.from === "character") || [];
+      if (cameoReplies.length > 1) {
+        const cameoReplyIds = new Set(cameoReplies.map((reply) => reply.id));
+        for (let index = 0; index < cameoReplies.length; index += 1) {
+          const visibleReplyIds = new Set(cameoReplies.slice(0, index + 1).map((reply) => reply.id));
+          const stagedThread = {
+            ...response.thread,
+            messages: response.thread.messages.filter((message) => !cameoReplyIds.has(message.id) || visibleReplyIds.has(message.id)),
+          };
+          mergeThread(stagedThread, activeIdRef.current === response.thread.id);
+          const nextReply = cameoReplies[index + 1];
+          if (nextReply) {
+            setTypingSpeakerId(nextReply.speakerId || active.character.id);
+            await new Promise((resolve) => window.setTimeout(resolve, cameoReplyDelay(nextReply)));
+          }
+        }
+      } else {
+        replaceThread(response.thread);
+      }
       if (response.imageWarning) setNotice("The reply was delivered, but its image was not started. " + response.imageWarning);
-      if (response.imageJob) {
+      if (response.replyWarning) setNotice(response.replyWarning);
+      const queuedImageJobs = response.imageJobs?.length
+        ? response.imageJobs
+        : response.imageJob
+          ? [response.imageJob]
+          : [];
+      for (const imageJob of queuedImageJobs) {
         try {
-          await watchImage(response.imageJob.promptId, response.thread);
+          await watchImage(imageJob.promptId, response.thread);
         } catch (reason) {
-          setNotice("The reply was delivered, but the image did not finish. " + (reason instanceof Error ? reason.message : "Check ComfyUI, then retry the image."));
+          setNotice("The reply was delivered, but an image did not finish. " + (reason instanceof Error ? reason.message : "Check ComfyUI, then retry the image."));
         }
       }
     } finally {
       sendInFlightRef.current = false;
       setTyping(false);
+      setTypingSpeakerId("");
     }
   };
 
@@ -2056,7 +2261,7 @@ export function CharaSmsApp() {
 
   const startChatListSwipe = (event: ReactTouchEvent<HTMLElement>) => {
     if (window.innerWidth > 760 || !mobileChatOpen || event.touches.length !== 1
-      || showProfile || showIdentityEditor || showSettings || showSetup || Boolean(fullScreenImage)) return;
+      || showProfile || showGuestPicker || showIdentityEditor || showSettings || showSetup || Boolean(fullScreenImage)) return;
     const touch = event.touches[0];
     const target = event.target as HTMLElement;
     if (touch.clientX < 18 || target.closest("button, input, textarea, select, a, [contenteditable='true']")) return;
@@ -2193,7 +2398,7 @@ export function CharaSmsApp() {
           <EmptyChat onDiscover={() => setMode("discover")} />
         </section> : (
           <section
-            className="chat-panel"
+            className={"chat-panel " + (active.cameo?.activeGuest ? "has-cameo" : "")}
             onTouchStart={startChatListSwipe}
             onTouchMove={moveChatListSwipe}
             onTouchEnd={finishChatListSwipe}
@@ -2208,9 +2413,22 @@ export function CharaSmsApp() {
                 <span className="chat-person-copy">
                   <strong>{characterDisplayName(active.character)}</strong>
                   <small title={sceneContextLabel(active)}>
-                    {avatarGenerating[active.character.id] ? "making profile picture…" : sceneContextLabel(active)}
+                    {avatarGenerating[active.character.id]
+                      ? "making profile picture…"
+                      : activeGuestThread
+                        ? "with " + characterDisplayName(activeGuestThread.character) + " · " + sceneContextLabel(active)
+                        : sceneContextLabel(active)}
                   </small>
                 </span>
+              </button>
+              <button
+                type="button"
+                className={"guest-control " + (activeGuestThread ? "has-guest" : "")}
+                onClick={() => { setGuestSearch(""); setShowGuestPicker(true); }}
+                aria-label={activeGuestThread ? "Manage guest " + characterDisplayName(activeGuestThread.character) : "Invite a guest character"}
+                title={activeGuestThread ? "Guest: " + characterDisplayName(activeGuestThread.character) : "Invite a guest"}
+              >
+                {activeGuestThread ? <Portrait character={activeGuestThread.character} /> : <><GuestIcon /><small>Guest</small></>}
               </button>
             </header>
             <div className="relationship-strip" style={{ "--accent": relationshipColor(active.relationship) } as React.CSSProperties}>
@@ -2218,6 +2436,17 @@ export function CharaSmsApp() {
               <output aria-label="Relationship strength">{active.relationship}%</output>
               <div><i style={{ width: active.relationship + "%" }} /></div>
             </div>
+            {relationshipMilestone && (
+              <div className="relationship-milestone" style={{ "--bond-color": relationshipColor(relationshipMilestone.relationship) } as React.CSSProperties} role="status" aria-live="polite">
+                <Portrait character={relationshipMilestone.character} />
+                <span>
+                  <small>Relationship up</small>
+                  <strong>{characterDisplayName(relationshipMilestone.character)}</strong>
+                  <b>{relationshipMilestone.label}</b>
+                </span>
+                <i aria-hidden="true">↑</i>
+              </div>
+            )}
             <ServiceRecovery
               health={health}
               ready={healthReady}
@@ -2234,18 +2463,21 @@ export function CharaSmsApp() {
                 <p>{active.character.series}</p>
                   <small>{activeVisualIdentity.join(" · ") || active.character.tags.join(" · ")}</small>
               </div>
-              {loadingThreadId === active.id && active.summary && <div className="history-loading">Loading conversationâ€¦</div>}
+              {loadingThreadId === active.id && active.summary && <div className="history-loading">Loading conversation…</div>}
               {hiddenMessageCount > 0 && (
                 <button type="button" className="load-earlier" onClick={() => setVisibleMessageLimit((current) => current + MESSAGE_BATCH_SIZE)}>
                   Load earlier messages <span>{hiddenMessageCount.toLocaleString()} remaining</span>
                 </button>
               )}
               {visibleMessages.map((message) => (
-                <div key={message.id} className={"message-line message-line--" + (message.from === "character" ? "character" : "user")}>
+                <div key={message.id} className={"message-line message-line--" + (message.from === "system" ? "system" : message.from === "character" ? "character" : "user") + (message.from === "character" && message.speakerId && message.speakerId !== active.character.id ? " message-line--guest" : "")}>
                   <div className="message-content">
                     <div className="message-primary">
-                      {message.from === "character" && <Portrait character={active.character} />}
+                      {message.from === "character" && <Portrait character={messageSpeakerCharacter(message, active, threads)} />}
                       <div className="message-payload">
+                        {message.from === "character" && active.cameo?.activeGuest && (
+                          <small className="message-speaker">{characterDisplayName(messageSpeakerCharacter(message, active, threads))}</small>
+                        )}
                         {message.image && !unavailableImageIds.has(message.id) && (
                           <button
                             type="button"
@@ -2254,7 +2486,7 @@ export function CharaSmsApp() {
                               items: [{
                                 id: message.id,
                                 src: message.image!,
-                                alt: message.generated ? characterDisplayName(active.character) + " shared a generated scene" : "Shared by you",
+                                alt: message.generated ? characterDisplayName(messageSpeakerCharacter(message, active, threads)) + " shared a generated scene" : "Shared by you",
                                 time: message.time,
                                 generation: message.generation,
                                 retryable: Boolean(message.generated),
@@ -2266,7 +2498,7 @@ export function CharaSmsApp() {
                             <img
                               key={message.id + "-" + imageReloadVersion}
                               src={message.image}
-                              alt={message.generated ? characterDisplayName(active.character) + " shared a generated scene" : "Shared by you"}
+                              alt={message.generated ? characterDisplayName(messageSpeakerCharacter(message, active, threads)) + " shared a generated scene" : "Shared by you"}
                               onError={() => handleImageLoadError(message.id)}
                             />
                           </button>
@@ -2289,7 +2521,7 @@ export function CharaSmsApp() {
                       <time>{formatTime(message.time)}</time>
                       {message.delivery === "sending" && <span className="delivery-state">Sending…</span>}
                       {message.delivery === "failed" && <button type="button" className="delivery-retry" onClick={() => retryFailedMessage(message)}>Not sent · Retry</button>}
-                      {message.from === "character" && (
+                      {message.from === "character" && (!message.speakerId || message.speakerId === active.character.id) && (
                         <span className="reaction-control">
                           {message.reaction ? (
                             <button
@@ -2325,12 +2557,15 @@ export function CharaSmsApp() {
                   </div>
                 </div>
               ))}
-              {typing && (
-                <div className="message-line message-line--character typing-line" role="status" aria-label={characterDisplayName(active.character) + " is typing"}>
+              {typing && typingCharacter && (
+                <div className={"message-line message-line--character typing-line " + (typingCharacter.id !== active.character.id ? "message-line--guest" : "")} role="status" aria-label={characterDisplayName(typingCharacter) + " is typing"}>
                   <div className="message-content">
                     <div className="message-primary">
-                      <Portrait character={active.character} />
-                      <div className="message-payload"><p className="bubble"><i /><i /><i /></p></div>
+                      <Portrait character={typingCharacter} />
+                      <div className="message-payload">
+                        {active.cameo?.activeGuest && <small className="message-speaker">{characterDisplayName(typingCharacter)}</small>}
+                        <p className="bubble"><i /><i /><i /></p>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -2392,7 +2627,7 @@ export function CharaSmsApp() {
                 </div>
               )}
               <input ref={fileRef} type="file" accept="image/*" hidden onChange={attachPhoto} />
-              <button type="button" className="add-button" onClick={() => fileRef.current?.click()} disabled={typing || photoUploading} aria-label={pendingPhoto ? "Replace attached photo" : "Attach a photo"}>＋</button>
+              <button type="button" className="add-button" onClick={() => fileRef.current?.click()} disabled={typing || photoUploading} aria-label={pendingPhoto ? "Replace attached photo" : active.cameo?.activeGuest ? "Attach a photo for both characters" : "Attach a photo"}>＋</button>
               <div className="composer-input">
                 <textarea
                   ref={composerRef}
@@ -2408,7 +2643,7 @@ export function CharaSmsApp() {
                       event.currentTarget.form?.requestSubmit();
                     }
                   }}
-                  placeholder={pendingPhoto ? "Add a message about this image…" : "Message " + characterDisplayName(active.character) + "…"}
+                  placeholder={pendingPhoto ? "Add a message about this image…" : activeGuestThread ? "Message both characters…" : "Message " + characterDisplayName(active.character) + "…"}
                   aria-label={"Message " + characterDisplayName(active.character)}
                 />
                 <button
@@ -2437,6 +2672,52 @@ export function CharaSmsApp() {
               <p>Ollama is separating their lasting identity from changeable clothing, then compiling personality, mannerisms, history, relationships, and speech.</p>
               <div className="build-progress"><i /></div>
               <small>First meetings take longer. The finished profile is cached locally.</small>
+            </article>
+          </div>
+        )}
+
+        {showGuestPicker && active && (
+          <div className="profile-layer guest-layer" onClick={() => !cameoUpdating && setShowGuestPicker(false)} role="dialog" aria-modal="true" aria-labelledby="guest-picker-title">
+            <article ref={guestCardRef} className="guest-card" onClick={(event) => event.stopPropagation()} tabIndex={-1}>
+              <button type="button" className="profile-close" onClick={() => setShowGuestPicker(false)} disabled={cameoUpdating} aria-label="Close guest characters">×</button>
+              <p className="eyebrow">Guest chat</p>
+              <h2 id="guest-picker-title">{activeGuestThread ? characterDisplayName(activeGuestThread.character) + " is here" : "Invite a character"}</h2>
+              {activeGuestThread ? (
+                <>
+                  <div className="current-guest">
+                    <Portrait character={activeGuestThread.character} large />
+                    <span><strong>{characterDisplayName(activeGuestThread.character)}</strong><small>{activeGuestThread.character.series}</small></span>
+                  </div>
+                  <div className="bond-summary guest-bond" style={{ "--bond-color": relationshipColor(activeGuestThread.relationship) } as React.CSSProperties}>
+                    <span><small>Relationship</small><strong>{relationshipLabel(activeGuestThread.relationship)}</strong></span>
+                    <b>{activeGuestThread.relationship}%</b>
+                    <div className="profile-meter"><i style={{ width: activeGuestThread.relationship + "%", background: relationshipColor(activeGuestThread.relationship) }} /></div>
+                  </div>
+                  <p className="guest-privacy">Shared moments can affect their relationship and memory. Their earlier private chat stays private.</p>
+                  <div className="guest-actions">
+                    <button type="button" className="guest-private" onClick={() => { setActiveId(activeGuestThread.id); setMobileChatOpen(true); setShowGuestPicker(false); }}>Open private chat</button>
+                    <button type="button" className="guest-leave" onClick={() => void removeGuest()} disabled={cameoUpdating}>{cameoUpdating ? "Ending encounter…" : "Have guest leave"}</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p>Choose a character you already know. Replies stay with whoever has the floor; the other may occasionally add something genuinely relevant.</p>
+                  <label className="guest-search">
+                    <span aria-hidden="true">⌕</span>
+                    <input type="search" value={guestSearch} onChange={(event) => setGuestSearch(event.target.value)} placeholder="Search your characters" aria-label="Search researched characters" />
+                  </label>
+                  <div className="guest-list">
+                    {guestOptions.length ? guestOptions.map((thread) => (
+                      <button type="button" key={thread.id} onClick={() => void inviteGuest(thread.id)} disabled={cameoUpdating}>
+                        <Portrait character={thread.character} />
+                        <span><strong>{characterDisplayName(thread.character)}</strong><small>{thread.character.series}</small></span>
+                        <b aria-hidden="true">＋</b>
+                      </button>
+                    )) : <p className="guest-empty">No matching researched characters.</p>}
+                  </div>
+                </>
+              )}
+              {!activeGuestThread && <small className="guest-safety-note">One guest can join at a time. Each character keeps their own voice, relationship, and private history.</small>}
             </article>
           </div>
         )}
