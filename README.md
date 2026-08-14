@@ -8,7 +8,7 @@
   <img src="docs/images/animessenger-main.png" alt="AniMessenger desktop interface showing a local conversation with 2B" width="1100">
 </p>
 
-AniMessenger is a mobile-first, local character messenger powered by:
+AniMessenger is a responsively designed, local character messenger powered by:
 
 - [AnimaDex](https://github.com/zetaneko/AnimaDex) for searchable character identity and visual tags;
 - [Ollama](https://ollama.com/) for character profiles, conversation, memory, mannerisms, and photo reactions;
