@@ -1,3 +1,5 @@
+import { normalizeWardrobePrompt } from "./wardrobe.mjs";
+
 function cleanList(value, limit = 24) {
   if (!Array.isArray(value)) return [];
   return [...new Set(value
@@ -12,7 +14,7 @@ function cleanText(value, limit = 500) {
 }
 
 export function normalizeVisualOverrides(value = {}) {
-  const defaultWardrobe = cleanText(value.defaultWardrobe);
+  const defaultWardrobe = normalizeWardrobePrompt(cleanText(value.defaultWardrobe));
   const signature = cleanList(value.signature);
   const signatureKeys = new Set(signature.map((item) => item.toLowerCase()));
   const hiddenSignature = cleanList(value.hiddenSignature)
@@ -56,6 +58,6 @@ export function effectiveVisual(profile) {
     identity: overrides ? cleanList(overrides.identity) : cleanList(baseline.identity),
     signature: signature.filter((item) => !hiddenSignature.has(item.toLowerCase())),
     exceptions: overrides ? cleanList(overrides.exceptions) : [],
-    defaultWardrobe: cleanText(overrides?.defaultWardrobe) || cleanText(baseline.defaultWardrobe) || "casual outfit",
+    defaultWardrobe: normalizeWardrobePrompt(cleanText(overrides?.defaultWardrobe) || cleanText(baseline.defaultWardrobe)) || "casual outfit",
   };
 }

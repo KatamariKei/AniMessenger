@@ -21,7 +21,7 @@ const blockedDirectories = [
   "outputs/",
   "work/",
 ];
-const blockedFiles = new Set(["charasms.config.json"]);
+const blockedFiles = new Set(["animessenger.config.json"]);
 const textExtensions = new Set([
   ".css", ".html", ".js", ".json", ".jsx", ".md", ".mjs", ".svg", ".ts", ".tsx", ".txt", ".yaml", ".yml",
 ]);
@@ -82,6 +82,7 @@ for (const file of files) {
   const lower = file.toLowerCase();
   if (
     blockedFiles.has(lower)
+    || /(^|\/)\w[\w.-]*\.config\.json$/.test(lower)
     || blockedDirectories.some((directory) => lower.startsWith(directory))
     || lower.endsWith(".tgz")
     || lower.endsWith(".tsbuildinfo")

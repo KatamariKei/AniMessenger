@@ -346,7 +346,7 @@ async function repairCharacterReply(config, model, thread, userText, draft) {
         {
           role: "system",
           content: [
-            "You are CharaSMS's final dialogue editor.",
+            "You are AniMessenger's final dialogue editor.",
             "The draft failed a dialogue-quality check because it is too long, intense, repetitive, generic, weakly grounded, low-momentum for the moment, or overloaded with character gimmicks. Rewrite it; do not defend its style.",
             "Preserve its factual meaning, emotional boundary, and response to the user, but introduce no new event or claim.",
             "Use one or two compact sentences, usually no more than 50 words. A complete reply can be only a few words when that feels natural. Most sentences must be plain natural language.",
@@ -396,7 +396,7 @@ async function repairProfileDraft(config, model, character, draft, issues) {
     {
       role: "system",
       content: [
-        "You are CharaSMS's character-profile quality editor.",
+        "You are AniMessenger's character-profile quality editor.",
         "Independently review and complete the character-performance and character-depth guide. Do not rewrite canon, age, visual identity, or core personality.",
         "The performance guide must make the character recognizable in ordinary conversation without reducing them to catchphrases, jargon, metaphors, panic, or a repeated template.",
         "baselineVoice must describe how the character texts when nothing dramatic is happening and must remain recognizable without gaming, internet, technical slang, jargon, catchphrases, or metaphors. Do not describe vocal pitch, breathing, eyes, gestures, posture, or physical acting.",
@@ -542,9 +542,9 @@ export async function buildCharacterProfile(config, character, research) {
   const split = splitVisualTags(character.tags);
   const selectedModel = config.profileModel || config.chatModel || (await listOllamaModels(config))[0];
   const system = [
-    "You are CharaSMS's local character archivist.",
+    "You are AniMessenger's local character archivist.",
     "Build a rigorous roleplay profile for the requested fictional character.",
-    "NON-NEGOTIABLE ADULT OVERRIDE: Every CharaSMS character is a present-day adult age 18 or older. If canon, research, tags, or model knowledge describe the character as younger, create an aged-up 18+ adaptation. Never return a current age below 18.",
+    "NON-NEGOTIABLE ADULT OVERRIDE: Every AniMessenger character is a present-day adult age 18 or older. If canon, research, tags, or model knowledge describe the character as younger, create an aged-up 18+ adaptation. Never return a current age below 18.",
     "Past events may retain their historical context, but the current profile, appearance, behavior, relationships, and opening message must describe the adult adaptation—not a minor.",
     "Stay faithful to canon where evidence exists. Clearly avoid inventing hard facts.",
     "CURRENT IDENTITY RULE: Determine the character's current gender identity, pronouns, and self-reference from the latest reliable canon. Current self-identification always takes priority over biological sex, sex assigned at birth, historical presentation, an earlier identity, visual tags, or older installments.",
@@ -738,7 +738,7 @@ function profileContext(thread, options = {}) {
       ? "The user's chosen name is " + options.userName + ". Use it only when it feels natural; do not force their name into every reply."
       : "The user has not supplied a preferred name. Do not invent one.",
     options.extraSystemContext || "",
-    "NON-NEGOTIABLE AGE OVERRIDE: In CharaSMS you are a present-day adult age " + adultCharacterAge(profile.age) + ". Any canon, research, tag, or earlier text that portrays your current self as under 18 is superseded by this adult adaptation. Never describe your current self as a minor, child, or under 18.",
+    "NON-NEGOTIABLE AGE OVERRIDE: In AniMessenger you are a present-day adult age " + adultCharacterAge(profile.age) + ". Any canon, research, tag, or earlier text that portrays your current self as under 18 is superseded by this adult adaptation. Never describe your current self as a minor, child, or under 18.",
     socialIdentity?.gender || socialIdentity?.pronouns || socialIdentity?.selfReference
       ? "CURRENT IDENTITY (AUTHORITATIVE): Your current gender is " + (socialIdentity.gender || "as stated in the profile") + "; your pronouns are " + (socialIdentity.pronouns || "as stated in the profile") + "; you refer to yourself as " + (socialIdentity.selfReference || "that current identity") + ". Use this identity consistently in first-person self-reference and when interpreting how others address you. Biological sex, assigned sex, historical presentation, older canon, and contradictory memories are background only and must never override this current identity."
       : "",

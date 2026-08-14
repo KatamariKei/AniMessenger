@@ -16,4 +16,4 @@ const child = spawn(process.execPath, [path.join(root, "scripts", "dev.mjs"), "-
   stdio: ["ignore", stdout, stderr],
 });
 child.unref();
-console.log("CharaSMS detached process started with PID " + child.pid + ".");
+console.log("AniMessenger detached process started with PID " + child.pid + ".");

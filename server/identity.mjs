@@ -1,3 +1,5 @@
+import { normalizeWardrobePrompt } from "./wardrobe.mjs";
+
 const clothingWords = [
   "apron", "armor", "bikini", "blazer", "blindfold", "boots", "cape", "cardigan",
   "casual clothes", "coat", "costume", "dress", "detached sleeves", "gloves", "gown",
@@ -240,9 +242,9 @@ export function buildImagePrompt(profile, character, scene, brief = "", options 
   const identity = list(visual.identity);
   const signature = list(visual.signature);
   const normalizedBrief = normalizeCharacterPhotoBrief(brief, character, options);
-  const outfit = scene?.outfit && scene.outfit !== "default outfit"
+  const outfit = normalizeWardrobePrompt(scene?.outfit && scene.outfit !== "default outfit"
     ? scene.outfit
-    : visual.defaultWardrobe;
+    : visual.defaultWardrobe);
   const identityAndScene = [
     "1person",
     "adult",

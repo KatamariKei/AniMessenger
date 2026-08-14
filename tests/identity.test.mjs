@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildImagePrompt, inferOutfitCorrection, inferSceneCue, mergePromptTags, normalizeCharacterPhotoBrief, portraitExpression, portraitWardrobe, splitVisualTags } from "../server/identity.mjs";
+import { normalizeWardrobePrompt } from "../server/wardrobe.mjs";
 
 test("prompt tags are merged without repeating overlapping safeguards", () => {
   assert.equal(
@@ -62,6 +63,19 @@ test("ANIMA prompt uses scene clothing without reintroducing the default costume
   assert.match(prompt, /character-appropriate school uniform/);
   assert.doesNotMatch(prompt, /white mage robe/);
   assert.match(prompt, /adult, age 18 or older/);
+});
+
+test("plain-language empty clothing values become an explicit ANIMA wardrobe prompt", () => {
+  for (const value of ["none", "nothing", "no clothes", "no clothing", "nude", "naked"]) {
+    assert.equal(normalizeWardrobePrompt(value), "completely nude");
+  }
+  const prompt = buildImagePrompt(
+    { visual: { identity: ["blonde hair"], signature: [], defaultWardrobe: "blue dress" } },
+    { name: "Marie" },
+    { outfit: "none", location: "bedroom" },
+  );
+  assert.match(prompt, /completely nude/);
+  assert.doesNotMatch(prompt, /blue dress/);
 });
 
 test("ANIMA prompt uses a user-corrected default outfit", () => {

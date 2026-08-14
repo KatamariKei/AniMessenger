@@ -67,7 +67,7 @@
         { "name": "text", "type": "STRING", "widget": { "name": "text" }, "link": null }
       ],
       "outputs": [{ "name": "CONDITIONING", "type": "CONDITIONING", "links": [5] }],
-      "title": "Positive Prompt — exact CharaSMS prompt",
+      "title": "Positive Prompt — exact AniMessenger prompt",
       "properties": { "Node name for S&R": "CLIPTextEncode", "cnr_id": "comfy-core" },
       "widgets_values": [""], "color": "#232", "bgcolor": "#353"
     },
@@ -79,7 +79,7 @@
         { "name": "text", "type": "STRING", "widget": { "name": "text" }, "link": null }
       ],
       "outputs": [{ "name": "CONDITIONING", "type": "CONDITIONING", "links": [6] }],
-      "title": "Negative Prompt — exact CharaSMS prompt",
+      "title": "Negative Prompt — exact AniMessenger prompt",
       "properties": { "Node name for S&R": "CLIPTextEncode", "cnr_id": "comfy-core" },
       "widgets_values": [""], "color": "#223", "bgcolor": "#335"
     },
@@ -135,9 +135,9 @@
         { "name": "filename_prefix", "type": "STRING", "widget": { "name": "filename_prefix" }, "link": null }
       ],
       "outputs": [],
-      "title": "CharaSMS Output",
+      "title": "AniMessenger Output",
       "properties": { "Node name for S&R": "SaveImage", "cnr_id": "comfy-core" },
-      "widgets_values": ["CharaSMS/Unknown Character/1970-01-01/ANIMA"]
+      "widgets_values": ["AniMessenger/Unknown Character/1970-01-01/ANIMA"]
     }
   ],
   "links": [

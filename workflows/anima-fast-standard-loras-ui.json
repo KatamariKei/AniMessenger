@@ -362,7 +362,7 @@
           ]
         }
       ],
-      "title": "Positive Prompt — exact CharaSMS prompt",
+      "title": "Positive Prompt — exact AniMessenger prompt",
       "properties": {
         "Node name for S&R": "CLIPTextEncode",
         "cnr_id": "comfy-core"
@@ -411,7 +411,7 @@
           ]
         }
       ],
-      "title": "Negative Prompt — exact CharaSMS prompt",
+      "title": "Negative Prompt — exact AniMessenger prompt",
       "properties": {
         "Node name for S&R": "CLIPTextEncode",
         "cnr_id": "comfy-core"
@@ -661,13 +661,13 @@
         }
       ],
       "outputs": [],
-      "title": "CharaSMS Output",
+      "title": "AniMessenger Output",
       "properties": {
         "Node name for S&R": "SaveImage",
         "cnr_id": "comfy-core"
       },
       "widgets_values": [
-        "CharaSMS/Unknown Character/1970-01-01/ANIMA"
+        "AniMessenger/Unknown Character/1970-01-01/ANIMA"
       ]
     }
   ],

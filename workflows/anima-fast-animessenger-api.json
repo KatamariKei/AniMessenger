@@ -36,7 +36,7 @@
     "_meta": { "title": "KSampler" }
   },
   "14": {
-    "inputs": { "filename_prefix": "CharaSMS/Unknown Character/1970-01-01/ANIMA", "images": ["46", 0] },
+    "inputs": { "filename_prefix": "AniMessenger/Unknown Character/1970-01-01/ANIMA", "images": ["46", 0] },
     "class_type": "SaveImage",
     "_meta": { "title": "Save Image" }
   },

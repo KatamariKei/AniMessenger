@@ -4,13 +4,14 @@ import path from "node:path";
 import { checkAnimaDex, searchCharacters } from "./animadex.mjs";
 import { checkComfy, diagnoseComfy, fetchComfyImage, generationStatus, listComfyDiffusionModels, queueCharacterImage } from "./comfy.mjs";
 import { recoverClientTurn } from "./chat-recovery.mjs";
-import { dataDir, readConfig, rootDir, writeConfig } from "./config.mjs";
+import { appHomeDir, dataDir, readConfig, rootDir, writeConfig } from "./config.mjs";
 import { applyDisplayName } from "./display-name.mjs";
 import { appendCameoMessage, cameoInterjectionEligible, cameoPromptContext, GUEST_CAMEO_VERSION, normalizeCameoState, resumeCameoSession, routeCameoSpeakers, summarizeCameoEncounter, threadForCameoSpeaker } from "./guest-cameo.mjs";
 import { inferOutfitCorrection, inferSceneCue, portraitExpression, portraitWardrobe } from "./identity.mjs";
 import { loadImageJobEntries, saveImageJobEntries } from "./image-job-store.mjs";
 import { findRetryableImageMessage, replaceRetriedImage, retryPromptOverrides } from "./image-retry.mjs";
 import { buildCharacterProfile, chatAsCharacter, checkOllama, enforceAdultCharacterProfile, extractHistoricalMemories, generateProactiveOutreach, generateReactionFollowup, listOllamaModelOptions } from "./ollama.mjs";
+import { diagnoseOllamaGpu } from "./ollama-diagnostics.mjs";
 import { forgetMemory, mergeMemories } from "./memory.mjs";
 import { advancePhotoCadence, postponePhotoCadence, resetPhotoCadence } from "./photo-cadence.mjs";
 import { isExplicitPhotoRequest } from "./photo-request.mjs";
@@ -21,12 +22,18 @@ import { applyRelationshipDelta } from "./relationship.mjs";
 import { researchCharacter } from "./research.mjs";
 import { createThread, deleteThread, listThreads, listThreadSummaries, loadProfile, loadThread, readLocalAsset, saveProfile, saveThread, saveUpload } from "./store.mjs";
 import { applyVisualOverrides, effectiveVisual, preserveVisualOverrides } from "./visual-overrides.mjs";
-import { cancelImagePackInstall, detectComfyModelsDirectories, imagePackInstallStatus, imagePackStatus, readImageAssetManifest, startImagePackInstall } from "./image-installer.mjs";
+import { cancelImagePackInstall, detectComfyModelsDirectories, imagePackInstallStatus, imagePackStatus, prepareComfyOutputDirectory, readImageAssetManifest, startImagePackInstall } from "./image-installer.mjs";
+import { normalizeWardrobePrompt } from "./wardrobe.mjs";
 
 const port = Number(process.env.PORT || 5174);
 const host = process.env.HOST || "127.0.0.1";
 const serveDist = process.argv.includes("--serve-dist");
+const standalone = Boolean(process.env.ANIMESSENGER_HOME && serveDist);
+const managedDevelopment = process.env.ANIMESSENGER_DEV_MANAGED === "1";
+const canShutdown = standalone || managedDevelopment;
 const imageJobs = new Map(await loadImageJobEntries());
+const imageCompletionJobs = new Map();
+const imageRecoveryCheckedAt = new Map();
 const reactionResponseJobs = new Set();
 
 async function rememberImageJob(promptId, job) {
@@ -66,7 +73,7 @@ function sendBuffer(response, status, body, type) {
 }
 
 function isLoopbackOrigin(request) {
-  const origin = request.headers.origin;
+  const origin = request.headers.origin || request.headers.referer;
   if (!origin) return true;
   try {
     const hostname = new URL(origin).hostname.toLowerCase();
@@ -153,10 +160,27 @@ async function queueAvatarJob(config, thread) {
 }
 
 async function completeImageJob(config, promptId, status) {
+  const existing = imageCompletionJobs.get(promptId);
+  if (existing) return existing;
+  const completion = completeImageJobUnlocked(config, promptId, status);
+  imageCompletionJobs.set(promptId, completion);
+  try {
+    return await completion;
+  } finally {
+    if (imageCompletionJobs.get(promptId) === completion) imageCompletionJobs.delete(promptId);
+  }
+}
+
+async function completeImageJobUnlocked(config, promptId, status) {
   const job = imageJobs.get(promptId);
-  if (!job || job.appended) return null;
+  if (!job) return null;
   const thread = await loadThread(job.characterId);
   if (!thread) return null;
+  // Multiple browser tabs, an active watcher, and background recovery can all
+  // observe the same completed Comfy job. Reconnect every observer to the
+  // owning thread instead of returning a bare completion that looks like a new
+  // gallery image to the client.
+  if (job.appended) return thread;
   if (status.status === "error" && job.kind === "proactive") {
     const message = nowMessage("character", job.caption || "", {
       proactive: true,
@@ -206,6 +230,37 @@ async function completeImageJob(config, promptId, status) {
   });
   await rememberImageJob(promptId, { ...job, appended: true });
   return saved;
+}
+
+let imageRecoveryInFlight = false;
+async function recoverCompletedImageJobs() {
+  if (imageRecoveryInFlight) return;
+  const now = Date.now();
+  const pending = [...imageJobs.entries()].filter(([promptId, job]) => {
+    if (job.appended) return false;
+    const age = now - new Date(job.updatedAt || 0).getTime();
+    const retryAfter = age < 30 * 60 * 1000 ? 10_000 : 5 * 60 * 1000;
+    return now - (imageRecoveryCheckedAt.get(promptId) || 0) >= retryAfter;
+  });
+  if (!pending.length) return;
+  imageRecoveryInFlight = true;
+  try {
+    const config = await readConfig();
+    for (const [promptId, job] of pending) {
+      imageRecoveryCheckedAt.set(promptId, Date.now());
+      try {
+        const status = await generationStatus(config, promptId);
+        if (status.status === "complete" || (status.status === "error" && job.kind === "proactive")) {
+          await completeImageJob(config, promptId, status);
+          imageRecoveryCheckedAt.delete(promptId);
+        }
+      } catch {
+        // ComfyUI may be offline or still starting. The durable job remains for the next pass.
+      }
+    }
+  } finally {
+    imageRecoveryInFlight = false;
+  }
 }
 
 async function checkProactiveOutreach(config, activeCharacterId) {
@@ -327,6 +382,31 @@ async function handleApi(request, response, url) {
     sendJson(response, 204, {});
     return true;
   }
+  if (request.method === "GET" && url.pathname === "/api/runtime") {
+    sendJson(response, 200, {
+      standalone,
+      mode: standalone ? "installed" : managedDevelopment ? "development" : "unmanaged",
+      canShutdown: canShutdown && isLoopbackOrigin(request),
+    });
+    return true;
+  }
+  if (request.method === "POST" && url.pathname === "/api/runtime/shutdown") {
+    if (!canShutdown || !isLoopbackOrigin(request)) {
+      sendJson(response, 403, { error: "Shutdown is only available on the computer hosting AniMessenger." });
+      return true;
+    }
+    sendJson(response, 200, { ok: true });
+    setTimeout(() => {
+      void fs.rm(path.join(appHomeDir, "runtime", "server.pid"), { force: true }).catch(() => undefined);
+      if (managedDevelopment) {
+        try { process.kill(process.ppid, "SIGTERM"); } catch {}
+      }
+      server.close(() => process.exit(0));
+      server.closeAllConnections?.();
+      setTimeout(() => process.exit(0), 750).unref();
+    }, 150).unref();
+    return true;
+  }
   if (request.method === "GET" && url.pathname === "/api/health") {
     const [ollama, comfy, animadex] = await Promise.all([checkOllama(config), checkComfy(config), checkAnimaDex(config)]);
     sendJson(response, 200, { ok: true, ollama, comfy, animadex });
@@ -351,6 +431,20 @@ async function handleApi(request, response, url) {
       manifest,
     });
     sendJson(response, 200, { candidates });
+    return true;
+  }
+  if (request.method === "POST" && url.pathname === "/api/image-assets/output-directory") {
+    if (!isLoopbackOrigin(request)) {
+      sendJson(response, 403, { error: "For safety, prepare ComfyUI folders from AniMessenger on the host computer, not through the phone/LAN view." });
+      return true;
+    }
+    const body = await jsonBody(request);
+    sendJson(response, 200, {
+      outputDirectory: await prepareComfyOutputDirectory({
+        modelsDirectory: body.modelsDirectory || config.comfyModelsDir,
+        comfyUrl: config.comfyUrl,
+      }),
+    });
     return true;
   }
   if (request.method === "POST" && url.pathname === "/api/image-assets/status") {
@@ -388,6 +482,18 @@ async function handleApi(request, response, url) {
   }
   if (request.method === "GET" && url.pathname === "/api/ollama/models") {
     sendJson(response, 200, await listOllamaModelOptions(config));
+    return true;
+  }
+  if (request.method === "POST" && url.pathname === "/api/ollama/gpu-check") {
+    if (!isLoopbackOrigin(request)) {
+      sendJson(response, 403, { error: "Run the GPU performance check on the computer hosting AniMessenger." });
+      return true;
+    }
+    const body = await jsonBody(request);
+    sendJson(response, 200, await diagnoseOllamaGpu({ ...config, ollamaUrl: body.ollamaUrl || config.ollamaUrl }, {
+      model: body.model || config.chatModel,
+      optimize: Boolean(body.optimize),
+    }));
     return true;
   }
   if (request.method === "GET" && url.pathname === "/api/characters/search") {
@@ -637,7 +743,7 @@ async function handleApi(request, response, url) {
     if (!source) throw new Error("Build the character profile before editing its visual identity.");
     const profile = await saveProfile(applyVisualOverrides(source, body.reset ? null : body.overrides));
     const requestedCurrentOutfit = typeof body.currentOutfit === "string"
-      ? body.currentOutfit.replace(/\s+/g, " ").trim().slice(0, 500)
+      ? normalizeWardrobePrompt(body.currentOutfit).slice(0, 500)
       : "";
     const savedThread = thread ? await saveThread({
       ...thread,
@@ -987,4 +1093,7 @@ const server = http.createServer(async (request, response) => {
 
 server.listen(port, host, () => {
   console.log("AniMessenger local service listening on http://" + host + ":" + port);
+  void recoverCompletedImageJobs();
 });
+
+setInterval(() => void recoverCompletedImageJobs(), 10_000).unref();

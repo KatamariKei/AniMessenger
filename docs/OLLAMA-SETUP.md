@@ -108,6 +108,7 @@ AniMessenger only labels a model as photo-capable when the installed Ollama inst
 - Do not install every size unless you want to compare them. One model is enough.
 - Start with 12B when unsure. Move down to E2B if responses are too slow or the desktop hitches.
 - Running ComfyUI image generation and Ollama inference simultaneously increases GPU-memory pressure.
+- AniMessenger's guided setup includes **Check GPU use**. It briefly loads the selected chat model using Ollama's configured context and reads Ollama's reported GPU allocation. If the model is offloading to the CPU, **Optimize and retest** unloads other Ollama models and retries at a clearly labeled, conservative 4K diagnostic context; it does not alter drivers or delete models.
 - A very large context setting uses additional memory. More context is not always helpful if it makes the whole computer sluggish.
 - Windows may spill model data into shared system memory when VRAM fills. This can keep a model running, but often makes it dramatically slower.
 

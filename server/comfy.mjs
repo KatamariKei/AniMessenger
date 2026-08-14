@@ -50,7 +50,7 @@ export async function listComfyDiffusionModels(config) {
 }
 
 async function readJson(filePath, label) {
-  if (!filePath) throw new Error("Choose an ANIMA " + label + " file in CharaSMS settings.");
+  if (!filePath) throw new Error("Choose an ANIMA " + label + " file in AniMessenger Settings.");
   try {
     return JSON.parse(await fs.readFile(path.resolve(filePath), "utf8"));
   } catch (error) {
@@ -136,16 +136,16 @@ function normalizedModelName(value) {
   return path.basename(String(value || "")).replace(/\.safetensors$/i, "").toLowerCase();
 }
 
-async function outputFolderIssues(outputDir) {
+export async function outputFolderIssues(outputDir) {
   if (!outputDir) {
-    return [diagnosticIssue("output_not_configured", "warning", "ComfyUI output folder is not configured", "Images will load through ComfyUI, but saved galleries may be unavailable while ComfyUI is closed.")];
+    return [diagnosticIssue("output_not_configured", "warning", "Choose ComfyUI's finished-images folder", "In Image Setup, enter ComfyUI's output folder—usually the folder named output beside its models folder. This is not the models folder. Images can still load while ComfyUI is running, but saved galleries may be unavailable when it is closed.")];
   }
   try {
     const stat = await fs.stat(path.resolve(outputDir));
-    if (!stat.isDirectory()) return [diagnosticIssue("output_not_directory", "error", "The configured output path is not a folder", "Choose ComfyUI's output folder in AniMessenger Settings.")];
+    if (!stat.isDirectory()) return [diagnosticIssue("output_not_directory", "error", "The finished-images path is not a folder", "Choose ComfyUI's folder named output in Image Setup or AniMessenger Settings. It is separate from the models folder.")];
     return [];
   } catch {
-    return [diagnosticIssue("output_missing", "error", "The configured ComfyUI output folder does not exist", "Correct the folder path in Settings. Existing gallery records will remain intact.")];
+    return [diagnosticIssue("output_missing", "error", "The ComfyUI finished-images folder does not exist", "Correct the output-folder path in Image Setup or Settings. Existing gallery records will remain intact.")];
   }
 }
 
@@ -238,7 +238,7 @@ function safeOutputFolder(value) {
 export function characterImageOutputPrefix(thread, now = new Date()) {
   const characterName = thread?.character?.name || thread?.profile?.name || "Unknown Character";
   const date = now.toISOString().slice(0, 10);
-  return ["CharaSMS", safeOutputFolder(characterName), date, "ANIMA"].join("/");
+  return ["AniMessenger", safeOutputFolder(characterName), date, "ANIMA"].join("/");
 }
 
 function resolveCompanionFile(mappingFile, companionFile) {
@@ -323,7 +323,7 @@ export async function queueCharacterImage(config, thread, brief = "", overrides 
 
   const requestBody = {
     prompt: workflow,
-    client_id: "charasms-" + crypto.randomUUID(),
+    client_id: "animessenger-" + crypto.randomUUID(),
   };
   if (uiWorkflow) {
     requestBody.extra_data = { extra_pnginfo: { workflow: uiWorkflow } };

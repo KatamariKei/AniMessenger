@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { validateComfyObjectInfo, validateWorkflowMapping } from "../server/comfy.mjs";
+import { outputFolderIssues, validateComfyObjectInfo, validateWorkflowMapping } from "../server/comfy.mjs";
 import fs from "node:fs/promises";
 
 const workflow = {
@@ -27,6 +27,15 @@ const mapping = {
     filename_prefix: { node_id: "14", input: "filename_prefix" },
   },
 };
+
+test("missing output-folder guidance names the exact folder and setup location", async () => {
+  const [issue] = await outputFolderIssues("");
+  assert.equal(issue.code, "output_not_configured");
+  assert.match(issue.title, /finished-images folder/i);
+  assert.match(issue.detail, /Image Setup/i);
+  assert.match(issue.detail, /folder named output/i);
+  assert.match(issue.detail, /not the models folder/i);
+});
 
 test("validates every required AniMessenger workflow mapping", () => {
   assert.deepEqual(validateWorkflowMapping(workflow, mapping), []);

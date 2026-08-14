@@ -238,6 +238,21 @@ test("retries replace the recorded scene outfit with the latest current outfit",
   assert.match(overrides.positivePrompt, /dynamic action shot/);
 });
 
+test("retries translate a current outfit of none into an explicit nude prompt", () => {
+  const message = {
+    generation: {
+      positive: "quality, 1person, blonde hair, blue dress, bedroom",
+      negative: "low quality",
+      visualIdentity: ["blonde hair"],
+      sceneOutfit: "blue dress",
+    },
+  };
+  const profile = { visual: { identity: ["blonde hair"], signature: [], defaultWardrobe: "blue dress" } };
+  const overrides = retryPromptOverrides(message, { name: "Marie" }, {}, profile, "none");
+  assert.doesNotMatch(overrides.positivePrompt, /blue dress/);
+  assert.match(overrides.positivePrompt, /completely nude/);
+});
+
 test("legacy retries infer their scene outfit after the recorded visual identity", () => {
   const message = {
     generation: {

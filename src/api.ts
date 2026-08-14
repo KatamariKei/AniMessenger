@@ -197,6 +197,21 @@ export type OllamaModelCatalog = {
   recommendedVision: string;
 };
 
+export type OllamaGpuDiagnostics = {
+  status: "ready" | "partial" | "cpu";
+  model: string;
+  gpuPercent: number;
+  cpuPercent: number;
+  size: number;
+  sizeVram: number;
+  contextLength: number;
+  otherModels: string[];
+  warnings: string[];
+  optimized: boolean;
+  summary: string;
+  detail: string;
+};
+
 export type ComfyDiagnosticIssue = {
   code: string;
   severity: "error" | "warning" | "info";
@@ -275,6 +290,8 @@ async function request<T>(url: string, options?: RequestInit, timeoutMs = 30000)
 
 export const api = {
   health: () => request<{ ok: boolean; ollama: boolean; comfy: boolean; animadex: boolean }>("/api/health"),
+  runtime: () => request<{ standalone: boolean; mode: "installed" | "development" | "unmanaged"; canShutdown: boolean }>("/api/runtime"),
+  shutdown: () => request<{ ok: boolean }>("/api/runtime/shutdown", { method: "POST" }),
   config: () => request<AppConfig>("/api/config"),
   saveConfig: (config: AppConfig) => request<AppConfig>("/api/config", {
     method: "POST",
@@ -282,6 +299,11 @@ export const api = {
     body: JSON.stringify(config),
   }),
   models: () => request<OllamaModelCatalog>("/api/ollama/models"),
+  ollamaGpuCheck: (options: { ollamaUrl: string; model: string; optimize?: boolean }) => request<OllamaGpuDiagnostics>("/api/ollama/gpu-check", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(options),
+  }, 300000),
   comfyModels: () => request<ComfyModelCatalog>("/api/comfy/models"),
   comfyDiagnostics: (config: AppConfig) => request<ComfyDiagnostics>("/api/comfy/diagnostics", {
     method: "POST",
@@ -292,6 +314,11 @@ export const api = {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ modelsDirectory, outputDirectory }),
+  }),
+  prepareComfyOutputDirectory: (modelsDirectory: string) => request<{ outputDirectory: string }>("/api/image-assets/output-directory", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ modelsDirectory }),
   }),
   imagePackStatus: (modelsDirectory: string) => request<ImagePackStatus>("/api/image-assets/status", {
     method: "POST",

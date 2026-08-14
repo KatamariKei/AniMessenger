@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="public/animessenger-logo-v3.png" alt="AniMessenger" width="520">
+  <img src="public/animessenger-logo.svg" alt="AniMessenger" width="520">
 </p>
 
 <p align="center"><strong>An adventure in every chat.</strong></p>
 
 <p align="center">
-  <img src="docs/images/animessenger-main-v3.png" alt="AniMessenger desktop interface showing a local conversation with 2B" width="1100">
+  <img src="docs/images/animessenger-main.png" alt="AniMessenger desktop interface showing a local conversation with 2B" width="1100">
 </p>
 
 AniMessenger is a mobile-first, local character messenger powered by:
@@ -16,19 +16,33 @@ AniMessenger is a mobile-first, local character messenger powered by:
 
 Chats, profiles, memories, relationship state, and settings stay in local files on your computer. No hosted language model or hosted conversation database is required. AniMessenger uses the public AnimaDex catalogue by default, so a local AnimaDex installation is optional.
 
-Experimental guest chats allow one researched character to join an existing conversation. Private chats remain separate storylines: the guest sees only the shared encounter, while each character retains their own profile, voice, relationship, and earlier private history. Turn-taking follows direct address and conversational focus, with restrained character-driven interjections. Both participants can inspect an attached photo, send separate solo images, and carry meaningful relationship progress plus a bounded shared-event memory back into their private chat.
+Guest chats allow one researched character to join an existing conversation. Private chats remain separate storylines: the guest sees only the shared encounter, while each character retains their own profile, voice, relationship, and earlier private history. Turn-taking follows direct address and conversational focus, with restrained character-driven interjections. Both participants can inspect an attached photo, send separate solo images, and carry meaningful relationship progress plus a bounded shared-event memory back into their private chat.
 
 > AniMessenger is currently a pre-release project. Back up the `data/` folder before testing major changes.
 
 AniMessenger is available under the [MIT License](LICENSE). See the [changelog](CHANGELOG.md) for the current update. Before contributing or reporting a problem, review the [contribution guide](CONTRIBUTING.md), [privacy notes](PRIVACY.md), [content notice](CONTENT-NOTICE.md), and [security policy](SECURITY.md).
 
-## Requirements
+## Download AniMessenger for Windows
+
+**The self-contained Windows package is the recommended way to install AniMessenger.**
+
+### [Download the latest Windows release](https://github.com/KatamariKei/AniMessenger/releases/latest)
+
+1. Download and extract `AniMessenger-Windows-v0.3.1.zip`.
+2. Run `Install-AniMessenger.cmd` from the extracted folder.
+3. Use the AniMessenger tray icon to open, start, stop, or check for updates.
+
+The package includes AniMessenger's private Node.js runtime. **You do not need Git, Node.js, npm, or pnpm.** Updates preserve chats, profiles, memories, generated-image links, and local settings under `%LOCALAPPDATA%\AniMessenger`.
+
+The installer is not yet code-signed, so Windows may show a reputation warning. Only download releases from the official [KatamariKei/AniMessenger repository](https://github.com/KatamariKei/AniMessenger). See the full [Windows installation guide](docs/WINDOWS-INSTALLER.md) for setup, repair, update, and uninstall details.
+
+## What you need
 
 - Windows 10 or 11 is the currently tested platform;
-- Node.js 22.13 or newer;
-- pnpm 11 (Corepack can provide it);
 - Ollama with at least one local chat model;
 - ComfyUI only if you want generated profile pictures and chat images.
+
+Building from source additionally requires Git, Node.js 22.13 or newer, and pnpm 11. Packaged Windows users do not need those developer tools.
 
 The **Gemma 4 family is recommended for the best AniMessenger experience**. The suggested starting model is `gemma4:12b`; it can handle chat, profile building, and attached-photo reactions, so a first-time user only needs one Ollama model. Other compatible Ollama models remain supported and can be selected in Settings.
 
@@ -52,28 +66,32 @@ Choose a smaller or larger model based on available GPU memory:
 
 These are conservative starting points, not strict limits. Context length, quantization, other programs, and whether ComfyUI is generating an image at the same time all affect memory use. If Windows begins using shared GPU memory, responses can slow down or the desktop may hitch. Start with 12B when uncertain; move down to E2B if it is sluggish.
 
+During guided setup, select **Check GPU use** after choosing the chat model. AniMessenger briefly loads the model using Ollama's configured context and verifies its actual GPU allocation. If Ollama is partially or entirely using the CPU, **Optimize and retest** unloads competing Ollama models and repeats the check with a clearly labeled, conservative 4K diagnostic context. It never changes drivers or deletes models.
+
 All three recommended Gemma 4 variants accept both text and images. You do **not** need separate chat, profile, and vision downloads: choose one model for Chat, leave Profile on **Same as chat**, and select that same model for Vision.
 
 See [Ollama model setup](docs/OLLAMA-SETUP.md) for copy-and-paste commands, verification, troubleshooting, and more detailed hardware guidance. Model sizes and image-input support are documented on the official [Gemma 4 Ollama page](https://ollama.com/library/gemma4).
 
-## First run
+## First run with the Windows package
 
-1. Start Ollama and install a model. For the recommended setup, run `ollama pull gemma4:12b` in Command Prompt.
-2. Start ComfyUI if you want image generation.
-3. From the AniMessenger project folder, run:
+1. Install and start Ollama. For the recommended setup, run `ollama pull gemma4:12b` in Command Prompt.
+2. Install AniMessenger from the downloaded Windows ZIP and open it from the tray icon or desktop shortcut.
+3. Follow the guided setup to select the Ollama model. Start ComfyUI if you want image generation now, or add it later.
+4. Search for a character and start a chat. The first conversation builds and caches a local character profile, so it takes longer than later replies.
+
+AniMessenger can locate a standard ComfyUI `models` folder, verify the required image files, and download only missing recommended assets after you review the provider pages and terms.
+
+## Build from source
+
+From the cloned AniMessenger project folder, run:
 
        corepack enable
        pnpm install
        pnpm dev
 
-4. Open <http://127.0.0.1:5173>.
-5. Follow the guided setup to choose Ollama models and either configure images, use your own workflow, or add images later.
-6. For the recommended image setup, AniMessenger can locate the ComfyUI `models` folder, check the five required files, and download only the missing ones after you review the provider pages and terms.
-7. Search for a character and start a chat. The first conversation builds and caches a local character profile, so it takes longer than later replies.
+Then open <http://127.0.0.1:5173> and follow the same guided setup. Private runtime data remains outside Git.
 
-### Git-free Windows package (experimental)
-
-Run `npm run package:windows` to prepare an unpacked Windows test package under `release/AniMessenger-Windows`. Its PowerShell installer creates shortcuts and keeps private data under `%LOCALAPPDATA%\AniMessenger`, separate from replaceable application files. The current foundation still requires Node.js 22+, but it does not require Git or pnpm on the destination PC. See [Windows installer foundation](docs/WINDOWS-INSTALLER.md).
+Developers can run `npm run package:windows` to prepare the unpacked package and versioned ZIP under `release/`.
 
 ## Updating AniMessenger
 
@@ -141,9 +159,9 @@ Or verify an installed image pack, including full-file SHA-256 checksums:
 
 The separate `anima-fast-standard-loras-*` files remain an experimental three-LoRA workflow for manual testing; they are not selected for a fresh install.
 
-Use **Settings → Check image setup** to validate the API workflow, mapping targets, installed ComfyUI node types, model selections, LoRAs, and output folder without starting an image. The result identifies each missing component and explains where to correct it.
+Use **Settings → Check image setup** to validate the API workflow, mapping targets, installed ComfyUI node types, model selections, LoRAs, and output folder without starting an image. After AniMessenger finds a standard ComfyUI `models` folder, it creates and selects the neighboring `output` folder automatically. Custom output locations remain available as an advanced override.
 
-The optional ComfyUI output-folder setting lets saved conversations resolve their exact generated files even while ComfyUI is closed. Generated files are organized by character and date. The current folder prefix still uses the prototype name `CharaSMS` so existing galleries remain compatible.
+The optional ComfyUI output-folder setting lets saved conversations resolve their exact generated files even while ComfyUI is closed. Generated files are organized under `AniMessenger` by character and date. Existing galleries keep their saved file locations after an update.
 
 ## How characters work
 
@@ -181,13 +199,13 @@ The identity lock stays stable while contextual outfits can replace the default 
 
 These paths are deliberately excluded from the public repository:
 
-- `charasms.config.json` — local models, service addresses, prompts, and machine paths;
+- `animessenger.config.json` — local models, service addresses, prompts, and machine paths;
 - `data/profiles/` — cached character dossiers;
 - `data/threads/` — conversations, memories, relationships, and scene state;
 - `data/uploads/` — photos shared in chat;
 - `logs/`, `outputs/`, `work/`, and `backups/` — generated or diagnostic material.
 
-The `charasms` filename is retained internally for compatibility with existing installations. New users can edit `charasms.config.example.json` or save Settings in the interface to create their private local configuration.
+New users can edit `animessenger.config.example.json` or save Settings in the interface to create their private local configuration. Existing installations migrate their earlier local configuration automatically.
 
 Before publishing or packaging, run the release safety check. It inspects the proposed public files for local data, user-profile paths, private keys, and common API-token formats.
 
@@ -200,6 +218,6 @@ Before publishing or packaging, run the release safety check. It inspects the pr
     pnpm test            # unit tests
     pnpm check           # typecheck, tests, and production build
     pnpm release:audit   # public-file privacy and secret scan
-    npm run package:windows # build the experimental Git-free Windows package
+    npm run package:windows # build the self-contained Windows package and ZIP
 
 Current pre-release milestones are tracked in `docs/RELEASE-CHECKLIST.md`.

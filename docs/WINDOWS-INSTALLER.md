@@ -1,39 +1,79 @@
-# AniMessenger Windows installer foundation
+# AniMessenger Windows package
 
-This is the first Git-free Windows packaging path. It is intentionally conservative while the installer is tested.
+AniMessenger's self-contained Windows package is the Git-free installation path.
 
 ## What it does
 
-- copies AniMessenger into `%LOCALAPPDATA%\Programs\AniMessenger`;
-- stores chats, profiles, uploads, settings, logs, and recovery state separately in `%LOCALAPPDATA%\AniMessenger`;
-- creates Start menu and optional desktop shortcuts;
-- launches the production build on `http://127.0.0.1:5173`;
-- opens the existing first-run guide, which detects Ollama, ComfyUI, models, and workflows;
-- upgrades application files without deleting private local data.
+- carries a private, checksum-verified Node.js runtime used only by AniMessenger;
+- installs replaceable application files under `%LOCALAPPDATA%\Programs\AniMessenger`;
+- stores chats, profiles, uploads, settings, logs, and recovery state separately under `%LOCALAPPDATA%\AniMessenger`;
+- installs a branded tray companion and Start-menu/desktop shortcuts;
+- provides **Open AniMessenger**, **Start service**, **Stop service**, **Check for updates**, and **Quit AniMessenger** from the tray icon;
+- registers AniMessenger under **Windows Settings > Apps > Installed apps**;
+- distinguishes a first install, same-version repair, newer-version update, and intentional forced downgrade;
+- rolls the application folder back if replacement fails;
+- preserves private local data during repair, update, and normal uninstall.
 
-Rerunning a newer package is the current manual update path. Application folders are refreshed, while `%LOCALAPPDATA%\AniMessenger` remains untouched.
+Git, Node.js, npm, and pnpm are not required on the destination computer. Ollama and ComfyUI remain separate services because the right models depend heavily on the user's hardware. AniMessenger's guided setup detects what is missing and provides recovery guidance.
 
-## Current prerequisite
+## Download and install
 
-This foundation still requires Node.js 22 or newer. Git and a source checkout are not required. A later packaging pass can bundle a private Node runtime and remove this prerequisite without changing the storage layout.
+Download the Windows ZIP from the repository's [latest GitHub release](https://github.com/KatamariKei/AniMessenger/releases/latest), then:
 
-Ollama and ComfyUI remain separate optional services. AniMessenger explains what is missing during first run instead of silently installing multi-gigabyte AI software.
+1. Extract the ZIP to a normal folder.
+2. Double-click `Install-AniMessenger.cmd`.
+3. Allow the installer to finish and open AniMessenger.
+4. Look for the AniMessenger icon in the Windows notification area. Windows may initially place it behind the tray overflow arrow.
 
-## Build the test package
+The package is not yet code-signed, so Windows may show a reputation warning. Only install archives downloaded from the official AniMessenger repository.
+
+## Tray companion
+
+The tray icon is the installed app's control center:
+
+- double-click it to open AniMessenger;
+- **Open AniMessenger** starts the service when needed and opens the browser;
+- **Start service** runs AniMessenger without opening a browser;
+- **Stop service** stops the local AniMessenger service while leaving the tray available;
+- **Check for updates** opens the latest GitHub release;
+- **Quit AniMessenger** stops the service and closes the tray companion.
+
+Closing a browser tab does not stop AniMessenger. The in-app **Settings > Shut down AniMessenger** control stops the service; the tray remains available so it can be started again. These controls do not stop Ollama or ComfyUI and do not delete chats or settings.
+
+## Update or repair
+
+Extract a newly downloaded ZIP before running its installer.
+
+- No existing installation: **Install**.
+- Same version already present: **Repair**.
+- Newer package: **Update**.
+- Older package: blocked unless PowerShell is run with the explicit `-Force` switch.
+
+The installer closes the installed tray and service before replacing application files, then launches the updated tray. It does not move or rewrite `%LOCALAPPDATA%\AniMessenger`.
+
+## Build the package
 
 From the project directory, run:
 
     npm run package:windows
 
-The unpacked test package is written to `release\AniMessenger-Windows`. Run `Install-AniMessenger.ps1` from that folder. Windows may require **Run with PowerShell** because this is not yet a signed installer.
+The first build downloads the pinned official Node.js Windows x64 archive into the ignored `.runtime-cache` directory, verifies its SHA-256 checksum, and reuses it later. Windows' built-in .NET Framework compiler produces the small native tray executable. Finished outputs are written to:
 
-The existing developer copy continues using its project-local `data` folder and `charasms.config.json`; packaging does not move or modify it.
+    release\AniMessenger-Windows
+    release\AniMessenger-Windows-vVERSION.zip
 
-## Current update boundary
+## Uninstall
 
-- A packaged install and a source clone are separate installations.
-- The installer does not yet import a clone's chats or settings.
-- Automatic update checks, rollback, uninstall registration, code signing, and bundled Node are still pending.
-- Before installing an update, back up `%LOCALAPPDATA%\AniMessenger`.
+Use **Windows Settings > Apps > Installed apps > AniMessenger > Uninstall**. A normal uninstall removes application files, the tray companion, and shortcuts but preserves `%LOCALAPPDATA%\AniMessenger`, allowing a later reinstall to recover chats and settings.
 
-See [Updating AniMessenger](UPDATING.md) for the current clone and package update procedures.
+Deleting private data is deliberately separate. Advanced users can run `Uninstall-AniMessenger.ps1 -PurgeData` when they explicitly want to remove chats, profiles, settings, uploads, and logs too.
+
+## Current boundary
+
+- Windows x64 is the current packaged target.
+- The package is not yet code-signed.
+- Update discovery opens GitHub Releases; automatic download and installation are not implemented yet.
+- A packaged install and a source clone are separate installations; automatic clone-to-package migration is not implemented.
+- A clean-account and second-PC rehearsal is required for each release candidate.
+
+See [Updating AniMessenger](UPDATING.md) for source-clone and packaged-update procedures.

@@ -18,7 +18,7 @@ Keep changes focused and explain what they change from a user's perspective. Bef
     pnpm check
     pnpm release:audit
 
-Pull requests must not include files from `data/`, `logs/`, `outputs/`, `work/`, `backups/`, `.codex/`, `.agents/`, or a local `charasms.config.json`.
+Pull requests must not include files from `data/`, `logs/`, `outputs/`, `work/`, `backups/`, `.codex/`, `.agents/`, or a local `animessenger.config.json`.
 
 By contributing, you agree that your contribution may be distributed under the project's [MIT License](LICENSE).
 

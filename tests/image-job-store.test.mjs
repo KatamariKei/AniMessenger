@@ -24,3 +24,19 @@ test("pending image attribution survives a process restart", async () => {
   assert.deepEqual(reloaded.get(promptId), { ...job, caption: "still waiting" });
   await fs.rm(directory, { recursive: true, force: true });
 });
+
+test("overlapping image-job saves use independent temporary files", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "animessenger-image-jobs-overlap-"));
+  const filePath = path.join(directory, "image-jobs.json");
+  const updatedAt = new Date().toISOString();
+  const entries = new Map([
+    ["profile-job", { kind: "avatar", characterId: "marie", appended: false, updatedAt }],
+    ["chat-job", { kind: "retry", characterId: "marie", messageId: "photo-1", appended: false, updatedAt }],
+  ]);
+  await Promise.all([
+    saveImageJobEntries(entries.entries(), filePath),
+    saveImageJobEntries(entries.entries(), filePath),
+  ]);
+  assert.deepEqual(new Map(await loadImageJobEntries(Date.now(), filePath)), entries);
+  await fs.rm(directory, { recursive: true, force: true });
+});

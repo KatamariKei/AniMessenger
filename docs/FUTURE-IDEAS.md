@@ -2,7 +2,7 @@
 
 This document tracks experimental work and intentionally deferred concepts.
 
-## Guest character cameos — experimental implementation
+## Guest character cameos — current implementation
 
 Temporary guest appearances are now implemented for one already-researched character inside an existing chat.
 

@@ -37,6 +37,11 @@ test("profile rebuilds preserve user visual corrections", () => {
   assert.equal(effectiveVisual(preserveVisualOverrides(rebuilt, existing)).defaultWardrobe, "blue swimsuit");
 });
 
+test("a default wardrobe of none is saved as an explicit image prompt", () => {
+  const next = applyVisualOverrides(profile, { identity: ["orange hair"], signature: [], exceptions: [], defaultWardrobe: "none" });
+  assert.equal(effectiveVisual(next).defaultWardrobe, "completely nude");
+});
+
 test("profile rebuilds preserve a verified current identity", () => {
   const rebuilt = {
     ...profile,

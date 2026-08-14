@@ -10,6 +10,9 @@ const url = "http://127.0.0.1:" + port;
 const localAppData = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || root, "AppData", "Local");
 const appHome = process.env.ANIMESSENGER_HOME || path.join(localAppData, "AniMessenger");
 const logsDir = path.join(appHome, "logs");
+const runtimeDir = path.join(appHome, "runtime");
+const pidFile = path.join(runtimeDir, "server.pid");
+const shouldOpenBrowser = !process.argv.includes("--no-open");
 
 async function alreadyRunning() {
   try {
@@ -21,7 +24,8 @@ async function alreadyRunning() {
 }
 
 function openBrowser() {
-  const child = spawn("cmd.exe", ["/d", "/s", "/c", "start", "", url], {
+  const child = spawn("rundll32.exe", ["url.dll,FileProtocolHandler", url], {
+    cwd: process.env.SystemRoot || "C:\\Windows",
     windowsHide: true,
     detached: true,
     stdio: "ignore",
@@ -35,16 +39,18 @@ if (!fs.existsSync(path.join(root, "dist", "index.html"))) {
 }
 
 if (await alreadyRunning()) {
-  openBrowser();
+  if (shouldOpenBrowser) openBrowser();
   process.exit(0);
 }
 
 fs.mkdirSync(logsDir, { recursive: true });
+fs.mkdirSync(runtimeDir, { recursive: true });
 const stdout = fs.openSync(path.join(logsDir, "runtime.out.log"), "a");
 const stderr = fs.openSync(path.join(logsDir, "runtime.err.log"), "a");
 const server = spawn(process.execPath, [path.join(root, "server", "index.mjs"), "--serve-dist"], {
   cwd: root,
   windowsHide: true,
+  detached: true,
   env: {
     ...process.env,
     PORT: String(port),
@@ -53,6 +59,7 @@ const server = spawn(process.execPath, [path.join(root, "server", "index.mjs"), 
   },
   stdio: ["ignore", stdout, stderr],
 });
+fs.writeFileSync(pidFile, String(server.pid || ""), "utf8");
 
 let ready = false;
 for (let attempt = 0; attempt < 40; attempt += 1) {
@@ -67,9 +74,10 @@ for (let attempt = 0; attempt < 40; attempt += 1) {
 if (!ready) {
   console.error("AniMessenger could not start. Review " + path.join(logsDir, "runtime.err.log") + ".");
   server.kill();
+  fs.rmSync(pidFile, { force: true });
   process.exit(1);
 }
 
-openBrowser();
+if (shouldOpenBrowser) openBrowser();
 console.log("AniMessenger is running at " + url + ". This window can be closed; your chats are stored in " + appHome + ".");
 server.unref();

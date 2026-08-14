@@ -24,6 +24,55 @@ export async function validateModelsDirectory(directory) {
   return resolved;
 }
 
+export async function ensureStandardComfyOutputDirectory(modelsDirectory) {
+  const models = await validateModelsDirectory(modelsDirectory);
+  const outputDirectory = path.join(path.dirname(models), "output");
+  await fsp.mkdir(outputDirectory, { recursive: true });
+  const stats = await fsp.stat(outputDirectory).catch(() => null);
+  if (!stats?.isDirectory()) throw new Error("AniMessenger could not prepare ComfyUI's output folder.");
+  return outputDirectory;
+}
+
+export function comfyOutputDirectoryFromSystemStats(payload) {
+  const argv = Array.isArray(payload?.system?.argv) ? payload.system.argv.map((value) => String(value)) : [];
+  const argument = (name) => {
+    const direct = argv.findIndex((value) => value === name);
+    if (direct >= 0 && argv[direct + 1]) return argv[direct + 1];
+    const inline = argv.find((value) => value.startsWith(`${name}=`));
+    return inline ? inline.slice(name.length + 1) : "";
+  };
+  const output = argument("--output-directory");
+  if (output && path.isAbsolute(output)) return path.resolve(output);
+  const base = argument("--base-directory");
+  return base && path.isAbsolute(base) ? path.resolve(base, "output") : "";
+}
+
+export async function prepareComfyOutputDirectory({ modelsDirectory, comfyUrl = "" } = {}) {
+  const models = await validateModelsDirectory(modelsDirectory);
+  let outputDirectory = "";
+  try {
+    const target = new URL(comfyUrl);
+    if (!["127.0.0.1", "localhost", "[::1]"].includes(target.hostname)) throw new Error("ComfyUI is not local.");
+    const response = await fetch(new URL("/system_stats", target), { signal: AbortSignal.timeout(3000) });
+    if (response.ok) outputDirectory = comfyOutputDirectoryFromSystemStats(await response.json());
+  } catch {
+    // Older and custom ComfyUI launches may not expose a usable base directory.
+  }
+  if (!outputDirectory) {
+    const root = path.dirname(models);
+    const markers = [path.join(root, "main.py"), path.join(root, "ComfyUI", "main.py")];
+    const looksLikeComfyRoot = (await Promise.all(markers.map((marker) => fsp.stat(marker).catch(() => null)))).some((stats) => stats?.isFile());
+    if (!looksLikeComfyRoot) {
+      throw new Error("Start ComfyUI so AniMessenger can locate its output folder, or open the custom output-folder option below.");
+    }
+    outputDirectory = path.join(root, "output");
+  }
+  await fsp.mkdir(outputDirectory, { recursive: true });
+  const stats = await fsp.stat(outputDirectory).catch(() => null);
+  if (!stats?.isDirectory()) throw new Error("AniMessenger could not prepare ComfyUI's output folder.");
+  return outputDirectory;
+}
+
 async function usableModelsDirectory(directory) {
   try {
     return await validateModelsDirectory(directory);

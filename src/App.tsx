@@ -1,6 +1,6 @@
 import { ChangeEvent, FormEvent, TouchEvent as ReactTouchEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { api, AnimaCharacter, AppConfig, ComfyDiagnostics, ImageInstallJob, ImagePackStatus, Message, Thread } from "./api";
+import { api, AnimaCharacter, AppConfig, ComfyDiagnostics, ImageInstallJob, ImagePackStatus, Message, OllamaGpuDiagnostics, Thread } from "./api";
 
 const accentPalette = ["#a8e6c6", "#61e8df", "#ef9caa", "#ff8d76", "#d5d0c7", "#d7a57c", "#bda4ff"];
 const emojiCatalog = [
@@ -310,9 +310,10 @@ type ImagePackInstallerProps = {
   modelsDirectory: string;
   outputDirectory?: string;
   onModelsDirectoryChange: (value: string) => void;
+  onOutputDirectoryChange: (value: string) => void;
 };
 
-function ImagePackInstaller({ modelsDirectory, outputDirectory = "", onModelsDirectoryChange }: ImagePackInstallerProps) {
+function ImagePackInstaller({ modelsDirectory, outputDirectory = "", onModelsDirectoryChange, onOutputDirectoryChange }: ImagePackInstallerProps) {
   const [status, setStatus] = useState<ImagePackStatus | null>(null);
   const [job, setJob] = useState<ImageInstallJob | null>(null);
   const [checking, setChecking] = useState(false);
@@ -327,7 +328,12 @@ function ImagePackInstaller({ modelsDirectory, outputDirectory = "", onModelsDir
     setChecking(true);
     setError("");
     try {
-      setStatus(await api.imagePackStatus(directory));
+      const nextStatus = await api.imagePackStatus(directory);
+      setStatus(nextStatus);
+      if (!outputDirectory.trim()) {
+        const prepared = await api.prepareComfyOutputDirectory(nextStatus.modelsDirectory);
+        onOutputDirectoryChange(prepared.outputDirectory);
+      }
     } catch (reason) {
       setStatus(null);
       setError(reason instanceof Error ? reason.message : "The model folder could not be checked.");
@@ -399,7 +405,6 @@ function ImagePackInstaller({ modelsDirectory, outputDirectory = "", onModelsDir
   const active = Boolean(job && ["queued", "downloading"].includes(job.status));
   const repairNeeded = Boolean(status?.assets.some((asset) => asset.state === "invalid"));
   const progress = job?.totalBytes ? Math.min(100, Math.round((job.completedBytes / job.totalBytes) * 100)) : 0;
-
   return (
     <section className="image-pack-installer" aria-label="Recommended image files">
       <div className="image-pack-heading">
@@ -409,7 +414,17 @@ function ImagePackInstaller({ modelsDirectory, outputDirectory = "", onModelsDir
       <label className="image-pack-folder">
         <span>ComfyUI models folder</span>
         <div><input value={modelsDirectory} onChange={(event) => { onModelsDirectoryChange(event.target.value); setStatus(null); }} placeholder="Example: C:\ComfyUI\models" disabled={active} /><button type="button" onClick={() => void scan()} disabled={!modelsDirectory.trim() || checking || active}>{checking ? "Checking…" : "Scan"}</button></div>
+        <small>Contains ComfyUI's diffusion_models, text_encoders, VAE, and LoRA folders.</small>
       </label>
+      {outputDirectory.trim() && <p className="image-pack-output-ready"><i /><span><strong>Finished-images folder ready</strong><small>{outputDirectory}</small></span></p>}
+      <details className="image-pack-custom-output">
+        <summary>Use a custom ComfyUI output folder</summary>
+        <label className="image-pack-folder">
+          <span>Custom finished-images folder</span>
+          <input value={outputDirectory} onChange={(event) => onOutputDirectoryChange(event.target.value)} placeholder="Example: C:\ComfyUI\output" disabled={active} />
+          <small>AniMessenger normally creates and selects the standard <b>output</b> folder beside ComfyUI's models folder automatically.</small>
+        </label>
+      </details>
 
       {status && (
         <div className={`image-pack-summary ${status.allInstalled ? "ready" : ""}`} aria-live="polite">
@@ -441,6 +456,45 @@ function ImagePackInstaller({ modelsDirectory, outputDirectory = "", onModelsDir
   );
 }
 
+function OllamaGpuCheck({ ollamaUrl, model }: { ollamaUrl: string; model: string }) {
+  const [result, setResult] = useState<OllamaGpuDiagnostics | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState("");
+
+  const check = async (optimize = false) => {
+    setChecking(true);
+    setError("");
+    try {
+      setResult(await api.ollamaGpuCheck({ ollamaUrl, model, optimize }));
+    } catch (reason) {
+      setResult(null);
+      setError(reason instanceof Error ? reason.message : "GPU acceleration could not be checked.");
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  useEffect(() => {
+    setResult(null);
+    setError("");
+  }, [ollamaUrl, model]);
+
+  return (
+    <div className="ollama-gpu-check">
+      <div className="ollama-gpu-head">
+        <span><strong>Chat performance check</strong><small>Loads this model briefly and verifies whether Ollama is really using the GPU.</small></span>
+        <button type="button" onClick={() => void check(false)} disabled={!model || checking}>{checking ? "Testing…" : result ? "Check again" : "Check GPU use"}</button>
+      </div>
+      {result && <div className={`ollama-gpu-result is-${result.status}`} role="status">
+        <i />
+        <span><strong>{result.summary}</strong><small>{result.detail}</small>{result.otherModels.length > 0 && <em>Also loaded: {result.otherModels.join(", ")}</em>}</span>
+        {result.status !== "ready" && <button type="button" onClick={() => void check(true)} disabled={checking}>Optimize and retest</button>}
+      </div>}
+      {error && <p className="image-pack-message error">{error}</p>}
+    </div>
+  );
+}
+
 function Settings({ initial, onClose, onSaved, onOpenSetup }: SettingsProps) {
   const [config, setConfig] = useState(initial);
   const [models, setModels] = useState<string[]>([]);
@@ -451,6 +505,10 @@ function Settings({ initial, onClose, onSaved, onOpenSetup }: SettingsProps) {
   const [comfyDiagnostics, setComfyDiagnostics] = useState<ComfyDiagnostics | null>(null);
   const [error, setError] = useState("");
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [canShutdown, setCanShutdown] = useState(false);
+  const [confirmShutdown, setConfirmShutdown] = useState(false);
+  const [shuttingDown, setShuttingDown] = useState(false);
+  const [shutdownComplete, setShutdownComplete] = useState(false);
   const cardRef = useRef<HTMLFormElement>(null);
   const discardRef = useRef<HTMLElement>(null);
   const dirty = JSON.stringify(config) !== JSON.stringify(initial);
@@ -464,6 +522,7 @@ function Settings({ initial, onClose, onSaved, onOpenSetup }: SettingsProps) {
 
   useEffect(() => {
     api.models().then((result) => setModels(result.models)).catch(() => undefined);
+    api.runtime().then((result) => setCanShutdown(result.canShutdown)).catch(() => undefined);
     api.comfyModels().then((result) => {
       setComfyModels(result.models);
       setComfyWorkflowDefault(result.workflowDefault);
@@ -510,72 +569,109 @@ function Settings({ initial, onClose, onSaved, onOpenSetup }: SettingsProps) {
     }
   };
 
+  const shutdown = async () => {
+    setShuttingDown(true);
+    setError("");
+    try {
+      await api.shutdown();
+      setShutdownComplete(true);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "AniMessenger could not shut down cleanly.");
+      setShuttingDown(false);
+      setConfirmShutdown(false);
+    }
+  };
+
   return (
     <div className="profile-layer settings-layer" role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={requestClose}>
       <form ref={cardRef} className="settings-card" onSubmit={save} onClick={(event) => event.stopPropagation()} tabIndex={-1}>
-        <button type="button" className="profile-close" onClick={requestClose} aria-label="Close settings">×</button>
-        <div className="settings-brand">
-          <div className="brand-lockup"><img src="/animessenger-logo.svg?v=3" alt="ANIMESSENGER" /></div>
-          <span id="settings-title">Settings</span>
-        </div>
-        <p className="eyebrow">Local connections</p>
-        <p>Everything stays on this machine. Point ANIMESSENGER at the services you already run.</p>
-        <button type="button" className="settings-guide-link" onClick={onOpenSetup}>Run the guided setup</button>
-        <div className="settings-grid">
-          <label className="settings-wide"><span>Your name or nickname</span><input value={config.userName || ""} onChange={(e) => update("userName", e.target.value)} placeholder="What characters should call you" autoComplete="nickname" /></label>
-          <label><span>Ollama URL</span><input value={config.ollamaUrl} onChange={(e) => update("ollamaUrl", e.target.value)} /></label>
-          <label><span>Chat model</span><input list="ollama-models" value={config.chatModel} onChange={(e) => update("chatModel", e.target.value)} placeholder="e.g. qwen3:14b" /></label>
-          <label><span>Profile model</span><input list="ollama-models" value={config.profileModel} onChange={(e) => update("profileModel", e.target.value)} placeholder="Defaults to chat model" /></label>
-          <label><span>Vision model</span><input list="ollama-models" value={config.visionModel} onChange={(e) => update("visionModel", e.target.value)} placeholder="For reacting to your photos" /></label>
-          <datalist id="ollama-models">{models.map((model) => <option value={model} key={model} />)}</datalist>
-          <label><span>AnimaDex URL</span><input value={config.animadexUrl} onChange={(e) => update("animadexUrl", e.target.value)} /></label>
-          <label><span>ComfyUI URL</span><input value={config.comfyUrl} onChange={(e) => update("comfyUrl", e.target.value)} /></label>
-          <label className="settings-wide"><span>ComfyUI output folder</span><input value={config.comfyOutputDir} onChange={(e) => update("comfyOutputDir", e.target.value)} placeholder="Optional; keeps completed images available while ComfyUI is closed" /></label>
-          <label className="settings-wide"><span>ComfyUI models folder</span><input value={config.comfyModelsDir} onChange={(e) => update("comfyModelsDir", e.target.value)} placeholder="Used by the recommended image-pack installer" /></label>
-          <label className="settings-wide"><span>ANIMA diffusion model</span><select value={config.comfyDiffusionModel || ""} onChange={(e) => update("comfyDiffusionModel", e.target.value)}><option value="">Workflow default{comfyWorkflowDefault ? ` · ${comfyWorkflowDefault}` : ""}</option>{config.comfyDiffusionModel && !comfyModels.includes(config.comfyDiffusionModel) && <option value={config.comfyDiffusionModel}>{config.comfyDiffusionModel} · Not currently available</option>}{comfyModels.map((model) => <option value={model} key={model}>{model}</option>)}</select><small className="settings-field-help">Select an installed UNET model from ComfyUI. This applies to profile pictures, new images, and retries.</small></label>
-          <label className="settings-wide"><span>ANIMA workflow file</span><input value={config.comfyWorkflowFile} onChange={(e) => update("comfyWorkflowFile", e.target.value)} placeholder="C:\...\anima-workflow-api.json" /></label>
-          <label className="settings-wide"><span>Workflow mapping file</span><input value={config.comfyMappingFile} onChange={(e) => update("comfyMappingFile", e.target.value)} placeholder="C:\...\anima-workflow.mapping.json" /></label>
-          <div className="settings-wide comfy-diagnostics">
-            <div className="comfy-diagnostics-head">
-              <span><strong>Image setup check</strong><small>Checks files, mapped nodes, installed models, LoRAs, and gallery recovery.</small></span>
-              <button type="button" onClick={() => void checkImageSetup()} disabled={diagnosingComfy}>{diagnosingComfy ? "Checking…" : "Check image setup"}</button>
-            </div>
-            {comfyDiagnostics && (
-              <div className={"comfy-diagnostics-result is-" + comfyDiagnostics.status}>
-                <p><i />{comfyDiagnostics.summary}</p>
-                {comfyDiagnostics.issues.length > 0 && <ul>{comfyDiagnostics.issues.map((issue) => (
-                  <li className={"is-" + issue.severity} key={issue.code}><strong>{issue.title}</strong><span>{issue.detail}</span></li>
-                ))}</ul>}
-              </div>
-            )}
+        <header className="settings-header">
+          <div className="settings-brand">
+            <div className="brand-lockup"><img src="/animessenger-logo.svg?v=3" alt="ANIMESSENGER" /></div>
+            <span id="settings-title">Settings</span>
           </div>
-          <label className="settings-wide"><span>Global positive prompt</span><textarea rows={3} value={config.globalPositivePrompt} onChange={(e) => update("globalPositivePrompt", e.target.value)} /></label>
-          <label className="settings-wide"><span>Global negative prompt</span><textarea rows={3} value={config.globalNegativePrompt} onChange={(e) => update("globalNegativePrompt", e.target.value)} /></label>
-          <label className="toggle-row settings-wide">
-            <input type="checkbox" checked={config.researchEnabled} onChange={(e) => update("researchEnabled", e.target.checked)} />
-            <span>Research character background with Wikipedia before Ollama builds the profile</span>
-          </label>
-          <label className="toggle-row settings-wide">
-            <input type="checkbox" checked={config.proactiveEnabled} onChange={(e) => update("proactiveEnabled", e.target.checked)} />
-            <span>Allow trusted characters to reach out while ANIMESSENGER is open</span>
-          </label>
-          <label className="settings-wide"><span>Proactive message pace</span>
-            <select value={config.proactivePace} onChange={(e) => update("proactivePace", e.target.value)} disabled={!config.proactiveEnabled}>
-              <option value="relaxed">Relaxed</option>
-              <option value="normal">Normal</option>
-              <option value="lively">Lively · faster testing</option>
-              <option value="off">Off</option>
-            </select>
-          </label>
-          <label><span>Messages may start</span><input type="time" value={config.proactiveDeliveryStart || "08:00"} onChange={(e) => update("proactiveDeliveryStart", e.target.value)} disabled={!config.proactiveEnabled || config.proactivePace === "off"} /></label>
-          <label><span>Messages pause at</span><input type="time" value={config.proactiveDeliveryEnd || "23:00"} onChange={(e) => update("proactiveDeliveryEnd", e.target.value)} disabled={!config.proactiveEnabled || config.proactivePace === "off"} /></label>
+          <button type="button" className="profile-close" onClick={requestClose} aria-label="Close settings">×</button>
+        </header>
+        <div className="settings-scroll">
+          <div className="settings-intro">
+            <div><p className="eyebrow">Your experience</p><p>Choose the models, images, and message behavior that shape AniMessenger.</p></div>
+            <button type="button" className="settings-guide-link" onClick={onOpenSetup}>Run guided setup</button>
+          </div>
+
+          <section className="settings-section">
+            <div className="settings-section-heading"><h3>You and your characters</h3><p>How characters address you and how their profiles are researched.</p></div>
+            <div className="settings-grid">
+              <label className="settings-wide"><span>Your name or nickname</span><input value={config.userName || ""} onChange={(e) => update("userName", e.target.value)} placeholder="What characters should call you" autoComplete="nickname" /></label>
+              <label className="toggle-row settings-wide"><input type="checkbox" checked={config.researchEnabled} onChange={(e) => update("researchEnabled", e.target.checked)} /><span>Research character background before building a profile</span></label>
+            </div>
+          </section>
+
+          <section className="settings-section">
+            <div className="settings-section-heading"><h3>Local AI models</h3><p>Chat drives conversation. Profile builds personalities. Vision looks at photos you attach.</p></div>
+            <div className="settings-grid">
+              <label><span>Chat model</span><input list="ollama-models" value={config.chatModel} onChange={(e) => update("chatModel", e.target.value)} placeholder="Choose an Ollama model" /></label>
+              <label><span>Profile model</span><input list="ollama-models" value={config.profileModel} onChange={(e) => update("profileModel", e.target.value)} placeholder="Defaults to chat model" /></label>
+              <label className="settings-wide"><span>Vision model</span><input list="ollama-models" value={config.visionModel} onChange={(e) => update("visionModel", e.target.value)} placeholder="For reacting to your photos" /></label>
+              <datalist id="ollama-models">{models.map((model) => <option value={model} key={model} />)}</datalist>
+              <div className="settings-wide"><OllamaGpuCheck ollamaUrl={config.ollamaUrl} model={config.chatModel} /></div>
+            </div>
+          </section>
+
+          <section className="settings-section">
+            <div className="settings-section-heading"><h3>Character images</h3><p>Select your ANIMA model and keep generated images connected to the gallery.</p></div>
+            <div className="settings-grid">
+              <label className="settings-wide"><span>ANIMA diffusion model</span><select value={config.comfyDiffusionModel || ""} onChange={(e) => update("comfyDiffusionModel", e.target.value)}><option value="">Workflow default{comfyWorkflowDefault ? ` · ${comfyWorkflowDefault}` : ""}</option>{config.comfyDiffusionModel && !comfyModels.includes(config.comfyDiffusionModel) && <option value={config.comfyDiffusionModel}>{config.comfyDiffusionModel} · Not currently available</option>}{comfyModels.map((model) => <option value={model} key={model}>{model}</option>)}</select><small className="settings-field-help">Used for profile pictures, new images, and retries.</small></label>
+              <label className="settings-wide"><span>Finished-images folder</span><input value={config.comfyOutputDir} onChange={(e) => update("comfyOutputDir", e.target.value)} placeholder="Example: C:\ComfyUI\output" /><small>Keeping this connected makes galleries available even while ComfyUI is closed.</small></label>
+              <div className="settings-wide comfy-diagnostics">
+                <div className="comfy-diagnostics-head"><span><strong>Image setup check</strong><small>Verify the workflow, models, LoRAs, and gallery recovery.</small></span><button type="button" onClick={() => void checkImageSetup()} disabled={diagnosingComfy}>{diagnosingComfy ? "Checking…" : "Check setup"}</button></div>
+                {comfyDiagnostics && <div className={"comfy-diagnostics-result is-" + comfyDiagnostics.status}><p><i />{comfyDiagnostics.summary}</p>{comfyDiagnostics.issues.length > 0 && <ul>{comfyDiagnostics.issues.map((issue) => <li className={"is-" + issue.severity} key={issue.code}><strong>{issue.title}</strong><span>{issue.detail}</span></li>)}</ul>}</div>}
+              </div>
+            </div>
+            <details className="settings-advanced">
+              <summary>Advanced image setup</summary>
+              <div className="settings-grid">
+                <label className="settings-wide"><span>ComfyUI models folder</span><input value={config.comfyModelsDir} onChange={(e) => update("comfyModelsDir", e.target.value)} placeholder="Used by the recommended image-pack installer" /></label>
+                <label className="settings-wide"><span>ANIMA workflow file</span><input value={config.comfyWorkflowFile} onChange={(e) => update("comfyWorkflowFile", e.target.value)} placeholder="C:\...\anima-workflow-api.json" /></label>
+                <label className="settings-wide"><span>Workflow mapping file</span><input value={config.comfyMappingFile} onChange={(e) => update("comfyMappingFile", e.target.value)} placeholder="C:\...\anima-workflow.mapping.json" /></label>
+              </div>
+            </details>
+          </section>
+
+          <details className="settings-section settings-advanced settings-prompt-section">
+            <summary><span><strong>Image quality prompts</strong><small>Global positive and negative guidance applied to every generation.</small></span></summary>
+            <div className="settings-grid">
+              <label className="settings-wide"><span>Global positive prompt</span><textarea rows={4} value={config.globalPositivePrompt} onChange={(e) => update("globalPositivePrompt", e.target.value)} /></label>
+              <label className="settings-wide"><span>Global negative prompt</span><textarea rows={4} value={config.globalNegativePrompt} onChange={(e) => update("globalNegativePrompt", e.target.value)} /></label>
+            </div>
+          </details>
+
+          <section className="settings-section">
+            <div className="settings-section-heading"><h3>Proactive messages</h3><p>Control when trusted characters can reach out on their own.</p></div>
+            <div className="settings-grid">
+              <label className="toggle-row settings-wide"><input type="checkbox" checked={config.proactiveEnabled} onChange={(e) => update("proactiveEnabled", e.target.checked)} /><span>Allow trusted characters to reach out while AniMessenger is open</span></label>
+              <label className="settings-wide"><span>Message pace</span><select value={config.proactivePace} onChange={(e) => update("proactivePace", e.target.value)} disabled={!config.proactiveEnabled}><option value="relaxed">Relaxed</option><option value="normal">Normal</option><option value="lively">Lively · faster testing</option><option value="off">Off</option></select></label>
+              <label><span>May start</span><input type="time" value={config.proactiveDeliveryStart || "08:00"} onChange={(e) => update("proactiveDeliveryStart", e.target.value)} disabled={!config.proactiveEnabled || config.proactivePace === "off"} /></label>
+              <label><span>Pause at</span><input type="time" value={config.proactiveDeliveryEnd || "23:00"} onChange={(e) => update("proactiveDeliveryEnd", e.target.value)} disabled={!config.proactiveEnabled || config.proactivePace === "off"} /></label>
+            </div>
+          </section>
+
+          <details className="settings-section settings-advanced settings-connections">
+            <summary><span><strong>Connection addresses</strong><small>Only change these when a local service uses a different address.</small></span></summary>
+            <div className="settings-grid"><label><span>Ollama URL</span><input value={config.ollamaUrl} onChange={(e) => update("ollamaUrl", e.target.value)} /></label><label><span>ComfyUI URL</span><input value={config.comfyUrl} onChange={(e) => update("comfyUrl", e.target.value)} /></label><label className="settings-wide"><span>AnimaDex URL</span><input value={config.animadexUrl} onChange={(e) => update("animadexUrl", e.target.value)} /></label></div>
+          </details>
+
+          {canShutdown && <section className="settings-shutdown">
+            <div><strong>Finished for now?</strong><span>Stops AniMessenger on this computer. Ollama and ComfyUI keep their current state.</span></div>
+            {!confirmShutdown ? <button type="button" onClick={() => setConfirmShutdown(true)}>Shut down AniMessenger</button> : <div className="settings-shutdown-confirm"><button type="button" onClick={() => setConfirmShutdown(false)} disabled={shuttingDown}>Cancel</button><button type="button" onClick={() => void shutdown()} disabled={shuttingDown}>{shuttingDown ? "Shutting down…" : "Yes, shut down"}</button></div>}
+          </section>}
+          {error && <p className="form-error">{error}</p>}
         </div>
-        {error && <p className="form-error">{error}</p>}
         <div className="settings-actions">
           <button type="button" onClick={requestClose}>Cancel</button>
           <button type="submit" disabled={saving}>{saving ? "Saving…" : "Save locally"}</button>
         </div>
         {confirmDiscard && <div className="discard-confirm" role="alertdialog" aria-modal="true" aria-labelledby="settings-discard-title"><section ref={discardRef} tabIndex={-1}><strong id="settings-discard-title">Discard unsaved changes?</strong><p>Your settings edits have not been saved.</p><div><button type="button" onClick={() => setConfirmDiscard(false)}>Keep editing</button><button type="button" className="discard-button" onClick={onClose}>Discard</button></div></section></div>}
+        {shutdownComplete && <div className="shutdown-complete" role="status"><img src="/animessenger-icon.svg" alt="" /><strong>AniMessenger is shut down.</strong><p>Your chats are safe. You can close this browser tab and use the AniMessenger tray icon or shortcut when you want to return.</p></div>}
       </form>
     </div>
   );
@@ -788,8 +884,9 @@ function VisualIdentityEditor({ thread, onClose, onSaved }: { thread: Thread; on
 
 type ConnectionHealth = { ollama: boolean; comfy: boolean; animadex: boolean };
 
-function ServiceRecovery({ health, ready, mode, checking, onRetry, onSetup }: {
+function ServiceRecovery({ health, serviceReachable, ready, mode, checking, onRetry, onSetup }: {
   health: ConnectionHealth;
+  serviceReachable: boolean;
   ready: boolean;
   mode: "chats" | "discover";
   checking: boolean;
@@ -797,12 +894,14 @@ function ServiceRecovery({ health, ready, mode, checking, onRetry, onSetup }: {
   onSetup?: () => void;
 }) {
   const issue = !ready ? null
+    : !serviceReachable
+      ? { title: "AniMessenger is stopped", detail: "Start it from the AniMessenger tray icon or shortcut, then check again.", optional: false, retryLabel: "Check again", allowSetup: false }
     : !health.ollama
-      ? { title: "Chat is offline", detail: "Start Ollama, then retry the connection.", optional: false }
+      ? { title: "Chat is offline", detail: "AniMessenger is running, but Ollama is not connected. Start Ollama, then retry.", optional: false, retryLabel: "Retry", allowSetup: true }
       : mode === "discover" && !health.animadex
-        ? { title: "Using the offline character preview", detail: "Existing chats still work. Retry when AnimaDex is available for the full catalogue.", optional: true }
+        ? { title: "Using the offline character preview", detail: "Existing chats still work. Retry when AnimaDex is available for the full catalogue.", optional: true, retryLabel: "Retry", allowSetup: true }
         : !health.comfy
-          ? { title: "Images are offline", detail: "Chat still works. Start ComfyUI whenever you want pictures.", optional: true }
+          ? { title: "Images are offline", detail: "Chat still works. Start ComfyUI whenever you want pictures.", optional: true, retryLabel: "Retry", allowSetup: true }
           : null;
   return (
     <div
@@ -813,8 +912,8 @@ function ServiceRecovery({ health, ready, mode, checking, onRetry, onSetup }: {
       {issue && <>
         <span className="service-recovery-dot" />
         <span><strong>{issue.title}</strong><small>{issue.detail}</small></span>
-        <button type="button" onClick={onRetry} disabled={checking}>{checking ? "Checking…" : "Retry"}</button>
-        {onSetup && <button type="button" onClick={onSetup}>Setup</button>}
+        <button type="button" onClick={onRetry} disabled={checking}>{checking ? "Checking…" : issue.retryLabel}</button>
+        {onSetup && issue.allowSetup && <button type="button" onClick={onSetup}>Setup</button>}
       </>}
     </div>
   );
@@ -1009,6 +1108,7 @@ function SetupGuide({ initial, initialHealth, onComplete, onSkip }: SetupGuidePr
                       ? `${recommendedModels.vision} is the balanced all-in-one Gemma 4 suggestion. ${draftConfig.visionModel} supports photos too and remains selected.`
                       : "AniMessenger recommends Gemma 4 for the best experience and picked a balanced installed model that can also handle photo reactions."
                     : "AniMessenger picked a balanced installed model. No installed model was confirmed for photo reactions; you can add one later."}</p>
+                <div className="setup-model-performance"><OllamaGpuCheck ollamaUrl={draftConfig.ollamaUrl} model={draftConfig.chatModel} /></div>
               </div>
             ) : !checking && (
               <p className="setup-help">Start Ollama and install a chat model, then check again. For an easy all-in-one starting point, try <b>gemma4:12b</b>—it supports both conversation and photos. You can skip setup and return here later.</p>
@@ -1042,6 +1142,7 @@ function SetupGuide({ initial, initialHealth, onComplete, onSkip }: SetupGuidePr
                   modelsDirectory={draftConfig.comfyModelsDir}
                   outputDirectory={draftConfig.comfyOutputDir}
                   onModelsDirectoryChange={(value) => setDraftConfig((current) => ({ ...current, comfyModelsDir: value }))}
+                  onOutputDirectoryChange={(value) => { setDraftConfig((current) => ({ ...current, comfyOutputDir: value })); setComfyDiagnostics(null); }}
                 />
               </>
             )}
@@ -1054,7 +1155,7 @@ function SetupGuide({ initial, initialHealth, onComplete, onSkip }: SetupGuidePr
             )}
             {imageMode !== "later" && (
               <div className="setup-image-check">
-                <div><strong>{connectionHealth.comfy ? "Check the complete image setup" : "ComfyUI is currently offline"}</strong><span>{connectionHealth.comfy ? "Validate the workflow, mapping, nodes, model, LoRAs, and output folder." : "Your workflow choice will be saved. Start ComfyUI later and run this check again."}</span></div>
+                <div><strong>{connectionHealth.comfy ? "Check the complete image setup" : "ComfyUI is currently offline"}</strong><span>{connectionHealth.comfy ? "Validate the workflow, mapping, nodes, model files, LoRAs, and finished-images folder." : "Your workflow choice will be saved. Start ComfyUI later and run this check again."}</span></div>
                 <button type="button" onClick={() => void checkImageSetup()} disabled={checkingImages}>{checkingImages ? "Checking…" : "Check image setup"}</button>
                 {comfyDiagnostics && (
                   <div className={"comfy-diagnostics-result is-" + comfyDiagnostics.status}>
@@ -1097,7 +1198,7 @@ function SetupGuide({ initial, initialHealth, onComplete, onSkip }: SetupGuidePr
   );
 }
 
-export function CharaSmsApp() {
+export function AniMessengerApp() {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [activeId, setActiveId] = useState("");
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
@@ -1140,6 +1241,7 @@ export function CharaSmsApp() {
   const [imageReloadVersion, setImageReloadVersion] = useState(0);
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [health, setHealth] = useState({ ollama: false, comfy: false, animadex: false });
+  const [serviceReachable, setServiceReachable] = useState(false);
   const [healthReady, setHealthReady] = useState(false);
   const [healthChecking, setHealthChecking] = useState(false);
   const [notice, setNotice] = useState("");
@@ -1156,6 +1258,7 @@ export function CharaSmsApp() {
   const lightboxRef = useRef<HTMLDivElement>(null);
   const proactiveCheckingRef = useRef(false);
   const activeIdRef = useRef("");
+  const threadsRef = useRef<Thread[]>([]);
   const lightboxStageRef = useRef<HTMLDivElement>(null);
   const lightboxImageRef = useRef<HTMLImageElement>(null);
   const lightboxGestureRef = useRef<LightboxGesture | null>(null);
@@ -1191,6 +1294,7 @@ export function CharaSmsApp() {
   }, [relationshipMilestones]);
 
   const active = threads.find((thread) => thread.id === activeId) ?? threads[0];
+  threadsRef.current = threads;
   const relationshipMilestone = relationshipMilestones[0];
   const activeGuestId = active?.cameo?.activeGuest?.characterId || "";
   const activeGuestThread = threads.find((thread) => thread.character.id === activeGuestId);
@@ -1297,6 +1401,7 @@ export function CharaSmsApp() {
         if (loadedConfig) setConfig(loadedConfig);
         if (healthResult.status === "fulfilled") setHealth(healthResult.value);
         else setHealth({ ollama: false, comfy: false, animadex: false });
+        setServiceReachable(healthResult.status === "fulfilled");
         setHealthReady(true);
 
         const failures = [threadResult, configResult, healthResult].filter((result) => result.status === "rejected");
@@ -1326,10 +1431,25 @@ export function CharaSmsApp() {
   }, []);
 
   useEffect(() => {
+    const syncChangedThreads = async () => {
+      const summaries = (await api.threads()).threads;
+      for (const summary of summaries) {
+        const local = threadsRef.current.find((thread) => thread.id === summary.id);
+        if (!local || String(summary.updatedAt || "") > String(local.updatedAt || "")) {
+          const result = await api.thread(summary.id);
+          mergeThread(result.thread);
+        }
+      }
+    };
     const poll = () => {
       void api.health()
-        .then((next) => { setHealth(next); setHealthReady(true); })
-        .catch(() => { setHealth({ ollama: false, comfy: false, animadex: false }); setHealthReady(true); });
+        .then((next) => {
+          setServiceReachable(true);
+          setHealth(next);
+          setHealthReady(true);
+          void syncChangedThreads().catch(() => undefined);
+        })
+        .catch(() => { setServiceReachable(false); setHealth({ ollama: false, comfy: false, animadex: false }); setHealthReady(true); });
     };
     const timer = window.setInterval(poll, 30000);
     window.addEventListener("focus", poll);
@@ -1350,6 +1470,7 @@ export function CharaSmsApp() {
       if (healthResult.status === "rejected") throw healthResult.reason;
 
       const next = healthResult.value;
+      setServiceReachable(true);
       setHealth(next);
       setHealthReady(true);
 
@@ -1376,6 +1497,7 @@ export function CharaSmsApp() {
           : "");
       if (next.comfy) setImageReloadVersion((current) => current + 1);
     } catch {
+      setServiceReachable(false);
       setHealth({ ollama: false, comfy: false, animadex: false });
       setHealthReady(true);
       setNotice("AniMessenger's local service is not responding. Restart AniMessenger, then reload this page.");
@@ -1794,6 +1916,7 @@ export function CharaSmsApp() {
 
   const handleImageLoadError = (messageId: string) => {
     void api.health().then(() => {
+      setServiceReachable(true);
       // The app is reachable, so this individual file is genuinely unavailable.
       markImageUnavailable(messageId);
     }).catch(() => {
@@ -1801,12 +1924,14 @@ export function CharaSmsApp() {
       // remount them once the local app is reachable again instead of hiding them.
       if (imageRecoveryPendingRef.current) return;
       imageRecoveryPendingRef.current = true;
+      setServiceReachable(false);
       setHealth({ ollama: false, comfy: false, animadex: false });
       setHealthReady(true);
       setNotice("Images could not reconnect to AniMessenger's local service. Your gallery is still safe; the app will keep trying.");
       const retry = () => {
         window.setTimeout(() => {
           void api.health().then((nextHealth) => {
+            setServiceReachable(true);
             setHealth(nextHealth);
             setImageReloadVersion((current) => current + 1);
             imageRecoveryPendingRef.current = false;
@@ -1877,8 +2002,7 @@ export function CharaSmsApp() {
     }
   };
 
-  const watchImage = async (promptId: string, thread?: Thread, activate = true) => {
-    const baseThread = thread ?? active;
+  const watchImage = async (promptId: string, _thread?: Thread, activate = true) => {
     for (let attempt = 0; attempt < 90; attempt += 1) {
       await new Promise((resolve) => window.setTimeout(resolve, 1500));
       const status = await api.imageStatus(promptId);
@@ -1887,17 +2011,8 @@ export function CharaSmsApp() {
         return status.thread;
       }
       if (status.status === "error") throw new Error(status.error || "ComfyUI generation failed.");
-      if (status.status === "complete" && status.imageUrl && baseThread) {
-        const message: Message = {
-          id: localMessageId(),
-          from: "character",
-          image: status.imageUrl,
-          generated: true,
-          time: new Date().toISOString(),
-        };
-        const nextThread = { ...baseThread, messages: [...baseThread.messages, message] };
-        mergeThread(nextThread, activate);
-        return nextThread;
+      if (status.status === "complete") {
+        throw new Error("The image finished, but AniMessenger could not reconnect it to its original request. Refresh the chat and try again.");
       }
     }
     throw new Error("ComfyUI is still working on the image.");
@@ -2045,10 +2160,12 @@ export function CharaSmsApp() {
           : thread));
         try {
           const nextHealth = await api.health();
+          setServiceReachable(true);
           setHealth(nextHealth);
           setHealthReady(true);
           setNotice(nextHealth.ollama ? (reason instanceof Error ? reason.message : "The character could not reply.") : "Ollama is offline. Your message is still here—start Ollama, then tap Retry beneath it.");
         } catch {
+          setServiceReachable(false);
           setHealth({ ollama: false, comfy: false, animadex: false });
           setHealthReady(true);
           setNotice("AniMessenger's local service stopped responding. Your saved chats are safe; restart AniMessenger, then tap Retry beneath the message.");
@@ -2380,7 +2497,7 @@ export function CharaSmsApp() {
           </div>
           <footer className="inbox-footer">
             <span className="user-orb">{config?.userName?.trim().slice(0, 1).toUpperCase() || "Y"}</span>
-            <span><strong>{config?.userName?.trim() || "Your space"}</strong><small>{health.ollama ? "Ollama connected · local" : "Setup needed"}</small></span>
+            <span><strong>{config?.userName?.trim() || "Your space"}</strong><small>{!serviceReachable ? "AniMessenger stopped" : health.ollama ? "Ollama connected · local" : "Ollama needs attention"}</small></span>
             <button className="settings-button" onClick={() => setShowSettings(true)} aria-label="Settings"><SettingsIcon /></button>
           </footer>
         </aside>
@@ -2388,6 +2505,7 @@ export function CharaSmsApp() {
         {!active ? <section className="empty-workspace">
           <ServiceRecovery
             health={health}
+            serviceReachable={serviceReachable}
             ready={healthReady}
             mode={mode}
             checking={healthChecking}
@@ -2449,6 +2567,7 @@ export function CharaSmsApp() {
             )}
             <ServiceRecovery
               health={health}
+              serviceReachable={serviceReachable}
               ready={healthReady}
               mode={mode}
               checking={healthChecking}

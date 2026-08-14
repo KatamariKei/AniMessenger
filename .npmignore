@@ -4,7 +4,7 @@ data/
 logs/
 outputs/
 work/
-charasms.config.json
+*.config.json
 
 # Development and machine state
 .git/
@@ -12,6 +12,7 @@ charasms.config.json
 .codex/
 .agents/
 .release-audit/
+.runtime-cache/
 .npm-cache/
 .pnpm-store/
 .deps-staging/

@@ -57,13 +57,16 @@ For every public update:
 - [ ] Review the complete staged file list and public diff.
 - [ ] Confirm no runtime data, local configuration, generated images, or machine paths are staged.
 - [ ] Rehearse updating an existing source clone without losing its ignored data.
-- [ ] Build the Windows package and verify its contents exclude private runtime data.
+- [x] Build the Windows package and verify its contents exclude private runtime data.
 
 ## Windows distribution milestone
 
 - [x] Keep installed private data separate from replaceable application files.
 - [x] Build a Git-free portable Windows package and shortcut installer foundation.
 - [x] Boot the packaged production server against isolated empty storage.
-- [ ] Bundle a private Node runtime so end users do not install Node separately.
-- [ ] Add a signed installer, uninstall entry, upgrade rehearsal, and rollback path.
-- [ ] Test the installer on a clean Windows user account and a second PC.
+- [x] Bundle a private Node runtime so end users do not install Node separately.
+- [x] Add uninstall registration, version-aware upgrades, repair, and application-folder rollback.
+- [x] Add a native tray companion for Open, Start, Stop, update discovery, and Quit.
+- [ ] Add a signed installer.
+- [x] Test the installer on a second PC, including install, launch, ComfyUI folder setup, and Ollama GPU diagnostics.
+- [ ] Test the installer on a clean Windows user account.

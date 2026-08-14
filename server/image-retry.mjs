@@ -1,5 +1,6 @@
 import { CHARACTER_PHOTO_NEGATIVE, mergePromptTags, normalizeCharacterPhotoBrief } from "./identity.mjs";
 import { effectiveVisual } from "./visual-overrides.mjs";
+import { normalizeWardrobePrompt } from "./wardrobe.mjs";
 
 export function findRetryableImageMessage(thread, messageId) {
   const message = thread?.messages?.find((candidate) => candidate.id === messageId);
@@ -95,7 +96,7 @@ export function retryPromptOverrides(message, character, config = {}, profile, c
     : correctedDefault && correctedDefault !== researchedDefault && promptContainsWardrobe(preservedPositive, researchedDefault)
       ? researchedDefault
       : "";
-  const requestedCurrentOutfit = String(currentOutfit || "").trim();
+  const requestedCurrentOutfit = normalizeWardrobePrompt(currentOutfit);
   const wardrobeToReplace = requestedCurrentOutfit
     ? (recordedSceneOutfit || savedDefaultWardrobe)
     : savedDefaultWardrobe;

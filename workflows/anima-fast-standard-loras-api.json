@@ -55,7 +55,7 @@
   },
   "14": {
     "inputs": {
-      "filename_prefix": "CharaSMS/Workflow Tests/1970-01-01/ANIMA-Standard-LoRA",
+      "filename_prefix": "AniMessenger/Workflow Tests/1970-01-01/ANIMA-Standard-LoRA",
       "images": [
         "46",
         0

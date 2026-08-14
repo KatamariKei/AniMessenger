@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import http from "node:http";
-import { detectComfyModelsDirectories, imagePackInstallStatus, imagePackStatus, startImagePackInstall, validateModelsDirectory } from "../server/image-installer.mjs";
+import { comfyOutputDirectoryFromSystemStats, detectComfyModelsDirectories, ensureStandardComfyOutputDirectory, imagePackInstallStatus, imagePackStatus, startImagePackInstall, validateModelsDirectory } from "../server/image-installer.mjs";
 
 function tinyManifest(body = "abc") {
   return {
@@ -35,6 +35,29 @@ test("model-folder validation only accepts an existing folder named models", asy
   await fs.mkdir(models);
   assert.equal(await validateModelsDirectory(models), path.resolve(models));
   await assert.rejects(validateModelsDirectory(root), /folder named models/);
+});
+
+test("the standard ComfyUI output folder is safely created beside a validated models folder", async (context) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "animessenger-output-"));
+  context.after(() => fs.rm(root, { recursive: true, force: true }));
+  const models = path.join(root, "models");
+  await fs.mkdir(models);
+  const output = await ensureStandardComfyOutputDirectory(models);
+  assert.equal(output, path.resolve(root, "output"));
+  assert.equal((await fs.stat(output)).isDirectory(), true);
+  await assert.rejects(ensureStandardComfyOutputDirectory(root), /folder named models/);
+});
+
+test("ComfyUI launch details reveal custom and base output folders", () => {
+  assert.equal(
+    comfyOutputDirectoryFromSystemStats({ system: { argv: ["main.py", "--base-directory", path.resolve("custom-comfy")] } }),
+    path.resolve("custom-comfy", "output"),
+  );
+  assert.equal(
+    comfyOutputDirectoryFromSystemStats({ system: { argv: ["main.py", `--output-directory=${path.resolve("custom-output")}`] } }),
+    path.resolve("custom-output"),
+  );
+  assert.equal(comfyOutputDirectoryFromSystemStats({ system: { argv: ["main.py"] } }), "");
 });
 
 test("image-pack status distinguishes missing, verified, and invalid assets", async (context) => {

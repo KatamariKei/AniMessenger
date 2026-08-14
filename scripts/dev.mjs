@@ -8,11 +8,16 @@ const lanMode = process.argv.includes("--lan");
 const watchMode = !process.argv.includes("--no-watch");
 const viteHost = lanMode ? "0.0.0.0" : "127.0.0.1";
 const children = [
-  spawn(process.execPath, [...(watchMode ? ["--watch"] : []), "server/index.mjs"], { cwd: root, stdio: "inherit", windowsHide: true }),
+  spawn(process.execPath, [...(watchMode ? ["--watch"] : []), "server/index.mjs"], {
+    cwd: root,
+    stdio: "inherit",
+    windowsHide: true,
+    env: { ...process.env, ANIMESSENGER_DEV_MANAGED: "1" },
+  }),
   spawn(process.execPath, [vite, "--host", viteHost, "--port", "5173", "--strictPort"], { cwd: root, stdio: "inherit", windowsHide: true }),
 ];
 
-if (lanMode) console.log("CharaSMS LAN mode: web UI available to devices on your private network; local AI services remain bound to this PC.");
+if (lanMode) console.log("AniMessenger LAN mode: web UI available to devices on your private network; local AI services remain bound to this PC.");
 
 let stopping = false;
 

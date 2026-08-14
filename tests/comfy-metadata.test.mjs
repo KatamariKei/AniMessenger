@@ -19,8 +19,8 @@ test("a saved ANIMA model overrides the workflow default without changing the ma
 
 test("embedded Comfy workflow receives exact per-image settings", async () => {
   const [mapping, uiWorkflow] = await Promise.all([
-    fs.readFile(new URL("../workflows/anima-fast-charasms-api.mapping.json", import.meta.url), "utf8").then(JSON.parse),
-    fs.readFile(new URL("../workflows/anima-fast-charasms-ui.json", import.meta.url), "utf8").then(JSON.parse),
+    fs.readFile(new URL("../workflows/anima-fast-animessenger-api.mapping.json", import.meta.url), "utf8").then(JSON.parse),
+    fs.readFile(new URL("../workflows/anima-fast-animessenger-ui.json", import.meta.url), "utf8").then(JSON.parse),
   ]);
 
   syncUiWorkflow(uiWorkflow, mapping, {
@@ -34,7 +34,7 @@ test("embedded Comfy workflow receives exact per-image settings", async () => {
     sampler: "er_sde",
     scheduler: "simple",
     diffusion_model: "waiANIMA_v10Base10.safetensors",
-    filename_prefix: "CharaSMS/Futaba Sakura/2026-07-14/ANIMA",
+    filename_prefix: "AniMessenger/Futaba Sakura/2026-07-14/ANIMA",
   });
 
   const node = (id) => uiWorkflow.nodes.find((candidate) => candidate.id === id);
@@ -43,7 +43,7 @@ test("embedded Comfy workflow receives exact per-image settings", async () => {
   assert.deepEqual(node(6).widgets_values.slice(0, 6), [123456, "fixed", 18, 4.5, "er_sde", "simple"]);
   assert.deepEqual(node(59).widgets_values.slice(0, 2), [1024, 1024]);
   assert.equal(node(1).widgets_values[0], "waiANIMA_v10Base10.safetensors");
-  assert.equal(node(14).widgets_values[0], "CharaSMS/Futaba Sakura/2026-07-14/ANIMA");
+  assert.equal(node(14).widgets_values[0], "AniMessenger/Futaba Sakura/2026-07-14/ANIMA");
   assert.ok(uiWorkflow.nodes.every((candidate) => Array.isArray(candidate.pos)));
 });
 
@@ -52,7 +52,7 @@ test("Comfy output is organized by character and date", () => {
     { character: { name: "Futaba: Sakura?" } },
     new Date("2026-07-14T19:30:00.000Z"),
   );
-  assert.equal(prefix, "CharaSMS/Futaba- Sakura-/2026-07-14/ANIMA");
+  assert.equal(prefix, "AniMessenger/Futaba- Sakura-/2026-07-14/ANIMA");
 });
 
 test("the experimental standard-LoRA UI workflow stays editable while preserving its manual test strength", async () => {
@@ -72,7 +72,7 @@ test("the experimental standard-LoRA UI workflow stays editable while preserving
     sampler: "er_sde",
     scheduler: "simple",
     diffusion_model: "waiANIMA_v10Base10.safetensors",
-    filename_prefix: "CharaSMS/Workflow Tests/ANIMA-Standard-LoRA",
+    filename_prefix: "AniMessenger/Workflow Tests/ANIMA-Standard-LoRA",
   });
   const node = (id) => uiWorkflow.nodes.find((candidate) => candidate.id === id);
   assert.equal(node(57).widgets_values[0], "section one\n\nsection two");

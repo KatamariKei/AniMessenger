@@ -1,7 +1,7 @@
 {
-  "name": "CharaSMS - ANIMA Fast Clean API",
-  "workflow_file": "anima-fast-charasms-api.json",
-  "ui_workflow_file": "anima-fast-charasms-ui.json",
+  "name": "AniMessenger - ANIMA Fast Clean API",
+  "workflow_file": "anima-fast-animessenger-api.json",
+  "ui_workflow_file": "anima-fast-animessenger-ui.json",
   "defaults": {
     "model_kind": "diffusion",
     "model_name": "waiANIMA_v10Base10.safetensors",

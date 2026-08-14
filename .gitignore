@@ -43,7 +43,7 @@ next-env.d.ts
 /logs/
 /data/
 /backups/
-/charasms.config.json
+/*.config.json
 /work/
 /.npm-cache/
 /.pnpm-store/
@@ -51,5 +51,6 @@ next-env.d.ts
 /.codex/
 /.agents/
 /.release-audit/
+/.runtime-cache/
 /*.tgz
 *.tsbuildinfo

@@ -20,7 +20,7 @@ export async function loadImageJobEntries(now = Date.now(), filePath = jobsPath)
 export async function saveImageJobEntries(entries, filePath = jobsPath) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   const value = Object.fromEntries(entries);
-  const temporary = filePath + "." + process.pid + ".tmp";
+  const temporary = filePath + "." + process.pid + "." + crypto.randomUUID() + ".tmp";
   await fs.writeFile(temporary, JSON.stringify(value, null, 2) + "\n", "utf8");
   await fs.rename(temporary, filePath);
 }
