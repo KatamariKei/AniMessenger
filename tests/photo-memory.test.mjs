@@ -39,3 +39,20 @@ test("user uploads are not misremembered as photos sent by the character", () =>
     image: "/api/files/uploads/example.png",
   }), []);
 });
+
+test("captured moments are remembered as shared visuals rather than character-sent photos", () => {
+  const history = generatedPhotoHistory({
+    from: "character",
+    generated: true,
+    image: "/api/images/view?id=moment",
+    imageOrigin: "captured_moment",
+    imageContext: "Misty relaxing beside the pool",
+  });
+
+  assert.equal(history.length, 1);
+  assert.equal(history[0].role, "system");
+  assert.match(history[0].content, /visual snapshot captured the current shared moment/i);
+  assert.match(history[0].content, /did not send this/i);
+  assert.match(history[0].content, /Misty relaxing beside the pool/i);
+  assert.doesNotMatch(history[0].content, /you sent the user a photo/i);
+});

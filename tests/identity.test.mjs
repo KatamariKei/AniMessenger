@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildImagePrompt, inferOutfitCorrection, inferSceneCue, mergePromptTags, normalizeCharacterPhotoBrief, portraitExpression, portraitWardrobe, splitVisualTags } from "../server/identity.mjs";
+import { buildImagePrompt, inferOutfitCorrection, inferSceneCue, mergePromptTags, normalizeCharacterPhotoBrief, portraitExpression, portraitWardrobe, splitVisualTags, visualTraitsForFraming } from "../server/identity.mjs";
 import { normalizeWardrobePrompt } from "../server/wardrobe.mjs";
 
 test("prompt tags are merged without repeating overlapping safeguards", () => {
@@ -44,7 +44,7 @@ test("ANIMA prompt uses scene clothing without reintroducing the default costume
   const prompt = buildImagePrompt(
     {
       visual: {
-        identity: ["green eyes", "white hair", "pointy ears"],
+        identity: ["1girl", "green eyes", "white hair", "pointy ears"],
         signature: ["earrings"],
         defaultWardrobe: "white mage robe",
       },
@@ -60,9 +60,30 @@ test("ANIMA prompt uses scene clothing without reintroducing the default costume
     "candid phone photo",
   );
   assert.match(prompt, /green eyes, white hair, pointy ears/);
-  assert.match(prompt, /character-appropriate school uniform/);
+  assert.match(prompt, /school (?:shirt|blouse|blazer|cardigan)/);
+  assert.match(prompt, /(?:stripe trim|tartan|ribbon tie|necktie)/);
   assert.doesNotMatch(prompt, /white mage robe/);
-  assert.match(prompt, /adult, age 18 or older/);
+  assert.match(prompt, /^1girl, adult, frieren, sousou no frieren/);
+  assert.doesNotMatch(prompt, /1person|age 18/i);
+});
+
+test("current social identity chooses one booru subject tag without weakening the adult rule", () => {
+  const prompt = buildImagePrompt(
+    {
+      age: 18,
+      socialIdentity: { gender: "woman", pronouns: "she/her", selfReference: "woman" },
+      visual: {
+        identity: ["1boy", "blonde hair", "blue eyes"],
+        signature: [],
+        defaultWardrobe: "long white shirt",
+      },
+    },
+    { name: "Bridget", trigger: "bridget (guilty gear), guilty gear" },
+    { location: "town street" },
+  );
+  assert.match(prompt, /^1girl, adult, bridget \(guilty gear\), guilty gear/);
+  assert.equal((prompt.match(/\b1girl\b/g) || []).length, 1);
+  assert.doesNotMatch(prompt, /\b1boy\b|1person|age 18/i);
 });
 
 test("plain-language empty clothing values become an explicit ANIMA wardrobe prompt", () => {
@@ -175,6 +196,36 @@ test("profile portraits omit lower-body wardrobe cues that pull framing wide", (
   const wardrobe = portraitWardrobe("A blue and white sleeveless shinobi shozoku with a high slit, featuring a pelvic curtain-style fabric arrangement and white thigh-high stockings.");
   assert.equal(wardrobe, "A blue and white sleeveless shinobi shozoku");
   assert.doesNotMatch(wardrobe, /pelvic curtain|thigh-high|high slit/i);
+});
+
+test("generated image prompts include only wardrobe details visible in the requested framing", () => {
+  const profile = {
+    visual: {
+      identity: ["auburn hair", "green eyes"],
+      signature: ["yellow hair ribbon"],
+      defaultWardrobe: "white cropped tank top, green and black tartan-patterned pleated skirt, black loafers",
+    },
+  };
+  const close = buildImagePrompt(profile, { name: "Kasumi" }, {}, "close-up portrait, shoulders and upper chest");
+  assert.match(close, /white cropped tank top/);
+  assert.doesNotMatch(close, /tartan-patterned pleated skirt|loafers/);
+  const full = buildImagePrompt(profile, { name: "Kasumi" }, {}, "full-body portrait, feet visible");
+  assert.match(full, /tartan-patterned pleated skirt/);
+  assert.match(full, /black loafers/);
+});
+
+test("close portraits preserve a short cape while omitting necessarily off-frame anatomy", () => {
+  const profile = {
+    visual: {
+      identity: ["pink hair", "purple eyes", "slender build", "long legs", "navel"],
+      signature: ["black hair bow"],
+      defaultWardrobe: "white and black outfit with a short cape, black bows, and stockings",
+    },
+  };
+  const prompt = buildImagePrompt(profile, { name: "Portrait Test" }, {}, "close-up character portrait, head and shoulders portrait");
+  assert.match(prompt, /white and black outfit with a short cape/);
+  assert.doesNotMatch(prompt, /long legs|navel|stockings/);
+  assert.deepEqual(visualTraitsForFraming(["green eyes", "mechanical hands", "long legs"], "full-body portrait"), ["green eyes", "mechanical hands", "long legs"]);
 });
 
 test("profile portraits derive a restrained expression from the character persona", () => {

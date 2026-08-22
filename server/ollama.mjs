@@ -547,10 +547,16 @@ export async function buildCharacterProfile(config, character, research) {
     "NON-NEGOTIABLE ADULT OVERRIDE: Every AniMessenger character is a present-day adult age 18 or older. If canon, research, tags, or model knowledge describe the character as younger, create an aged-up 18+ adaptation. Never return a current age below 18.",
     "Past events may retain their historical context, but the current profile, appearance, behavior, relationships, and opening message must describe the adult adaptation—not a minor.",
     "Stay faithful to canon where evidence exists. Clearly avoid inventing hard facts.",
+    "Treat catalogue visual tags as recurring observational evidence from many images, not as authoritative canon. Use them to corroborate recognizable traits and fill gaps, but prefer reliable research or high-confidence, widely established canon when it directly conflicts with a tag-derived color or feature.",
+    "When the catalogue contains mutually incompatible traits such as both short and long hair, assume it may span alternate incarnations, adaptations, or eras. Select one coherent recognizable baseline supported by the character and series context; never combine incompatible versions into a visual composite.",
     "CURRENT IDENTITY RULE: Determine the character's current gender identity, pronouns, and self-reference from the latest reliable canon. Current self-identification always takes priority over biological sex, sex assigned at birth, historical presentation, an earlier identity, visual tags, or older installments.",
     "Historical identity context may be recorded accurately in canon.history, but it must never be phrased as if it overrides how the character currently identifies or should be addressed.",
     "Separate permanent visual identity from clothing. Hair, eyes, face, body, skin, species traits, scars and other anatomy belong in visual.identity.",
-    "Clothing belongs only in visual.defaultWardrobe or wardrobePreferences, even when AnimaDex includes it in core tags.",
+    "For image-facing identity, prioritize the character's recognizable current everyday presentation over a hidden biological default. Habitual contact lenses, dyed hair, a routinely worn wig, characteristic makeup, glasses, prosthetics, masks, or comparable consistently visible features may define how the character should appear in generated images even when a different natural trait exists in background canon.",
+    "When reliable sources distinguish natural traits from the character's usual visible presentation, keep the natural trait in canon background if relevant but put the usual visible trait in visual.identity or visual.signature. Do not mistake a temporary disguise, one-off costume, cosplay role, transformation, or alternate incarnation for the default presentation.",
+    "For a human or human-presenting character, visual.identity must contain exactly one booru subject-count tag—1girl, 1boy, or 1other—matching the authoritative current social identity. Never use 1person. For a non-human creature with no human form, use no humans instead.",
+    "Do not use vague age-coded appearance filler such as youthful appearance, youthful face, childlike appearance, teenage appearance, young-looking, or mature-looking. Describe concrete adult-visible traits instead.",
+    "Clothing belongs only in visual.defaultWardrobe or wardrobePreferences, even when catalogue evidence includes it in core tags.",
     "Write mannerisms and speech rules concrete enough that another model can perform the character consistently.",
     "Treat signature slang, catchphrases, verbal tics, metaphors, and unusual self-reference as occasional accents, never mandatory ingredients.",
     "Even when a character is famous for specialized slang, describe a natural baseline that works without it. Never prescribe signature vocabulary as heavy, constant, or required; suggest it in roughly one out of every three to five messages, depending on context.",
@@ -585,8 +591,8 @@ export async function buildCharacterProfile(config, character, research) {
       selfReference: "how the character currently describes themself, such as woman, man, or nonbinary person",
     },
     visual: {
-      identity: ["permanent visual traits"],
-      signature: ["non-clothing iconic details that can usually stay"],
+      identity: ["stable visible traits for the character's recognizable everyday presentation, including habitual contacts or dyed hair when applicable"],
+      signature: ["non-clothing iconic details that can usually stay, including routinely worn presentation-defining accessories when applicable"],
       defaultWardrobe: "canonical default outfit as clothing only",
       wardrobePreferences: ["context-sensitive outfit tendencies"],
     },
@@ -620,8 +626,8 @@ export async function buildCharacterProfile(config, character, research) {
   const prompt = [
     "CHARACTER: " + character.name,
     "SERIES: " + character.series,
-    "ANIMADEX TRIGGER: " + character.trigger,
-    "ANIMADEX TAGS: " + character.tags.join(", "),
+    "IMAGE-MODEL CHARACTER TRIGGER: " + character.trigger,
+    "CATALOGUE VISUAL TAGS: " + character.tags.join(", "),
     "DETERMINISTIC IDENTITY CANDIDATES: " + split.identity.join(", "),
     "DETERMINISTIC SIGNATURE CANDIDATES: " + split.signature.join(", "),
     "DETERMINISTIC CLOTHING CANDIDATES: " + split.wardrobe.join(", "),
@@ -644,15 +650,12 @@ export async function buildCharacterProfile(config, character, research) {
     }
   }
   if (!parsed) throw profileError instanceof Error ? profileError : new Error("The profile model did not return a readable structured profile.");
-  parsed = supplementProfileDepth(await repairProfileDraft(
-    config,
-    selectedModel,
-    character,
-    parsed,
-    ["perform an independent depth, competence, relationship-range, and anti-caricature review"],
-  ));
+  // Most capable models already return a complete guide. Apply deterministic
+  // normalization first and reserve the extra Ollama pass for genuinely weak
+  // output; this materially shortens first meetings on consumer GPUs.
+  parsed = supplementProfileDepth(parsed);
   let qualityIssues = profileQualityIssues(parsed);
-  for (let attempt = 0; qualityIssues.length && attempt < 2; attempt += 1) {
+  if (qualityIssues.length) {
     parsed = supplementProfileDepth(await repairProfileDraft(config, selectedModel, character, parsed, qualityIssues));
     qualityIssues = profileQualityIssues(parsed);
   }
@@ -720,7 +723,15 @@ export function adultCharacterAge(value) {
 
 export function enforceAdultCharacterProfile(profile) {
   if (!profile || typeof profile !== "object") return profile;
-  return { ...profile, age: adultCharacterAge(profile.age) };
+  const vagueAgeAppearance = /^(?:an?\s+)?(?:very\s+)?(?:youthful|young-looking|young looking|childlike|teenage|teenaged|mature-looking|mature looking)(?:\s+(?:appearance|face|features?|look|looks?))?\.?$/i;
+  const identity = Array.isArray(profile.visual?.identity)
+    ? profile.visual.identity.filter((item) => !vagueAgeAppearance.test(String(item || "").trim()))
+    : profile.visual?.identity;
+  return {
+    ...profile,
+    age: adultCharacterAge(profile.age),
+    ...(profile.visual ? { visual: { ...profile.visual, ...(identity ? { identity } : {}) } } : {}),
+  };
 }
 
 function profileContext(thread, options = {}) {
@@ -795,6 +806,7 @@ function profileContext(thread, options = {}) {
     "Scene continuity is authoritative until the latest user turn changes it. Explicit arrivals, departures, door openings, shared physical actions, sitting together, touching, or statements such as 'I'm right here' update physical presence immediately.",
     "The permanent visual identity is locked: " + profile.visual.identity.join(", ") + ". Never change those traits.",
     "Clothing is NOT locked. Update scene.outfit when the conversation establishes a new context such as school, work, sleep, exercise, formal events, weather, or a direct clothing request.",
+    "When scene.outfit changes, never return only a vague category such as casual clothes, bikini, swimsuit, athletic wear, pajamas, school uniform, or formalwear. Design a compact character-appropriate outfit with a specific silhouette or cut, material or pattern, stable colors, and one distinguishing detail—for example ruffles, contrast piping, tartan, sequins, a thigh slit, embroidery, or asymmetric fasteners. Preserve that exact outfit until the conversation changes it.",
     "An explicit user clothing correction is authoritative. Words such as just, only, without, remove, or take off must replace or remove the conflicting outfit layers in both scene.outfit and photoBrief; never rationalize an accidental layer from an earlier generated image.",
     "Reply as one natural conversational turn displayed inside a chat bubble. The interface format does not determine whether this is remote texting or an in-person scene. Vary naturally from a few words to roughly 1-4 sentences; meaningful questions, disclosures, decisions, and relationship moments may use 30-90 words when the substance warrants it.",
     "GROUND, CONTRIBUTE, THEN VOICE: Silently identify the concrete situation and what the user just contributed. Decide what this reply adds—an answer, observation, preference, decision, question, feeling, practical detail, or initiative. Then express that contribution in the character's voice.",
@@ -832,12 +844,15 @@ function profileContext(thread, options = {}) {
     recentStyleCooldown(thread.messages),
     "Judge relationshipDelta from the latest interaction only. Use 0 for routine conversation, greetings, ordinary questions, compliments, agreement, or message frequency. Use +1 for a genuinely attentive, supportive, revealing, or trust-building moment. Reserve +2 for a rare major moment of vulnerability, follow-through, or earned trust. Use -1 for a meaningful discomfort or boundary problem and -2 for a serious betrayal or violation.",
     "The presence and scene rules override generic messaging assumptions. Do not imitate older prose narration, but do honor concise [action: ...] beats that explicitly establish shared physical events.",
-    "If the user directly asks you to send a photo or picture, agree in character, set shouldSendPhoto to true, describe the desired current-moment image in photoBrief, and write a short in-character message to accompany the finished image in photoMessage. The photoBrief must use a third-person composition with the character clearly visible in frame. Describe the viewpoint without mentioning a physical camera. Refer to the user visually only as the viewer, never by name. Never describe the image from the character's perspective, point of view, or POV, and never make the plate, scenery, or an unseen user the sole subject.",
-    options.photoOpportunity
-      ? "A private visual-update opportunity is available this turn. If the immediate conversation, current activity, location, outfit, or mood offers something genuinely visual and natural to share, you may set shouldSendPhoto to true without being asked. Describe a specific candid current-moment image in photoBrief using a third-person composition with the character clearly visible in frame. Describe the viewpoint without mentioning a physical camera, and refer to the user visually only as the viewer, never by name; never use the character's perspective, point of view, or POV. Write a contextual in-character caption in photoMessage. Respect the character's personality: reserved characters may decline. Never mention a timer, cadence, quota, or system decision, and never force a generic selfie."
+    options.explicitPhotoRequest
+      ? "The user's latest message is a clear request to SEE the character or a visual detail now, even if they did not say photo or picture. Treat wording such as 'let me see,' 'show me,' or 'let me get a better look' as a natural request for a character-sent visual. Respond in character, set shouldSendPhoto to true, make photoBrief show the requested subject in the current scene, and write a short contextual photoMessage. Do not ask whether they want a picture; they already did."
+      : "If the user directly asks you to send a photo, picture, or visual view, agree in character, set shouldSendPhoto to true, describe the desired current-moment image in photoBrief, and write a short in-character message to accompany the finished image in photoMessage.",
+    "For every requested image, photoBrief must use a third-person composition with the character clearly visible in frame. Describe the viewpoint without mentioning a physical camera. Refer to the user visually only as the viewer, never by name. Never describe the image from the character's perspective, point of view, or POV, and never make the plate, scenery, or an unseen user the sole subject.",
+    options.photoOpportunity || options.visualEventOpportunity
+      ? "A private visual-update opportunity is available this turn" + (options.visualEventOpportunity ? " because the scene contains " + options.visualEventOpportunity : "") + ". If the immediate conversation, current activity, location, outfit, or mood offers something genuinely visual and natural to share, you may set shouldSendPhoto to true without being asked. This is permission, not a requirement: send an image only when it delivers a clear visual payoff. Prefer an outfit change, reveal, striking discovery, new location, expressive reaction, or activity worth seeing over a generic check-in. Describe a specific candid current-moment image in photoBrief using a third-person composition with the character clearly visible in frame. Describe the viewpoint without mentioning a physical camera, and refer to the user visually only as the viewer, never by name; never use the character's perspective, point of view, or POV. Write a contextual in-character caption in photoMessage. Respect the character's personality: reserved characters may decline. Never mention a timer, cadence, quota, or system decision, and never force a generic selfie."
       : "Do not proactively send a photo this turn unless the user directly requests one.",
     "The photoMessage should fit the immediate conversation and your personality. Never use a generic stock caption such as 'I thought you might like this one.'",
-    "Also extract new durable relationship memories from the latest interaction only. Save specific user facts or preferences, boundaries, promises, unresolved plans, meaningful shared events, and named things you created together. Do not save routine chatter, fleeting moods, generic compliments, sexual details, or facts already supplied in DURABLE SHARED MEMORIES. Write each memory as a neutral, self-contained fact that will still make sense months later. Use an empty array when nothing qualifies.",
+    "Also extract new durable relationship memories from the latest interaction only. Save specific user facts or preferences, boundaries, promises, unresolved plans, meaningful shared events, and named things you created together. When the latest interaction completes or disproves an existing promise or open loop, return one shared_event using the same specific topic keywords; state the concrete outcome, who did what, and any consequence that remains active. Never preserve a completed plan as if it were still in the future. Do not save routine chatter, fleeting moods, generic compliments, sexual details, or facts already supplied in DURABLE SHARED MEMORIES. Write each memory as a neutral, self-contained fact that will still make sense months later. Use an empty array when nothing qualifies.",
     pendingFollowUp
       ? "PENDING SOFT FOLLOW-UP: You previously said you would circle back about: " + pendingFollowUp.subject + ". This is an opportunity, never a deadline. Set resolvesPendingFollowUp true only if this reply actually delivers that follow-up; otherwise leave it false."
       : "There is no pending character follow-up to resolve.",
@@ -852,6 +867,16 @@ export function generatedPhotoHistory(message) {
   if (!message?.generated || !message.image || message.from !== "character") return [];
   const caption = String(message.text || "").trim();
   const context = String(message.imageContext || "").trim();
+  if (message.imageOrigin === "captured_moment") {
+    return [{
+      role: "system",
+      content: [
+        "Conversation memory: A visual snapshot captured the current shared moment; the character did not send this as a message.",
+        context ? "The snapshot depicted: " + context + "." : "The exact visual details were not saved.",
+        "If the user refers to the image, treat it as something they both witnessed rather than a photo you sent.",
+      ].join(" "),
+    }];
+  }
   const memory = [
     "Conversation memory: You sent the user a photo in this chat.",
     context ? "The photo depicted: " + context + "." : "The exact visual details were not saved, but you must remember that you sent the photo.",
@@ -1240,6 +1265,7 @@ export async function extractHistoricalMemories(config, thread) {
         content: [
           "Extract durable relationship memories from a historical private chat between the user and " + thread.profile.name + ".",
           "Prioritize exact names and definitions they invented together, user facts and preferences, boundaries, promises, meaningful shared events, and unresolved plans.",
+          "Track plans through their lifecycle. If the transcript shows that a promise or open loop was completed or disproved, return a shared_event instead of a future-tense plan and state the concrete outcome, who did what, and any consequence that remains active. Consolidate alternate wordings of the same subject into one canonical memory.",
           "A named shared creation (for example a band name, genre, project, nickname, or running concept) is high importance and must preserve its exact spelling.",
           "Ignore routine chatter, fleeting moods, generic affection, image-generation mechanics, sexual details, and character canon already present in the profile.",
           "Write neutral self-contained facts. Combine closely related facts into one memory when that makes recall stronger. Return no more than 8 memories from this chunk.",

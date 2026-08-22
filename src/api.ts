@@ -1,7 +1,7 @@
 export type AnimaCharacter = {
   id: string;
   name: string;
-  /** Local UI label. The original AnimaDex name remains in `name`. */
+  /** Local UI label. The canonical catalogue name remains in `name`. */
   displayName?: string;
   series: string;
   trigger: string;
@@ -10,6 +10,9 @@ export type AnimaCharacter = {
   imageUrl?: string;
   sourceUrl?: string;
   count?: number;
+  sourceProvider?: "danbooru" | "anilist" | "wikidata" | "animadex";
+  sourceRefs?: Array<{ title: string; url: string }>;
+  catalogNotes?: string[];
   sprite?: string;
   avatarUrl?: string;
 };
@@ -19,6 +22,7 @@ export type CharacterProfile = {
   id: string;
   name: string;
   series: string;
+  seriesAliases?: string[];
   age: number;
   status: string;
   summary: string;
@@ -86,6 +90,7 @@ export type Message = {
   image?: string;
   generated?: boolean;
   imageContext?: string;
+  imageOrigin?: "captured_moment";
   proactive?: boolean;
   proactiveIntent?: "follow_up" | "callback" | "observation" | "activity_update" | "question" | "invitation";
   proactiveTopicKey?: string;
@@ -212,6 +217,24 @@ export type OllamaGpuDiagnostics = {
   detail: string;
 };
 
+export type OllamaDownloadOption = {
+  model: string;
+  tier: "light" | "recommended" | "high-end";
+  label: string;
+  detail: string;
+  approximateBytes: number;
+};
+
+export type OllamaInstallJob = {
+  id: string;
+  model: string;
+  status: "queued" | "downloading" | "complete" | "cancelled" | "error";
+  message: string;
+  totalBytes: number;
+  completedBytes: number;
+  error?: string;
+};
+
 export type ComfyDiagnosticIssue = {
   code: string;
   severity: "error" | "warning" | "info";
@@ -299,6 +322,14 @@ export const api = {
     body: JSON.stringify(config),
   }),
   models: () => request<OllamaModelCatalog>("/api/ollama/models"),
+  recommendedOllamaDownloads: () => request<{ models: OllamaDownloadOption[] }>("/api/ollama/recommended-downloads"),
+  installOllamaModel: (options: { ollamaUrl: string; model: string }) => request<OllamaInstallJob>("/api/ollama/install", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(options),
+  }),
+  ollamaInstallStatus: (jobId: string) => request<OllamaInstallJob>(`/api/ollama/install/${encodeURIComponent(jobId)}`),
+  cancelOllamaInstall: (jobId: string) => request<OllamaInstallJob>(`/api/ollama/install/${encodeURIComponent(jobId)}`, { method: "POST" }),
   ollamaGpuCheck: (options: { ollamaUrl: string; model: string; optimize?: boolean }) => request<OllamaGpuDiagnostics>("/api/ollama/gpu-check", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -397,6 +428,11 @@ export const api = {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ characterId, brief }),
+  }),
+  captureMoment: (characterId: string) => request<{ imageJobs: Array<{ promptId: string }> }>("/api/images/capture-moment", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ characterId }),
   }),
   generateAvatar: (characterId: string) => request<{ promptId: string }>("/api/characters/avatar", {
     method: "POST",

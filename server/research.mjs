@@ -73,8 +73,9 @@ async function researchAniList(character) {
 
 export async function researchCharacter(character, enabled = true) {
   const sources = [];
-  const notes = [];
-  if (character.sourceUrl) sources.push({ title: "AnimaDex source reference", url: character.sourceUrl });
+  const notes = Array.isArray(character.catalogNotes) ? character.catalogNotes.filter(Boolean) : [];
+  if (Array.isArray(character.sourceRefs)) sources.push(...character.sourceRefs.filter((item) => item?.url));
+  else if (character.sourceUrl) sources.push({ title: "Character catalogue source", url: character.sourceUrl });
   if (!enabled) return { notes, sources };
   try {
     const search = new URL("https://en.wikipedia.org/w/api.php");
@@ -106,7 +107,7 @@ export async function researchCharacter(character, enabled = true) {
       if (page.fullurl) sources.push({ title: page.title, url: page.fullurl });
     }
   } catch {
-    // Research is supplemental. Ollama can still build from AnimaDex and local model knowledge.
+    // Research is supplemental. Ollama can still build from catalogue evidence and local model knowledge.
   }
   try {
     const aniList = await researchAniList(character);

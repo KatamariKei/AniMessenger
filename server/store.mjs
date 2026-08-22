@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { dataDir } from "./config.mjs";
+import { mergeMemories } from "./memory.mjs";
 
 const threadsDir = path.join(dataDir, "threads");
 const profilesDir = path.join(dataDir, "profiles");
@@ -21,13 +22,18 @@ async function writeJson(filePath, value) {
   await fs.writeFile(filePath, JSON.stringify(value, null, 2) + "\n", "utf8");
 }
 
+function canonicalThread(thread) {
+  if (!thread || !Array.isArray(thread.memories)) return thread;
+  return { ...thread, memories: mergeMemories(thread.memories, []) };
+}
+
 export async function listThreads() {
   await fs.mkdir(threadsDir, { recursive: true });
   const names = await fs.readdir(threadsDir);
   const threads = [];
   for (const name of names.filter((item) => item.endsWith(".json"))) {
     try {
-      threads.push(await readJson(path.join(threadsDir, name)));
+      threads.push(canonicalThread(await readJson(path.join(threadsDir, name))));
     } catch {
       // One damaged local thread should not hide the others.
     }
@@ -53,7 +59,7 @@ export async function listThreadSummaries() {
 
 export async function loadThread(id) {
   try {
-    return await readJson(path.join(threadsDir, safeId(id) + ".json"));
+    return canonicalThread(await readJson(path.join(threadsDir, safeId(id) + ".json")));
   } catch (error) {
     if (error && error.code === "ENOENT") return null;
     throw error;
@@ -71,7 +77,7 @@ export async function deleteThread(id) {
 }
 
 export async function saveThread(thread) {
-  const next = { ...thread, updatedAt: new Date().toISOString() };
+  const next = canonicalThread({ ...thread, updatedAt: new Date().toISOString() });
   await writeJson(path.join(threadsDir, safeId(thread.id) + ".json"), next);
   return next;
 }

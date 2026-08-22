@@ -2,6 +2,36 @@
 
 AniMessenger is pre-release software. Changes may still adjust local data, model prompts, and installation behavior.
 
+## 0.3.2
+
+### Independent character discovery
+
+- Add an independent public character catalogue that covers anime, games, and other fictional characters without requiring AnimaDex.
+- Merge duplicate search candidates, prefer confirmed series matches, hide obvious outfit variants from ordinary searches, and reject malformed catalogue names.
+- Keep AnimaDex available only as an optional fallback source.
+- Add recoverable setup controls so an incomplete first profile can be retried or removed instead of becoming a stuck chat.
+
+### Character profiles and portraits
+
+- Build stronger visual identity evidence from public metadata while filtering crowd-derived body proportions, vague age-coded filler, and conflicting attributes.
+- Improve profile-build speed by using deterministic recovery before asking the profile model for a repair.
+- Make generated contact portraits character-expressive, framing-aware, and resistant to bust/statue crops, low-angle framing, and incidental current-scene clothing.
+- Preserve the strict adult-character rule while using ANIMA-friendly `1girl` or `1boy` prompt structure instead of the ambiguous `1person` token.
+
+### Memory and continuity
+
+- Retire completed promises and open loops in favor of their concrete outcomes so stale future-tense memories do not override events that already happened.
+- Consolidate semantically duplicate memories across categories while preserving useful keywords and source references.
+- Improve recent-context continuity for completed activities, outcomes, winners, and consequences.
+
+### Images that follow the moment
+
+- Replace the awkward picture-request shortcut with an in-scene camera capture that does not force characters to pretend they sent a photo.
+- Recognize natural requests such as “let me see,” character photo claims, outfit reveals, arrivals, completed activities, and other key visual moments.
+- Guarantee that a character who says they sent a current photo either queues that image or has the unsupported claim repaired.
+- Extend contextual image reliability to guest chats while preserving separate solo images for each participant.
+- Keep detailed, character-appropriate outfits stable across images until the scene establishes a clothing change, and omit footwear details when the framing will not show them.
+
 ## 0.3.1
 
 ### Windows installation

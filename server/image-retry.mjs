@@ -1,6 +1,6 @@
-import { CHARACTER_PHOTO_NEGATIVE, mergePromptTags, normalizeCharacterPhotoBrief } from "./identity.mjs";
+import { CHARACTER_PHOTO_NEGATIVE, mergePromptTags, normalizeCharacterPhotoBrief, normalizeImageSubjectPrompt } from "./identity.mjs";
 import { effectiveVisual } from "./visual-overrides.mjs";
-import { normalizeWardrobePrompt } from "./wardrobe.mjs";
+import { normalizeWardrobePrompt, stabilizeWardrobePrompt, wardrobeForFraming } from "./wardrobe.mjs";
 
 export function findRetryableImageMessage(thread, messageId) {
   const message = thread?.messages?.find((candidate) => candidate.id === messageId);
@@ -96,11 +96,19 @@ export function retryPromptOverrides(message, character, config = {}, profile, c
     : correctedDefault && correctedDefault !== researchedDefault && promptContainsWardrobe(preservedPositive, researchedDefault)
       ? researchedDefault
       : "";
-  const requestedCurrentOutfit = normalizeWardrobePrompt(currentOutfit);
+  const wardrobeContext = {
+    ...visual,
+    wardrobePreferences: profile?.visual?.wardrobePreferences || [],
+    personaTraits: profile?.persona?.traits || [],
+    personaSummary: profile?.summary || "",
+    socialIdentity: profile?.socialIdentity || "",
+  };
+  const requestedCurrentOutfit = stabilizeWardrobePrompt(normalizeWardrobePrompt(currentOutfit), wardrobeContext, character?.id || character?.name);
   const wardrobeToReplace = requestedCurrentOutfit
     ? (recordedSceneOutfit || savedDefaultWardrobe)
     : savedDefaultWardrobe;
-  const replacementWardrobe = requestedCurrentOutfit || visual.defaultWardrobe;
+  const fullReplacementWardrobe = requestedCurrentOutfit || stabilizeWardrobePrompt(visual.defaultWardrobe, wardrobeContext, character?.id || character?.name);
+  const replacementWardrobe = wardrobeForFraming(fullReplacementWardrobe, preservedPositive);
   if (wardrobeToReplace || requestedCurrentOutfit) {
     preservedPositive = refreshVisualPrompt(
       preservedPositive,
@@ -113,8 +121,12 @@ export function retryPromptOverrides(message, character, config = {}, profile, c
     message?.generation?.visualExceptions,
     visual.exceptions,
   );
+  const normalizedPositive = normalizeImageSubjectPrompt(
+    normalizeCharacterPhotoBrief(preservedPositive, character, { userName: config.userName, reduceCharacterNames: false }),
+    profile,
+  );
   return {
-    positivePrompt: prependLatestGlobal(config.globalPositivePrompt, normalizeCharacterPhotoBrief(preservedPositive, character, { userName: config.userName, reduceCharacterNames: false })),
+    positivePrompt: prependLatestGlobal(config.globalPositivePrompt, normalizedPositive),
     negativePrompt: mergePromptTags(config.globalNegativePrompt, preservedNegative, CHARACTER_PHOTO_NEGATIVE),
   };
 }

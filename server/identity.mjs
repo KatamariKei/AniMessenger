@@ -1,4 +1,4 @@
-import { normalizeWardrobePrompt } from "./wardrobe.mjs";
+import { imageFraming, normalizeWardrobePrompt, stabilizeWardrobePrompt, wardrobeForFraming } from "./wardrobe.mjs";
 
 const clothingWords = [
   "apron", "armor", "bikini", "blazer", "blindfold", "boots", "cape", "cardigan",
@@ -201,6 +201,35 @@ function reduceCharacterNameMentions(value, name) {
   });
 }
 
+const subjectCountTags = new Set(["1girl", "1boy", "1other", "no humans"]);
+
+function subjectCountTag(profile = {}, identity = []) {
+  const social = [profile?.socialIdentity?.gender, profile?.socialIdentity?.pronouns, profile?.socialIdentity?.selfReference]
+    .map((value) => String(value || "").toLowerCase())
+    .join(" ");
+  if (/\b(?:nonbinary|non-binary|genderfluid|gender-fluid|they\s*\/\s*them)\b/.test(social)) return "1other";
+  if (/\b(?:woman|female|girl|she\s*\/\s*her)\b/.test(social)) return "1girl";
+  if (/\b(?:man|male|boy|he\s*\/\s*him)\b/.test(social)) return "1boy";
+  return identity.map((value) => String(value || "").trim().toLowerCase()).find((value) => subjectCountTags.has(value)) || "";
+}
+
+export function normalizeImageSubjectPrompt(prompt = "", profile = {}) {
+  const sections = String(prompt || "").split(/\n\s*\n/);
+  const first = sections.shift() || "";
+  const parts = first.split(",").map((part) => part.replace(/\s+/g, " ").trim()).filter(Boolean);
+  const visualIdentity = list(effectiveVisual(profile).identity);
+  const subject = subjectCountTag(profile, [...visualIdentity, ...parts]);
+  const remaining = parts.filter((part) => {
+    const key = part.toLowerCase();
+    return !subjectCountTags.has(key)
+      && key !== "1person"
+      && key !== "adult"
+      && !/^age\s+18(?:\s+or\s+older|\+)?$/i.test(key);
+  });
+  const normalized = [subject, "adult", ...remaining].filter(Boolean).join(", ");
+  return [normalized, ...sections.map((section) => section.trim()).filter(Boolean)].filter(Boolean).join("\n\n");
+}
+
 export function normalizeCharacterPhotoBrief(brief = "", character = {}, options = {}) {
   const value = replaceViewerReferences(
     String(brief || "").split(/\n\s*\n/).map((section) => section.replace(/\s+/g, " ").trim()).filter(Boolean).join("\n\n"),
@@ -242,16 +271,27 @@ export function buildImagePrompt(profile, character, scene, brief = "", options 
   const identity = list(visual.identity);
   const signature = list(visual.signature);
   const normalizedBrief = normalizeCharacterPhotoBrief(brief, character, options);
-  const outfit = normalizeWardrobePrompt(scene?.outfit && scene.outfit !== "default outfit"
-    ? scene.outfit
-    : visual.defaultWardrobe);
+  const framedIdentity = visualTraitsForFraming(identity, normalizedBrief);
+  const framedSignature = visualTraitsForFraming(signature, normalizedBrief);
+  const fullOutfit = stabilizeWardrobePrompt(
+    scene?.outfit && scene.outfit !== "default outfit" ? scene.outfit : visual.defaultWardrobe,
+    {
+      ...visual,
+      wardrobePreferences: list(profile?.visual?.wardrobePreferences),
+      personaTraits: list(profile?.persona?.traits),
+      personaSummary: profile?.summary || "",
+      socialIdentity: profile?.socialIdentity || "",
+    },
+    character?.id || character?.name,
+  );
+  const outfit = wardrobeForFraming(fullOutfit, normalizedBrief);
+  const subject = subjectCountTag(profile, identity);
   const identityAndScene = [
-    "1person",
+    subject,
     "adult",
-    "age 18 or older",
     character.trigger || character.name,
-    ...identity,
-    ...signature,
+    ...framedIdentity.filter((tag) => !subjectCountTags.has(String(tag).trim().toLowerCase())),
+    ...framedSignature,
     outfit,
     scene?.location,
     scene?.activity,
@@ -267,6 +307,15 @@ export function buildImagePrompt(profile, character, scene, brief = "", options 
     .map((section) => [...new Set(section.map((part) => String(part || "").trim()).filter(Boolean))].join(", "))
     .filter(Boolean)
     .join("\n\n");
+}
+
+const offFrameCloseTrait = /\b(?:penis|foreskin|erection|testicles?|scrotum|vulva|vagina|genitals?|pubic|buttocks?|butt|hips?|thighs?|legs?|feet|toes?|navel|belly button|hands?|fingers?)\b/i;
+const offFrameMediumTrait = /\b(?:penis|foreskin|erection|testicles?|scrotum|vulva|vagina|genitals?|pubic|buttocks?|feet|toes?)\b/i;
+
+export function visualTraitsForFraming(tags = [], brief = "") {
+  const framing = imageFraming(brief);
+  const pattern = framing === "close" ? offFrameCloseTrait : framing === "medium" ? offFrameMediumTrait : null;
+  return list(tags).filter((tag) => !pattern?.test(String(tag)));
 }
 
 export function visualExceptionNegative(profile) {

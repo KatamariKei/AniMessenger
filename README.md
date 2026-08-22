@@ -10,11 +10,11 @@
 
 AniMessenger is a responsively designed, local character messenger powered by:
 
-- [AnimaDex](https://github.com/zetaneko/AnimaDex) for searchable character identity and visual tags;
+- independent character catalogue and research sources for searchable identity and visual evidence;
 - [Ollama](https://ollama.com/) for character profiles, conversation, memory, mannerisms, and photo reactions;
 - [ComfyUI](https://github.com/comfyanonymous/ComfyUI) for optional ANIMA image generation.
 
-Chats, profiles, memories, relationship state, and settings stay in local files on your computer. No hosted language model or hosted conversation database is required. AniMessenger uses the public AnimaDex catalogue by default, so a local AnimaDex installation is optional.
+Chats, profiles, memories, relationship state, and settings stay in local files on your computer. No hosted language model or hosted conversation database is required. Character discovery consults independent public catalogue sources, while generated portraits and visual identity data are created for AniMessenger instead of borrowing third-party character artwork. AnimaDex is supported only as an optional fallback source.
 
 Guest chats allow one researched character to join an existing conversation. Private chats remain separate storylines: the guest sees only the shared encounter, while each character retains their own profile, voice, relationship, and earlier private history. Turn-taking follows direct address and conversational focus, with restrained character-driven interjections. Both participants can inspect an attached photo, send separate solo images, and carry meaningful relationship progress plus a bounded shared-event memory back into their private chat.
 
@@ -28,7 +28,7 @@ AniMessenger is available under the [MIT License](LICENSE). See the [changelog](
 
 ### [Download the latest Windows release](https://github.com/KatamariKei/AniMessenger/releases/latest)
 
-1. Download and extract `AniMessenger-Windows-v0.3.1.zip`.
+1. Download and extract `AniMessenger-Windows-v0.3.2.zip`.
 2. Run `Install-AniMessenger.cmd` from the extracted folder.
 3. Use the AniMessenger tray icon to open, start, stop, or check for updates.
 
@@ -39,7 +39,7 @@ The installer is not yet code-signed, so Windows may show a reputation warning. 
 ## What you need
 
 - Windows 10 or 11 is the currently tested platform;
-- Ollama with at least one local chat model;
+- **Ollama with at least one local model is required** to find, build, and chat with characters;
 - ComfyUI only if you want generated profile pictures and chat images.
 
 Building from source additionally requires Git, Node.js 22.13 or newer, and pnpm 11. Packaged Windows users do not need those developer tools.
@@ -101,7 +101,7 @@ Existing source-clone users can update without replacing local chats or settings
     pnpm install --frozen-lockfile
     pnpm check
 
-Then launch AniMessenger normally with `pnpm dev` or `pnpm dev:lan`. Private runtime files are excluded from Git, and newly introduced saved-data fields are normalized backward-compatibly.
+Then launch AniMessenger normally with `pnpm dev`, `pnpm dev:lan`, or `pnpm dev:tray`. The development tray manages the same source copy with Open, Start, Stop, Quit, and a persistent **Phone access** toggle. Phone access restarts that one service in LAN mode on port 5173; it does not start a second AniMessenger instance. Private runtime files are excluded from Git, and newly introduced saved-data fields are normalized backward-compatibly.
 
 If you have edited tracked application files or bundled workflows, commit or copy those changes before pulling. Store custom ComfyUI workflows outside the bundled workflow filenames so an update cannot overwrite them. See [Updating AniMessenger](docs/UPDATING.md) for clone, packaged-install, backup, and troubleshooting guidance.
 
@@ -110,9 +110,9 @@ Default service addresses:
 - AniMessenger API: `http://127.0.0.1:5174`
 - Ollama: `http://127.0.0.1:11434`
 - ComfyUI: `http://127.0.0.1:8188`
-- AnimaDex: `https://animadex.net`
+- Optional AnimaDex fallback: `https://animadex.net`
 
-If AnimaDex is unavailable, a small offline preview catalogue remains searchable. You can also point Settings at a self-hosted AnimaDex instance.
+If all public character sources are unavailable, a small offline preview catalogue remains searchable. The optional fallback URL in Settings can point to a self-hosted AnimaDex instance.
 
 ## Test on a phone
 
@@ -167,12 +167,14 @@ The optional ComfyUI output-folder setting lets saved conversations resolve thei
 
 The first time a character is selected, AniMessenger:
 
-1. reads the character's AnimaDex trigger and visual tags;
+1. combines source-neutral character identity, series, and visual evidence from the available public catalogues;
 2. optionally gathers a small set of Wikipedia background notes;
 3. asks the selected local Ollama model for a structured character dossier;
 4. separates permanent visual identity from changeable wardrobe;
 5. caches personality, speech, mannerisms, history, relationships, knowledge boundaries, and dialogue guidance;
 6. creates a private local thread with relationship, scene, and durable memory state.
+
+The chat opens immediately with a letter avatar while this first dossier is prepared. If ComfyUI is connected, a generated profile portrait can replace the placeholder asynchronously without delaying the first conversation.
 
 Later chats reuse that dossier. Recent dialogue maintains immediate context, while extracted durable memories preserve important facts, shared events, creations, promises, boundaries, and open threads.
 
@@ -213,6 +215,7 @@ Before publishing or packaging, run the release safety check. It inspects the pr
 
     pnpm dev             # local API + web interface
     pnpm dev:lan         # phone testing on a trusted private network
+    pnpm dev:tray        # tray-managed development service with a phone-access toggle
     pnpm build           # production client build
     pnpm start           # serve a completed build on port 5174
     pnpm test            # unit tests

@@ -19,6 +19,18 @@ test("recognizes natural follow-up requests in an active photo context", () => {
   assert.equal(isExplicitPhotoRequest("I wanna see your face", photoContext), true);
 });
 
+test("recognizes clear visual requests without requiring photo vocabulary", () => {
+  assert.equal(isExplicitPhotoRequest("Let me see."), true);
+  assert.equal(isExplicitPhotoRequest("Show me!"), true);
+  assert.equal(isExplicitPhotoRequest("Let me get a better look at you."), true);
+  assert.equal(isExplicitPhotoRequest("Can I see that new outfit?"), true);
+  assert.equal(isExplicitPhotoRequest("I wanna see what it looks like."), true);
+  assert.equal(isExplicitPhotoRequest("Show me what you're wearing."), true);
+});
+
 test("does not interpret ordinary follow-up language as a photo request", () => {
   assert.equal(isExplicitPhotoRequest("let's see what happens", [{ from: "character", text: "Maybe the plan will work." }]), false);
+  assert.equal(isExplicitPhotoRequest("Let me see if that works."), false);
+  assert.equal(isExplicitPhotoRequest("I want to see what you mean."), false);
+  assert.equal(isExplicitPhotoRequest("Show me how to solve it."), false);
 });

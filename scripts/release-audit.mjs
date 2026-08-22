@@ -19,6 +19,7 @@ const blockedDirectories = [
   "logs/",
   "node_modules/",
   "outputs/",
+  "runtime/",
   "work/",
 ];
 const blockedFiles = new Set(["animessenger.config.json"]);

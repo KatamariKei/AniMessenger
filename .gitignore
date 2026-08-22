@@ -52,5 +52,6 @@ next-env.d.ts
 /.agents/
 /.release-audit/
 /.runtime-cache/
+/runtime/
 /*.tgz
 *.tsbuildinfo

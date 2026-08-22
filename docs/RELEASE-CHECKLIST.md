@@ -14,7 +14,7 @@ This checklist prepares a public repository without exposing the creator's local
 ## First-run experience
 
 - [x] Document supported Windows and Node versions.
-- [x] Add clear Ollama, ComfyUI, and AnimaDex setup instructions.
+- [x] Add clear Ollama, ComfyUI, and character-catalogue setup instructions.
 - [x] Detect missing services and explain how to recover in the interface.
 - [x] Provide a safe example configuration with no machine-specific paths.
 - [x] Test a completely new user startup with an empty `data/` directory.
@@ -36,6 +36,13 @@ This checklist prepares a public repository without exposing the creator's local
 - [x] Keep private-chat histories isolated during guest encounters.
 - [x] Add conservative, cooldown-limited character interjections without an extra director-model call.
 
+## Before the next release
+
+- [x] Improve outfit specificity and continuity in generated-image prompts. Vague scene wardrobe values such as `casual clothes` or `bikini` are expanded into stable, character-informed designs with a defined cut or silhouette, material or pattern, colors, and a distinguishing detail. Preserve those details across subsequent images until the scene establishes a clothing change, reducing reinterpretation without pretending image continuity can be perfect.
+- [x] Add durable-memory lifecycle handling. When a promised plan or open loop is completed, replace or retire the future-tense memory and save the concrete outcome—including who won, what changed, and any consequence that remains active—so stale plans cannot override completed events in later conversation.
+- [x] Consolidate semantically duplicate memories across categories. A single subject should not accumulate competing `promise`, `open_loop`, and `shared_event` versions with slightly different wording; merge them into one current canonical fact while preserving useful keywords and source references.
+- [x] **Make key visual moments reliable.** Recognize third-person direction and character-reported transitions such as finishing a workout, showering, getting dressed, arriving somewhere visually distinctive, unveiling something, or texting back with a reveal. Preserve apart/together presence, add the latest visible evidence to the image brief, and never allow a solo or guest reply to claim it sent a current selfie or photo without either queuing the image or repairing the reply.
+
 ## Repository launch decisions
 
 - [x] Choose a software license (MIT).
@@ -54,9 +61,9 @@ Then inspect the candidate from a fresh directory before publishing anything.
 
 For every public update:
 
-- [ ] Review the complete staged file list and public diff.
-- [ ] Confirm no runtime data, local configuration, generated images, or machine paths are staged.
-- [ ] Rehearse updating an existing source clone without losing its ignored data.
+- [x] Review the complete staged file list and public diff.
+- [x] Confirm no runtime data, local configuration, generated images, or machine paths are staged.
+- [x] Rehearse updating an existing source clone without losing its ignored data.
 - [x] Build the Windows package and verify its contents exclude private runtime data.
 
 ## Windows distribution milestone

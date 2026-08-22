@@ -1,6 +1,6 @@
 import { ChangeEvent, FormEvent, TouchEvent as ReactTouchEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { api, AnimaCharacter, AppConfig, ComfyDiagnostics, ImageInstallJob, ImagePackStatus, Message, OllamaGpuDiagnostics, Thread } from "./api";
+import { api, AnimaCharacter, AppConfig, ComfyDiagnostics, ImageInstallJob, ImagePackStatus, Message, OllamaDownloadOption, OllamaGpuDiagnostics, OllamaInstallJob, Thread } from "./api";
 
 const accentPalette = ["#a8e6c6", "#61e8df", "#ef9caa", "#ff8d76", "#d5d0c7", "#d7a57c", "#bda4ff"];
 const emojiCatalog = [
@@ -208,14 +208,16 @@ function Portrait({ character, large = false }: { character: AnimaCharacter; lar
   );
 }
 
-function EmptyChat({ onDiscover }: { onDiscover: () => void }) {
+function EmptyChat({ mode, onDiscover }: { mode: "chats" | "discover"; onDiscover: () => void }) {
   return (
     <section className="chat-panel empty-chat">
-      <img className="empty-brand-icon" src="/animessenger-icon.svg?v=2" alt="" aria-hidden="true" />
+      <img className="empty-brand-icon" src="/animessenger-icon.svg?v=4" alt="" aria-hidden="true" />
       <p className="eyebrow">Your private character space</p>
       <h2>An adventure in every chat.</h2>
-      <p>Search AnimaDex, build their personality with Ollama, and begin a conversation that remembers.</p>
-      <button onClick={onDiscover}>Find a character</button>
+      <p>Search across character sources, build their personality with Ollama, and begin a conversation that remembers.</p>
+      {mode === "chats"
+        ? <button onClick={onDiscover}>Find a character</button>
+        : <p className="empty-search-hint">Use the character search on the left to choose someone to meet.</p>}
     </section>
   );
 }
@@ -495,6 +497,76 @@ function OllamaGpuCheck({ ollamaUrl, model }: { ollamaUrl: string; model: string
   );
 }
 
+function OllamaModelInstaller({ ollamaUrl, onInstalled }: { ollamaUrl: string; onInstalled: () => Promise<void> }) {
+  const [options, setOptions] = useState<OllamaDownloadOption[]>([]);
+  const [selected, setSelected] = useState("gemma4:12b");
+  const [job, setJob] = useState<OllamaInstallJob | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api.recommendedOllamaDownloads()
+      .then((result) => {
+        setOptions(result.models);
+        if (!result.models.some((item) => item.model === selected) && result.models[0]) setSelected(result.models[0].model);
+      })
+      .catch((reason) => setError(reason instanceof Error ? reason.message : "Recommended models could not be loaded."));
+  }, []);
+
+  useEffect(() => {
+    if (!job || !["queued", "downloading"].includes(job.status)) return undefined;
+    const timer = window.setInterval(() => {
+      api.ollamaInstallStatus(job.id).then(async (next) => {
+        setJob(next);
+        if (next.status === "complete") await onInstalled();
+      }).catch((reason) => {
+        setError(reason instanceof Error ? reason.message : "The model download status could not be checked.");
+        window.clearInterval(timer);
+      });
+    }, 750);
+    return () => window.clearInterval(timer);
+  }, [job?.id, job?.status, onInstalled]);
+
+  const start = async () => {
+    setError("");
+    try {
+      setJob(await api.installOllamaModel({ ollamaUrl, model: selected }));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The model download could not start.");
+    }
+  };
+
+  const cancel = async () => {
+    if (!job) return;
+    try { setJob(await api.cancelOllamaInstall(job.id)); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "The download could not be cancelled."); }
+  };
+
+  const active = Boolean(job && ["queued", "downloading"].includes(job.status));
+  const progress = job?.totalBytes ? Math.max(0, Math.min(100, (job.completedBytes / job.totalBytes) * 100)) : 0;
+
+  return (
+    <div className="ollama-model-installer">
+      <div className="ollama-install-intro"><strong>Choose a model and AniMessenger will ask Ollama to download it.</strong><span>No command window needed. One model can power chat, character profiles, and photo reactions.</span></div>
+      <div className="ollama-install-options" role="radiogroup" aria-label="Recommended Ollama models">
+        {options.map((option) => <button type="button" role="radio" aria-checked={selected === option.model} className={selected === option.model ? "selected" : ""} key={option.model} onClick={() => setSelected(option.model)} disabled={active}>
+          <span><strong>{option.label}</strong><b>{option.model}</b></span>
+          <small>{option.detail}<em>About {formatFileSize(option.approximateBytes)}</em></small>
+        </button>)}
+      </div>
+      {job && <div className={`ollama-install-progress is-${job.status}`} role="status">
+        <div><strong>{job.status === "complete" ? `${job.model} is ready` : job.status === "error" ? "Download stopped" : job.message || "Downloading model"}</strong><span>{job.error || (job.totalBytes > 0 ? `${formatFileSize(job.completedBytes)} of ${formatFileSize(job.totalBytes)}` : "Preparing download…")}</span></div>
+        <i><span style={{ width: `${job.status === "complete" ? 100 : progress}%` }} /></i>
+      </div>}
+      {error && <p className="form-error">{error}</p>}
+      <div className="ollama-install-actions">
+        <button type="button" onClick={() => void start()} disabled={active || options.length === 0}>{job?.status === "error" || job?.status === "cancelled" ? "Try again" : "Download with Ollama"}</button>
+        {active && <button type="button" className="secondary" onClick={() => void cancel()}>Cancel</button>}
+      </div>
+      <small className="ollama-install-note">Downloads can be several gigabytes. You can leave this screen open while Ollama works.</small>
+    </div>
+  );
+}
+
 function Settings({ initial, onClose, onSaved, onOpenSetup }: SettingsProps) {
   const [config, setConfig] = useState(initial);
   const [models, setModels] = useState<string[]>([]);
@@ -657,7 +729,7 @@ function Settings({ initial, onClose, onSaved, onOpenSetup }: SettingsProps) {
 
           <details className="settings-section settings-advanced settings-connections">
             <summary><span><strong>Connection addresses</strong><small>Only change these when a local service uses a different address.</small></span></summary>
-            <div className="settings-grid"><label><span>Ollama URL</span><input value={config.ollamaUrl} onChange={(e) => update("ollamaUrl", e.target.value)} /></label><label><span>ComfyUI URL</span><input value={config.comfyUrl} onChange={(e) => update("comfyUrl", e.target.value)} /></label><label className="settings-wide"><span>AnimaDex URL</span><input value={config.animadexUrl} onChange={(e) => update("animadexUrl", e.target.value)} /></label></div>
+            <div className="settings-grid"><label><span>Ollama URL</span><input value={config.ollamaUrl} onChange={(e) => update("ollamaUrl", e.target.value)} /></label><label><span>ComfyUI URL</span><input value={config.comfyUrl} onChange={(e) => update("comfyUrl", e.target.value)} /></label><label className="settings-wide"><span>AnimaDex fallback URL</span><input value={config.animadexUrl} onChange={(e) => update("animadexUrl", e.target.value)} /></label></div>
           </details>
 
           {canShutdown && <section className="settings-shutdown">
@@ -668,10 +740,10 @@ function Settings({ initial, onClose, onSaved, onOpenSetup }: SettingsProps) {
         </div>
         <div className="settings-actions">
           <button type="button" onClick={requestClose}>Cancel</button>
-          <button type="submit" disabled={saving}>{saving ? "Saving…" : "Save locally"}</button>
+          <button type="submit" disabled={saving}>{saving ? "Saving…" : "Save settings"}</button>
         </div>
         {confirmDiscard && <div className="discard-confirm" role="alertdialog" aria-modal="true" aria-labelledby="settings-discard-title"><section ref={discardRef} tabIndex={-1}><strong id="settings-discard-title">Discard unsaved changes?</strong><p>Your settings edits have not been saved.</p><div><button type="button" onClick={() => setConfirmDiscard(false)}>Keep editing</button><button type="button" className="discard-button" onClick={onClose}>Discard</button></div></section></div>}
-        {shutdownComplete && <div className="shutdown-complete" role="status"><img src="/animessenger-icon.svg" alt="" /><strong>AniMessenger is shut down.</strong><p>Your chats are safe. You can close this browser tab and use the AniMessenger tray icon or shortcut when you want to return.</p></div>}
+        {shutdownComplete && <div className="shutdown-complete" role="status"><img src="/animessenger-icon.svg?v=4" alt="" /><strong>AniMessenger is shut down.</strong><p>Your chats are safe. You can close this browser tab and use the AniMessenger tray icon or shortcut when you want to return.</p></div>}
       </form>
     </div>
   );
@@ -837,7 +909,7 @@ function VisualIdentityEditor({ thread, onClose, onSaved }: { thread: Thread; on
         <p>Choose how their name appears in AniMessenger and correct visual details for future images. Personality, memories, and relationship progress stay untouched.</p>
         <div className="identity-editor-scroll">
           <section className="identity-editor-section identity-editor-wardrobe">
-            <header><span><strong>Display name</strong><small>Shorten or clean up the catalogue name. The original AnimaDex identity remains intact behind the scenes.</small></span></header>
+            <header><span><strong>Display name</strong><small>Shorten or clean up the catalogue name. The canonical source identity remains intact behind the scenes.</small></span></header>
             <input
               value={draft.displayName}
               maxLength={80}
@@ -899,7 +971,7 @@ function ServiceRecovery({ health, serviceReachable, ready, mode, checking, onRe
     : !health.ollama
       ? { title: "Chat is offline", detail: "AniMessenger is running, but Ollama is not connected. Start Ollama, then retry.", optional: false, retryLabel: "Retry", allowSetup: true }
       : mode === "discover" && !health.animadex
-        ? { title: "Using the offline character preview", detail: "Existing chats still work. Retry when AnimaDex is available for the full catalogue.", optional: true, retryLabel: "Retry", allowSetup: true }
+        ? { title: "Character search is offline", detail: "Existing chats still work. Retry the independent sources or use the small built-in preview.", optional: true, retryLabel: "Retry", allowSetup: true }
         : !health.comfy
           ? { title: "Images are offline", detail: "Chat still works. Start ComfyUI whenever you want pictures.", optional: true, retryLabel: "Retry", allowSetup: true }
           : null;
@@ -935,7 +1007,11 @@ function SetupGuide({ initial, initialHealth, onComplete, onSkip }: SetupGuidePr
   const [recommendedModels, setRecommendedModels] = useState({ chat: "", vision: "" });
   const initialUsesBundledWorkflow = initial.comfyWorkflowFile === BUNDLED_COMFY_WORKFLOW && initial.comfyMappingFile === BUNDLED_COMFY_MAPPING;
   const [imageMode, setImageMode] = useState<"recommended" | "custom" | "later">(
-    !initial.comfyWorkflowFile && !initial.comfyMappingFile ? "later" : initialUsesBundledWorkflow ? "recommended" : "custom",
+    !initial.comfyWorkflowFile && !initial.comfyMappingFile
+      ? "later"
+      : initialUsesBundledWorkflow
+        ? (initialHealth.comfy || initial.comfyModelsDir.trim() ? "recommended" : "later")
+        : "custom",
   );
   const [customImageFiles, setCustomImageFiles] = useState({
     workflow: initialUsesBundledWorkflow ? "" : initial.comfyWorkflowFile,
@@ -1054,17 +1130,17 @@ function SetupGuide({ initial, initialHealth, onComplete, onSkip }: SetupGuidePr
 
         {step === 0 && (
           <div className="setup-page setup-welcome">
-            <img className="setup-mark" src="/animessenger-icon.svg?v=2" alt="" aria-hidden="true" />
+            <img className="setup-mark" src="/animessenger-icon.svg?v=4" alt="" aria-hidden="true" />
             <p className="eyebrow">Welcome to AniMessenger</p>
-            <h2 id="setup-title">Your characters live here—not in the cloud.</h2>
-            <p>AniMessenger connects to AI tools on this computer. Your chats, memories, relationships, and shared photos stay in local files you control.</p>
+            <h2 id="setup-title">Meet characters who remember you.</h2>
+            <p>AniMessenger connects to AI tools on this computer to build character personalities, conversations, memories, and visual messages.</p>
             <label className="setup-name">
               <span>What should characters call you?</span>
               <input value={draftConfig.userName || ""} onChange={(event) => setDraftConfig((current) => ({ ...current, userName: event.target.value }))} placeholder="Your name or nickname" autoComplete="nickname" />
             </label>
             <div className="setup-promises">
-              <span><b>Local</b> conversations and memory</span>
-              <span><b>Searchable</b> characters through AnimaDex</span>
+              <span><b>Private</b> conversations and memory</span>
+              <span><b>Searchable</b> characters across anime, games, manga, and more</span>
               <span><b>Optional</b> images through ComfyUI</span>
             </div>
           </div>
@@ -1074,13 +1150,13 @@ function SetupGuide({ initial, initialHealth, onComplete, onSkip }: SetupGuidePr
           <div className="setup-page">
             <p className="eyebrow">Local connections</p>
             <h2 id="setup-title">Let’s see what’s ready.</h2>
-            <p>Ollama powers every conversation. AnimaDex supplies character identity, while ComfyUI adds profile pictures and visual messages.</p>
+            <p><strong>Ollama is required to create and chat with characters.</strong> Independent catalogue and research sources supply character identity, while ComfyUI adds optional profile pictures and visual messages.</p>
             <div className="setup-services">
-              <div className={connectionHealth.ollama ? "connected" : ""}>
-                <span className="setup-status-dot" /><strong>Ollama</strong><small>Required for chat</small><em>{statusLabel(connectionHealth.ollama)}</em>
+              <div className={"required " + (connectionHealth.ollama ? "connected" : "needs-attention")}>
+                <span className="setup-status-dot" /><strong>Ollama</strong><small>Required to meet characters</small><em>{connectionHealth.ollama ? "Connected" : "Required · not connected"}</em>
               </div>
               <div className={connectionHealth.animadex ? "connected" : ""}>
-                <span className="setup-status-dot" /><strong>AnimaDex</strong><small>Character search</small><em>{statusLabel(connectionHealth.animadex)}</em>
+                <span className="setup-status-dot" /><strong>Character catalogue</strong><small>Independent character search</small><em>{statusLabel(connectionHealth.animadex)}</em>
               </div>
               <div className={connectionHealth.comfy ? "connected" : "optional"}>
                 <span className="setup-status-dot" /><strong>ComfyUI</strong><small>Optional images</small><em>{statusLabel(connectionHealth.comfy, true)}</em>
@@ -1110,8 +1186,10 @@ function SetupGuide({ initial, initialHealth, onComplete, onSkip }: SetupGuidePr
                     : "AniMessenger picked a balanced installed model. No installed model was confirmed for photo reactions; you can add one later."}</p>
                 <div className="setup-model-performance"><OllamaGpuCheck ollamaUrl={draftConfig.ollamaUrl} model={draftConfig.chatModel} /></div>
               </div>
+            ) : !checking && connectionHealth.ollama ? (
+              <OllamaModelInstaller ollamaUrl={draftConfig.ollamaUrl} onInstalled={checkConnections} />
             ) : !checking && (
-              <p className="setup-help">Start Ollama and install a chat model, then check again. For an easy all-in-one starting point, try <b>gemma4:12b</b>—it supports both conversation and photos. You can skip setup and return here later.</p>
+              <p className="setup-help setup-help-required"><b>Ollama is required before you can continue.</b> Start Ollama, then choose <b>Check connections again</b>. Once connected, AniMessenger can download a recommended model for you.</p>
             )}
           </div>
         )}
@@ -1175,7 +1253,7 @@ function SetupGuide({ initial, initialHealth, onComplete, onSkip }: SetupGuidePr
             <div className={ready ? "setup-ready-mark ready" : "setup-ready-mark"}>{ready ? "✓" : "!"}</div>
             <p className="eyebrow">{ready ? "Ready for your first chat" : "Almost there"}</p>
             <h2 id="setup-title">{ready ? "Who do you want to meet?" : "Ollama still needs a model."}</h2>
-            <p>{ready ? "Search for any character in AnimaDex. AniMessenger will research them, build a local performance profile, and remember what happens between you." : "You can go back and recheck, or skip for now and open this guide again from Settings."}</p>
+            <p>{ready ? "Search for a character across anime, games, manga, and more. AniMessenger will research them, build a local performance profile, and remember what happens between you." : "Go back to connect Ollama and choose a model before finishing setup."}</p>
             <div className="setup-summary">
               <span><b>Chat</b>{ready ? draftConfig.chatModel : "Not configured"}</span>
               <span><b>Character search</b>{connectionHealth.animadex ? "Online" : "Offline preview"}</span>
@@ -1186,11 +1264,11 @@ function SetupGuide({ initial, initialHealth, onComplete, onSkip }: SetupGuidePr
 
         {error && <p className="form-error setup-error">{error}</p>}
         <footer className="setup-actions">
-          <button type="button" className="setup-skip" onClick={skip}>Skip for now</button>
+          {Boolean(initial.chatModel) && <button type="button" className="setup-skip" onClick={skip}>Close guide</button>}
           <span />
           {step > 0 && <button type="button" onClick={() => setStep((current) => current - 1)}>Back</button>}
           {step < 3
-            ? <button type="button" className="setup-primary" onClick={() => setStep((current) => current + 1)}>{step === 0 ? "Get started" : "Continue"}</button>
+            ? <button type="button" className="setup-primary" onClick={() => setStep((current) => current + 1)} disabled={step === 1 && !ready}>{step === 0 ? "Get started" : "Continue"}</button>
             : <button type="button" className="setup-primary" onClick={() => void finish()} disabled={!ready || saving}>{saving ? "Saving…" : "Finish setup"}</button>}
         </footer>
       </section>
@@ -1209,6 +1287,7 @@ export function AniMessengerApp() {
   const [pendingPhoto, setPendingPhoto] = useState<PendingPhoto | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [typing, setTyping] = useState(false);
+  const [capturingMoment, setCapturingMoment] = useState(false);
   const [typingSpeakerId, setTypingSpeakerId] = useState("");
   const [searching, setSearching] = useState(false);
   const [building, setBuilding] = useState<AnimaCharacter | null>(null);
@@ -1312,7 +1391,9 @@ export function AniMessengerApp() {
       .map((message) => ({
         id: message.id,
         src: message.image!,
-        alt: characterDisplayName(active.character) + " shared an image",
+        alt: message.imageOrigin === "captured_moment"
+          ? "Captured moment with " + characterDisplayName(active.character)
+          : characterDisplayName(active.character) + " shared an image",
         time: message.time,
         generation: message.generation,
         retryable: Boolean(message.generated),
@@ -1492,6 +1573,8 @@ export function AniMessengerApp() {
       const localDataStillUnavailable = threadResult.status === "rejected" || configResult.status === "rejected";
       setNotice(!next.ollama
         ? "Ollama is still offline. Start it, then retry."
+        : mode === "discover" && !next.animadex
+          ? "Character search is still offline. The built-in preview remains available; try reconnecting again in a moment."
         : localDataStillUnavailable
           ? "The connection is back, but some local data could not be reloaded yet. Try once more."
           : "");
@@ -1526,12 +1609,12 @@ export function AniMessengerApp() {
         })
         .catch((reason) => {
           setResults([]);
-          setNotice(reason instanceof Error ? reason.message : "AnimaDex search failed.");
+          setNotice(reason instanceof Error ? reason.message : "Character search failed.");
         })
         .finally(() => setSearching(false));
     }, 280);
     return () => window.clearTimeout(timer);
-  }, [mode, search]);
+  }, [mode, search, health.animadex]);
 
   useLayoutEffect(() => {
     const scroll = scrollRef.current;
@@ -1983,7 +2066,9 @@ export function AniMessengerApp() {
         return;
       }
       const started = existing ?? (await api.startThread(character)).thread;
-      replaceThread(started);
+      // Enter the conversation immediately with the source-neutral letter avatar.
+      // Profile research continues in context instead of blocking behind a modal.
+      openThread(started);
       const result = await api.buildProfile(character);
       replaceThread(result.thread);
       if (result.avatarJob) {
@@ -2056,7 +2141,7 @@ export function AniMessengerApp() {
   }, [config?.proactiveEnabled, config?.proactivePace]);
 
   const regenerateAvatar = async () => {
-    if (!active || avatarGenerating[active.character.id]) return;
+    if (!active || !health.comfy || avatarGenerating[active.character.id]) return;
     const characterId = active.character.id;
     setAvatarGenerating((current) => ({ ...current, [characterId]: true }));
     setNotice("");
@@ -2360,11 +2445,18 @@ export function AniMessengerApp() {
     window.requestAnimationFrame(() => composerRef.current?.focus());
   };
 
-  const requestPhoto = async () => {
-    if (!active || typing) return;
-    const request = draft.trim() || "Send me a picture of what you're doing right now.";
-    setDraft("");
-    await send(request);
+  const captureMoment = async () => {
+    if (!active || !health.comfy || typing || capturingMoment) return;
+    setCapturingMoment(true);
+    setNotice("");
+    try {
+      const result = await api.captureMoment(active.id);
+      await Promise.all(result.imageJobs.map((job) => watchImage(job.promptId, active)));
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : "That moment could not be captured.");
+    } finally {
+      setCapturingMoment(false);
+    }
   };
 
   const clearChatListSwipe = () => {
@@ -2463,13 +2555,14 @@ export function AniMessengerApp() {
           {mode === "discover" && (
             <div className="discover-note">
               <span className={"signal-dot " + (health.animadex ? "" : "offline")} />
-              <div><strong>{health.animadex ? "AnimaDex connected" : "Offline character preview"}</strong><small>{health.animadex ? "Full character catalogue available." : "A small built-in selection remains available while AnimaDex reconnects."}</small></div>
+              <div><strong>{health.animadex ? "Character catalogue connected" : "Offline character preview"}</strong><small>{health.animadex ? "Independent search sources available." : "A small built-in selection remains available while character search reconnects."}</small></div>
+              <button type="button" onClick={() => void retryConnections()} disabled={healthChecking}>{healthChecking ? "Checking…" : health.animadex ? "Refresh" : "Reconnect"}</button>
             </div>
           )}
           <div className="contact-list" id="character-list-panel" role="tabpanel" aria-labelledby={"character-tab-" + mode}>
-            {searching && <div className="list-state">Searching your local index…</div>}
+            {searching && <div className="list-state">Searching character sources…</div>}
             {!searching && mode === "discover" && search.length < 2 && <div className="list-state">Type a name or series to find a character.</div>}
-            {!searching && mode === "discover" && search.length >= 2 && results.length === 0 && <div className="list-state">{health.animadex ? "No matches yet." : "No offline-preview matches. Retry when AnimaDex reconnects for the full catalogue."}</div>}
+            {!searching && mode === "discover" && search.length >= 2 && results.length === 0 && <div className="list-state">{health.animadex ? "No matches yet." : "No offline-preview matches. Retry when character search reconnects."}</div>}
             {!searching && mode === "chats" && visibleThreads.length === 0 && <div className="list-state">No conversations yet. Find someone to begin.</div>}
             {contactRows.map((character) => {
               const thread = threads.find((item) => item.character.id === character.id);
@@ -2488,7 +2581,7 @@ export function AniMessengerApp() {
                   <span className="contact-copy">
                     <span className="contact-topline"><strong>{characterDisplayName(character)}</strong><time>{mode === "chats" && last ? formatTime(last.time) : ""}</time></span>
                     <span className="series-label">{character.series}</span>
-                    <span className="message-preview">{mode === "discover" ? character.tags.join(" · ") : (last?.text ?? "Start a conversation")}</span>
+                    <span className="message-preview">{mode === "discover" ? (character.tags.slice(0, 3).join(" · ") || "Research profile on first meeting") : (last?.text ?? "Start a conversation")}</span>
                   </span>
                   {mode === "discover" && <span className="chat-arrow">↗</span>}
                 </button>
@@ -2513,7 +2606,7 @@ export function AniMessengerApp() {
             {...(config ? { onSetup: () => setShowSetup(true) } : {})}
           />
           {notice && <div className="workspace-notice" role="alert">{notice}</div>}
-          <EmptyChat onDiscover={() => setMode("discover")} />
+          <EmptyChat mode={mode} onDiscover={() => setMode("discover")} />
         </section> : (
           <section
             className={"chat-panel " + (active.cameo?.activeGuest ? "has-cameo" : "")}
@@ -2524,7 +2617,7 @@ export function AniMessengerApp() {
           >
             <header className="chat-header">
               <button className="back-button" onClick={() => setMobileChatOpen(false)} aria-label="Back to messages">‹</button>
-              <button type="button" className="chat-person" onClick={openProfile} aria-label={"Open " + characterDisplayName(active.character) + " profile"}>
+              <button type="button" className="chat-person" onClick={openProfile} disabled={!active.profile} aria-label={active.profile ? "Open " + characterDisplayName(active.character) + " profile" : "Character profile is being prepared"}>
                 <span className={"chat-avatar " + (avatarGenerating[active.character.id] ? "is-generating" : "")}>
                   <Portrait character={active.character} />
                 </span>
@@ -2543,6 +2636,7 @@ export function AniMessengerApp() {
                 type="button"
                 className={"guest-control " + (activeGuestThread ? "has-guest" : "")}
                 onClick={() => { setGuestSearch(""); setShowGuestPicker(true); }}
+                disabled={!active.profile}
                 aria-label={activeGuestThread ? "Manage guest " + characterDisplayName(activeGuestThread.character) : "Invite a guest character"}
                 title={activeGuestThread ? "Guest: " + characterDisplayName(activeGuestThread.character) : "Invite a guest"}
               >
@@ -2582,6 +2676,27 @@ export function AniMessengerApp() {
                 <p>{active.character.series}</p>
                   <small>{activeVisualIdentity.join(" · ") || active.character.tags.join(" · ")}</small>
               </div>
+              {building?.id === active.id && !active.profile && (
+                <div className="build-in-chat" role="status" aria-live="polite">
+                  <span className="build-letter"><Portrait character={active.character} /></span>
+                  <div><small>Preparing this character</small><strong>Getting to know {characterDisplayName(active.character)}…</strong><p>Ollama is researching their personality, visual identity, history, and conversation style. You can begin as soon as their first message appears.</p></div>
+                  <div className="build-progress"><i /></div>
+                </div>
+              )}
+              {!active.profile && building?.id !== active.id && (
+                <div className="build-in-chat build-recovery" role="alert">
+                  <span className="build-letter"><Portrait character={active.character} /></span>
+                  <div>
+                    <small>Profile setup paused</small>
+                    <strong>{characterDisplayName(active.character)} isn’t ready yet.</strong>
+                    <p>Nothing is lost. Retry the character research, or remove this unfinished chat and choose another result.</p>
+                  </div>
+                  <div className="build-actions">
+                    <button type="button" onClick={() => void openCharacter(active.character)}>Retry setup</button>
+                    <button type="button" className="build-remove" onClick={() => setDeleteTarget(active)}>Remove chat</button>
+                  </div>
+                </div>
+              )}
               {loadingThreadId === active.id && active.summary && <div className="history-loading">Loading conversation…</div>}
               {hiddenMessageCount > 0 && (
                 <button type="button" className="load-earlier" onClick={() => setVisibleMessageLimit((current) => current + MESSAGE_BATCH_SIZE)}>
@@ -2589,10 +2704,10 @@ export function AniMessengerApp() {
                 </button>
               )}
               {visibleMessages.map((message) => (
-                <div key={message.id} className={"message-line message-line--" + (message.from === "system" ? "system" : message.from === "character" ? "character" : "user") + (message.from === "character" && message.speakerId && message.speakerId !== active.character.id ? " message-line--guest" : "")}>
+                <div key={message.id} className={"message-line message-line--" + (message.from === "system" ? "system" : message.from === "character" ? "character" : "user") + (message.from === "character" && message.speakerId && message.speakerId !== active.character.id ? " message-line--guest" : "") + (message.imageOrigin === "captured_moment" ? " message-line--captured" : "")}>
                   <div className="message-content">
                     <div className="message-primary">
-                      {message.from === "character" && <Portrait character={messageSpeakerCharacter(message, active, threads)} />}
+                      {message.from === "character" && message.imageOrigin !== "captured_moment" && <Portrait character={messageSpeakerCharacter(message, active, threads)} />}
                       <div className="message-payload">
                         {message.from === "character" && active.cameo?.activeGuest && (
                           <small className="message-speaker">{characterDisplayName(messageSpeakerCharacter(message, active, threads))}</small>
@@ -2605,7 +2720,7 @@ export function AniMessengerApp() {
                               items: [{
                                 id: message.id,
                                 src: message.image!,
-                                alt: message.generated ? characterDisplayName(messageSpeakerCharacter(message, active, threads)) + " shared a generated scene" : "Shared by you",
+                                alt: message.imageOrigin === "captured_moment" ? "Captured moment with " + characterDisplayName(messageSpeakerCharacter(message, active, threads)) : message.generated ? characterDisplayName(messageSpeakerCharacter(message, active, threads)) + " shared a generated scene" : "Shared by you",
                                 time: message.time,
                                 generation: message.generation,
                                 retryable: Boolean(message.generated),
@@ -2617,7 +2732,7 @@ export function AniMessengerApp() {
                             <img
                               key={message.id + "-" + imageReloadVersion}
                               src={message.image}
-                              alt={message.generated ? characterDisplayName(messageSpeakerCharacter(message, active, threads)) + " shared a generated scene" : "Shared by you"}
+                              alt={message.imageOrigin === "captured_moment" ? "Captured moment with " + characterDisplayName(messageSpeakerCharacter(message, active, threads)) : message.generated ? characterDisplayName(messageSpeakerCharacter(message, active, threads)) + " shared a generated scene" : "Shared by you"}
                               onError={() => handleImageLoadError(message.id)}
                             />
                           </button>
@@ -2640,7 +2755,7 @@ export function AniMessengerApp() {
                       <time>{formatTime(message.time)}</time>
                       {message.delivery === "sending" && <span className="delivery-state">Sending…</span>}
                       {message.delivery === "failed" && <button type="button" className="delivery-retry" onClick={() => retryFailedMessage(message)}>Not sent · Retry</button>}
-                      {message.from === "character" && (!message.speakerId || message.speakerId === active.character.id) && (
+                      {message.from === "character" && message.imageOrigin !== "captured_moment" && (!message.speakerId || message.speakerId === active.character.id) && (
                         <span className="reaction-control">
                           {message.reaction ? (
                             <button
@@ -2692,9 +2807,18 @@ export function AniMessengerApp() {
               {notice && <div className="chat-notice" role="alert">{notice}</div>}
             </div>
             <div className="quick-prompts">
-              <button onClick={() => setDraft("What are you doing right now?")}>What are you doing?</button>
-              <button onClick={insertAction} aria-label="Insert an action">[action: ]</button>
-              <button onClick={requestPhoto}>Send me a picture</button>
+              <button onClick={() => setDraft("What are you doing right now?")} disabled={!active.profile}>What are you doing?</button>
+              <button onClick={insertAction} aria-label="Insert an action" disabled={!active.profile}>[action: ]</button>
+              <button
+                type="button"
+                className={"capture-moment-button " + (capturingMoment ? "is-capturing" : "")}
+                onClick={() => void captureMoment()}
+                disabled={!active.profile || !health.comfy || typing || capturingMoment}
+                title={!health.comfy ? "Connect ComfyUI in Settings to capture moments" : "Capture this moment"}
+                aria-label={capturingMoment ? "Capturing this moment" : "Capture this moment"}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 7.5h3l1.4-2h6.2l1.4 2h3a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2h-15a2 2 0 0 1-2-2V9.5a2 2 0 0 1 2-2Z"/><circle cx="12" cy="13.5" r="4"/><path d="M18 10h.01"/></svg>
+              </button>
             </div>
             <form className="composer" onSubmit={sendMessage}>
               {showEmoji && (
@@ -2746,7 +2870,7 @@ export function AniMessengerApp() {
                 </div>
               )}
               <input ref={fileRef} type="file" accept="image/*" hidden onChange={attachPhoto} />
-              <button type="button" className="add-button" onClick={() => fileRef.current?.click()} disabled={typing || photoUploading} aria-label={pendingPhoto ? "Replace attached photo" : active.cameo?.activeGuest ? "Attach a photo for both characters" : "Attach a photo"}>＋</button>
+              <button type="button" className="add-button" onClick={() => fileRef.current?.click()} disabled={!active.profile || typing || photoUploading} aria-label={pendingPhoto ? "Replace attached photo" : active.cameo?.activeGuest ? "Attach a photo for both characters" : "Attach a photo"}>＋</button>
               <div className="composer-input">
                 <textarea
                   ref={composerRef}
@@ -2754,6 +2878,7 @@ export function AniMessengerApp() {
                   enterKeyHint="send"
                   autoCapitalize="sentences"
                   value={draft}
+                  disabled={!active.profile}
                   onFocus={anchorComposerAfterKeyboard}
                   onChange={(event) => setDraft(event.target.value)}
                   onKeyDown={(event) => {
@@ -2762,7 +2887,7 @@ export function AniMessengerApp() {
                       event.currentTarget.form?.requestSubmit();
                     }
                   }}
-                  placeholder={pendingPhoto ? "Add a message about this image…" : activeGuestThread ? "Message both characters…" : "Message " + characterDisplayName(active.character) + "…"}
+                  placeholder={!active.profile ? "Preparing " + characterDisplayName(active.character) + "…" : pendingPhoto ? "Add a message about this image…" : activeGuestThread ? "Message both characters…" : "Message " + characterDisplayName(active.character) + "…"}
                   aria-label={"Message " + characterDisplayName(active.character)}
                 />
                 <button
@@ -2773,26 +2898,13 @@ export function AniMessengerApp() {
                   aria-expanded={showEmoji}
                 >☺</button>
               </div>
-              <button className="send-button" type="submit" disabled={(!draft.trim() && !pendingPhoto) || typing || photoUploading} aria-label="Send message">
+              <button className="send-button" type="submit" disabled={!active.profile || (!draft.trim() && !pendingPhoto) || typing || photoUploading} aria-label="Send message">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M12 19V5M6.5 10.5 12 5l5.5 5.5" />
                 </svg>
               </button>
             </form>
           </section>
-        )}
-
-        {building && (
-          <div className="profile-layer build-layer" role="status" aria-live="polite">
-            <article>
-              <Portrait character={building} large />
-              <p className="eyebrow">Building local character memory</p>
-              <h2>Getting to know {characterDisplayName(building)}</h2>
-              <p>Ollama is separating their lasting identity from changeable clothing, then compiling personality, mannerisms, history, relationships, and speech.</p>
-              <div className="build-progress"><i /></div>
-              <small>First meetings take longer. The finished profile is cached locally.</small>
-            </article>
-          </div>
         )}
 
         {showGuestPicker && active && (
@@ -2848,7 +2960,7 @@ export function AniMessengerApp() {
               <div className="profile-hero">
                 <span className={"profile-avatar " + (avatarGenerating[active.character.id] ? "is-generating" : "")}>
                   <Portrait character={active.character} large />
-                  <button
+                  {health.comfy && <button
                     type="button"
                     className="avatar-refresh"
                     onClick={regenerateAvatar}
@@ -2862,7 +2974,7 @@ export function AniMessengerApp() {
                       <path d="M3 12a9 9 0 0 0 15.2 6.5L21 16" />
                       <path d="M16 16h5v5" />
                     </svg>
-                  </button>
+                  </button>}
                 </span>
                 <div className="profile-hero-copy">
                   <p className="eyebrow">{active.character.series}</p>
@@ -2888,7 +3000,7 @@ export function AniMessengerApp() {
                     <div><dt>Where</dt><dd>{active.scene.location}</dd></div>
                   </dl>
                   <div className="identity-note"><span><strong>Character details</strong><small>{active.profile.visual.userOverrides || active.character.displayName ? "Your corrections are active" : "Researched baseline"}</small></span><p>{activeVisualIdentity.join(" · ")}</p><button type="button" onClick={() => setShowIdentityEditor(true)}>Edit character</button></div>
-                  <small className="fan-note">Character interpretation is created locally from AnimaDex visual data, optional research, and your selected Ollama model.</small>
+                  <small className="fan-note">Character interpretation is created locally from catalogue evidence, optional research, and your selected Ollama model.</small>
                 </div>
               ) : profileTab === "memories" ? (
                 <div className="profile-memories" id="profile-panel" role="tabpanel" aria-labelledby="profile-tab-memories">
@@ -2908,7 +3020,7 @@ export function AniMessengerApp() {
               ) : (
                 <div className="profile-gallery" id="profile-panel" role="tabpanel" aria-labelledby="profile-tab-gallery">
                   {activeGallery.length === 0 ? (
-                    <p className="gallery-empty">Images {characterDisplayName(active.character)} sends will appear here.</p>
+                    <p className="gallery-empty">Images {characterDisplayName(active.character)} sends or moments you capture will appear here.</p>
                   ) : activeGallery.map((item, index) => (
                     <div className="gallery-item" key={item.id}>
                       <button

@@ -13,6 +13,7 @@ work/
 .agents/
 .release-audit/
 .runtime-cache/
+runtime/
 .npm-cache/
 .pnpm-store/
 .deps-staging/

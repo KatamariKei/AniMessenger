@@ -19,6 +19,12 @@ test("travel and departures establish physical separation", () => {
   assert.equal(inferPresenceCue("[action: I head home.] I'll text you later.", "together").presence, "apart");
 });
 
+test("leaving to return later or texting back establishes physical separation", () => {
+  assert.equal(inferPresenceCue("Why don't you come over after the gym?", "together").presence, "apart");
+  assert.equal(inferPresenceCue("Just let me know when you're coming over.", "together").presence, "apart");
+  assert.equal(inferPresenceCue("Nagatoro gets dressed and texts me back an hour later.", "together").presence, "apart");
+});
+
 test("ambiguous conversation preserves the established presence", () => {
   assert.equal(inferPresenceCue("What movie should we watch?", "together").presence, "together");
   assert.equal(inferPresenceCue("How was work?", "apart").presence, "apart");

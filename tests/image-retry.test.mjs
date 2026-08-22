@@ -42,6 +42,8 @@ test("retrying an old character image preserves its scene while applying current
   };
   const overrides = retryPromptOverrides(message, { name: "Faye Valentine" });
   assert.match(overrides.positivePrompt, /red bikini/);
+  assert.match(overrides.positivePrompt, /^adult,/);
+  assert.doesNotMatch(overrides.positivePrompt, /1person|age 18/i);
   assert.match(overrides.positivePrompt, /shot of Faye Valentine looking down at her plate/i);
   assert.doesNotMatch(overrides.positivePrompt, /external[- ]camera/i);
   assert.match(overrides.positivePrompt, /Faye Valentine clearly visible in frame/i);
@@ -213,7 +215,7 @@ test("retries replace the recorded scene outfit with the latest current outfit",
     generation: {
       positive: "quality, 1person, purple hair, tactical bodysuit, training facility, focused",
       negative: "low quality",
-      scenePrompt: "1person, adult, age 18 or older, motoko, purple hair, red eyes, tactical bodysuit, training facility, posing, focused, dim\n\nMotoko clearly visible in frame, dynamic action shot\n\nsolo focus, anime illustration",
+      scenePrompt: "1person, adult, age 18 or older, motoko, purple hair, red eyes, tactical bodysuit, training facility, posing, focused, dim\n\nMotoko clearly visible in frame, full-body dynamic action shot, feet visible\n\nsolo focus, anime illustration",
       visualIdentity: ["purple hair", "red eyes"],
       sceneOutfit: "tactical bodysuit",
     },
@@ -235,7 +237,7 @@ test("retries replace the recorded scene outfit with the latest current outfit",
   assert.doesNotMatch(overrides.positivePrompt, /tactical bodysuit/);
   assert.match(overrides.positivePrompt, /light purple strapless highleg leotard, light purple utility belt, thigh boots/);
   assert.match(overrides.positivePrompt, /training facility/);
-  assert.match(overrides.positivePrompt, /dynamic action shot/);
+  assert.match(overrides.positivePrompt, /full-body dynamic action shot/);
 });
 
 test("retries translate a current outfit of none into an explicit nude prompt", () => {

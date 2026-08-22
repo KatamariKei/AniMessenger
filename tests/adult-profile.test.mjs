@@ -13,6 +13,18 @@ test("adult character ages are preserved", () => {
   assert.equal(adultCharacterAge("over 1000 years old"), 1000);
 });
 
+test("vague age-coded appearance filler is removed without touching concrete adult traits", () => {
+  const normalized = enforceAdultCharacterProfile({
+    age: 18,
+    visual: {
+      identity: ["1girl", "youthful appearance", "young-looking face", "red hair", "athletic build"],
+      signature: ["glasses"],
+    },
+  });
+  assert.deepEqual(normalized.visual.identity, ["1girl", "red hair", "athletic build"]);
+  assert.deepEqual(normalized.visual.signature, ["glasses"]);
+});
+
 test("profile normalization overrides model or research-derived minor ages", () => {
   const source = { id: "example", name: "Example", age: 14, summary: "test" };
   const normalized = enforceAdultCharacterProfile(source);

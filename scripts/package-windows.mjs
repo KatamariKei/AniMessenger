@@ -13,6 +13,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageJson = JSON.parse(await fsp.readFile(path.join(root, "package.json"), "utf8"));
 const releaseRoot = path.join(root, "release");
 const output = path.join(releaseRoot, "AniMessenger-Windows");
+const payload = path.join(output, "support");
 const zipOutput = path.join(releaseRoot, `AniMessenger-Windows-v${packageJson.version}.zip`);
 const cacheRoot = path.join(root, ".runtime-cache");
 const archivePath = path.join(cacheRoot, bundledNode.archive);
@@ -65,21 +66,22 @@ async function ensureRuntime() {
 const runtime = await ensureRuntime();
 await fsp.rm(output, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
 await fsp.rm(zipOutput, { force: true });
-await fsp.mkdir(path.join(output, "scripts"), { recursive: true });
-await fsp.mkdir(path.join(output, "runtime"), { recursive: true });
+await fsp.mkdir(path.join(payload, "scripts"), { recursive: true });
+await fsp.mkdir(path.join(payload, "runtime"), { recursive: true });
 for (const folder of ["dist", "server", "workflows"]) {
-  await fsp.cp(path.join(root, folder), path.join(output, folder), { recursive: true });
+  await fsp.cp(path.join(root, folder), path.join(payload, folder), { recursive: true });
 }
 await Promise.all([
-  fsp.copyFile(path.join(root, "scripts", "launch.mjs"), path.join(output, "scripts", "launch.mjs")),
-  fsp.copyFile(path.join(root, "installer", "AniMessenger.ico"), path.join(output, "AniMessenger.ico")),
+  fsp.copyFile(path.join(root, "scripts", "launch.mjs"), path.join(payload, "scripts", "launch.mjs")),
+  fsp.copyFile(path.join(root, "installer", "AniMessenger.ico"), path.join(payload, "AniMessenger.ico")),
   fsp.copyFile(path.join(root, "installer", "Install-AniMessenger.cmd"), path.join(output, "Install-AniMessenger.cmd")),
-  fsp.copyFile(path.join(root, "installer", "Install-AniMessenger.ps1"), path.join(output, "Install-AniMessenger.ps1")),
-  fsp.copyFile(path.join(root, "installer", "Uninstall-AniMessenger.ps1"), path.join(output, "Uninstall-AniMessenger.ps1")),
-  fsp.copyFile(path.join(root, "LICENSE"), path.join(output, "LICENSE")),
-  fsp.copyFile(path.join(root, "docs", "WINDOWS-INSTALLER.md"), path.join(output, "README-INSTALL.txt")),
-  fsp.copyFile(runtime.nodeExe, path.join(output, "runtime", "node.exe")),
-  fsp.copyFile(runtime.license, path.join(output, "runtime", "NODE-LICENSE.txt")),
+  fsp.copyFile(path.join(root, "installer", "Install-AniMessenger.ps1"), path.join(payload, "Install-AniMessenger.ps1")),
+  fsp.copyFile(path.join(root, "installer", "Uninstall-AniMessenger.ps1"), path.join(payload, "Uninstall-AniMessenger.ps1")),
+  fsp.copyFile(path.join(root, "LICENSE"), path.join(payload, "LICENSE")),
+  fsp.copyFile(path.join(root, "docs", "WINDOWS-INSTALLER.md"), path.join(output, "README.txt")),
+  fsp.copyFile(path.join(root, "docs", "WINDOWS-INSTALLER.md"), path.join(payload, "README-INSTALL.txt")),
+  fsp.copyFile(runtime.nodeExe, path.join(payload, "runtime", "node.exe")),
+  fsp.copyFile(runtime.license, path.join(payload, "runtime", "NODE-LICENSE.txt")),
 ]);
 const csc = cscCandidates.find((candidate) => fs.existsSync(candidate));
 if (!csc) throw new Error("AniMessenger could not find the Windows .NET compiler required to build its tray companion.");
@@ -98,16 +100,16 @@ execFileSync(csc, [
   "/nologo", "/target:winexe", "/optimize+", "/platform:anycpu",
   `/win32icon:${path.join(root, "installer", "AniMessenger.ico")}`,
   "/reference:System.dll", "/reference:System.Drawing.dll", "/reference:System.Windows.Forms.dll",
-  `/out:${path.join(output, "AniMessenger.Tray.exe")}`,
+  `/out:${path.join(payload, "AniMessenger.Tray.exe")}`,
   path.join(root, "installer", "AniMessenger.Tray.cs"), versionSource,
 ], { stdio: "inherit" });
-await fsp.writeFile(path.join(output, "release.json"), JSON.stringify({
+await fsp.writeFile(path.join(payload, "release.json"), JSON.stringify({
   schemaVersion: 1,
   name: "AniMessenger",
   version: packageJson.version,
   runtime: { name: "Node.js", version: bundledNode.version, architecture: "x64" },
 }, null, 2) + "\n");
-await fsp.writeFile(path.join(output, "runtime", "README.txt"), [
+await fsp.writeFile(path.join(payload, "runtime", "README.txt"), [
   `AniMessenger includes a private Node.js ${bundledNode.version} x64 runtime.`,
   "It is used only to run AniMessenger and does not install Node.js system-wide.",
   "See NODE-LICENSE.txt for the Node.js and bundled dependency licenses.",
@@ -117,7 +119,7 @@ await fsp.writeFile(path.join(output, "runtime", "README.txt"), [
 execFileSync("powershell.exe", [
   "-NoProfile",
   "-Command",
-  `Compress-Archive -Path (Join-Path ${psLiteral(output)} '*') -DestinationPath ${psLiteral(zipOutput)} -CompressionLevel Optimal -Force`,
+  `Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::CreateFromDirectory(${psLiteral(output)}, ${psLiteral(zipOutput)}, [IO.Compression.CompressionLevel]::Optimal, $false)`,
 ], { stdio: "inherit" });
 
 console.log("Windows package prepared at " + output);

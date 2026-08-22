@@ -11,17 +11,16 @@ One vision-capable model can do all three jobs. That is the recommended first-ru
 ## Recommended setup
 
 1. Install and start [Ollama](https://ollama.com/).
-2. Open Windows **Command Prompt**. PowerShell and Windows Terminal also work.
-3. Copy and paste this command:
+2. In AniMessenger's guided setup, choose the model that matches your hardware and select **Download with Ollama**.
+3. Keep the setup window open while Ollama downloads the model. AniMessenger shows progress and automatically rechecks the connection when it is ready.
+
+If you prefer installing manually, open Windows **Command Prompt**, PowerShell, or Windows Terminal and run:
 
    ```bat
    ollama pull gemma4:12b
    ```
 
-4. Wait for the download to finish.
-5. Start AniMessenger or return to its guided setup.
-6. Select **Check connections again**.
-7. Choose `gemma4:12b` for Chat, leave Profile on **Same as chat**, and choose `gemma4:12b` for Vision.
+4. Choose `gemma4:12b` for Chat, leave Profile on **Same as chat**, and choose `gemma4:12b` for Vision. The guided downloader selects these automatically after a successful first install.
 
 Gemma 4 12B is the default recommendation because it balances conversational quality, speed, memory use, and image understanding. A larger model can be more capable in some situations, but it is not automatically a better character performer and will usually use more memory.
 

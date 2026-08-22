@@ -14,7 +14,7 @@ Start it again with:
 
     pnpm dev
 
-Use `pnpm dev:lan` instead when testing on another device connected to the same trusted private network.
+Use `pnpm dev:lan` instead when testing on another device connected to the same trusted private network. On Windows, `pnpm dev:tray` builds and opens the development tray companion; its **Phone access** toggle switches the same managed service between PC-only and LAN mode on port 5173.
 
 The following local paths are ignored by Git and remain in place during a normal pull:
 

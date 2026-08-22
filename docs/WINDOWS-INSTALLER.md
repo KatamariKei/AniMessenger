@@ -14,13 +14,15 @@ AniMessenger's self-contained Windows package is the Git-free installation path.
 - rolls the application folder back if replacement fails;
 - preserves private local data during repair, update, and normal uninstall.
 
-Git, Node.js, npm, and pnpm are not required on the destination computer. Ollama and ComfyUI remain separate services because the right models depend heavily on the user's hardware. AniMessenger's guided setup detects what is missing and provides recovery guidance.
+Git, Node.js, npm, and pnpm are not required on the destination computer. **Ollama is required to find, build, and chat with characters.** ComfyUI remains optional because image generation depends heavily on the user's hardware. AniMessenger's guided setup detects what is missing, can download a reviewed Gemma 4 model through a running Ollama installation without a command window, and provides recovery guidance.
+
+On a fresh computer without a configured ComfyUI installation, setup defaults to **Add images later**. This produces a complete chat-first installation instead of treating optional image generation as a blocker. The image guide remains available from Settings.
 
 ## Download and install
 
 Download the Windows ZIP from the repository's [latest GitHub release](https://github.com/KatamariKei/AniMessenger/releases/latest), then:
 
-1. Extract the ZIP to a normal folder.
+1. Extract the ZIP to a normal folder. The top level contains the installer, a readme, and a `support` folder; the support files are not desktop shortcuts.
 2. Double-click `Install-AniMessenger.cmd`.
 3. Allow the installer to finish and open AniMessenger.
 4. Look for the AniMessenger icon in the Windows notification area. Windows may initially place it behind the tray overflow arrow.

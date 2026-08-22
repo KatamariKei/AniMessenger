@@ -1,9 +1,38 @@
 const allowedKinds = new Set(["user_fact", "preference", "shared_event", "shared_creation", "promise", "boundary", "open_loop"]);
+const canonicalKindPriority = new Map([
+  ["open_loop", 1],
+  ["promise", 2],
+  ["shared_event", 0],
+  ["preference", 4],
+  ["user_fact", 5],
+  ["shared_creation", 6],
+  ["boundary", 7],
+]);
+const completedEventLanguage = /\b(?:won|lost|beat|defeated|finished|completed|resolved|visited|went|arrived|met|attended|bought|gave|received|showed|shared|created|made|named|returned|left|ended|ending)\b/i;
+
+function kindPriority(memory) {
+  if (memory?.kind === "shared_event" && completedEventLanguage.test(String(memory.text || ""))) return 3;
+  return canonicalKindPriority.get(memory?.kind) || 0;
+}
 const stopWords = new Set(["about", "after", "again", "also", "and", "are", "because", "been", "before", "but", "can", "character", "did", "does", "for", "from", "have", "into", "just", "name", "our", "that", "the", "their", "they", "this", "user", "was", "were", "what", "when", "with", "you", "your"]);
+const topicStopWords = new Set(["agreed", "considered", "decided", "discussed", "going", "mentioned", "need", "needs", "planned", "promised", "suggested", "still", "together", "want", "wanted", "wants"]);
 
 function words(value) {
   return [...new Set(String(value || "").toLowerCase().match(/[a-z0-9][a-z0-9'-]{2,}/g) || [])]
     .filter((word) => !stopWords.has(word));
+}
+
+function topicWords(value) {
+  return words(value)
+    .filter((word) => !topicStopWords.has(word))
+    .map((word) => word.length > 4 && word.endsWith("s") && !word.endsWith("ss") ? word.slice(0, -1) : word);
+}
+
+function topicOverlap(left, right) {
+  const a = new Set(topicWords(left));
+  const b = new Set(topicWords(right));
+  if (!a.size || !b.size) return 0;
+  return [...a].filter((word) => b.has(word)).length / Math.min(a.size, b.size);
 }
 
 function stringList(value) {
@@ -45,20 +74,24 @@ function overlap(left, right) {
 }
 
 function isDuplicate(left, right) {
-  if (left.kind !== right.kind) return false;
   if (overlap(left.text, right.text) >= 0.72) return true;
-  const leftKeywords = new Set(stringList(left.keywords));
+  if (left.kind !== right.kind && topicOverlap(left.text, right.text) >= 0.72) return true;
   const leftText = String(left.text || "").toLowerCase();
   const rightText = String(right.text || "").toLowerCase();
-  return stringList(right.keywords).some((keyword) =>
-    (/[\s-]|\d/.test(keyword) || keyword.length >= 12)
-    && leftKeywords.has(keyword)
-    && leftText.includes(keyword)
-    && rightText.includes(keyword));
+  const identifyingKeywords = [...new Set([...stringList(left.keywords), ...stringList(right.keywords)])]
+    .filter((keyword) => /[\s-]|\d/.test(keyword) || keyword.length >= 12);
+  return identifyingKeywords.some((keyword) => leftText.includes(keyword) && rightText.includes(keyword));
 }
 
 function combineMemory(target, incoming, now) {
-  target.text = String(incoming.text || "").length >= String(target.text || "").length ? incoming.text : target.text;
+  const targetPriority = kindPriority(target);
+  const incomingPriority = kindPriority(incoming);
+  if (incomingPriority > targetPriority) {
+    target.kind = incoming.kind;
+    target.text = incoming.text;
+  } else if (incomingPriority === targetPriority && String(incoming.text || "").length >= String(target.text || "").length) {
+    target.text = incoming.text;
+  }
   target.keywords = [...new Set([...(target.keywords || []), ...(incoming.keywords || [])])].slice(0, 20);
   target.importance = Math.max(Number(target.importance) || 1, Number(incoming.importance) || 1);
   target.updatedAt = now.toISOString();

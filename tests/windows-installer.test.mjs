@@ -16,7 +16,9 @@ test("the Windows package pins and verifies a private x64 Node runtime", () => {
   const packager = read("scripts/package-windows.mjs");
   assert.match(packager, /checksum mismatch/i);
   assert.match(packager, /NODE-LICENSE\.txt/);
-  assert.match(packager, /Compress-Archive/);
+  assert.match(packager, /ZipFile.*CreateFromDirectory/s);
+  assert.match(packager, /const payload = path\.join\(output, "support"\)/);
+  assert.match(read("installer/Install-AniMessenger.cmd"), /support\\Install-AniMessenger\.ps1/);
 });
 
 test("the native tray companion owns installed start, open, stop, and update actions", () => {
@@ -39,6 +41,21 @@ test("the native tray companion owns installed start, open, stop, and update act
   assert.match(packager, /AniMessenger\.Tray\.cs/);
   assert.match(packager, /AniMessenger\.Tray\.exe/);
   assert.match(packager, /target:winexe/);
+});
+
+test("the development tray controls one service and persists phone access", () => {
+  const tray = read("installer/AniMessenger.Tray.cs");
+  const dev = read("scripts/dev.mjs");
+  const builder = read("scripts/build-dev-tray.mjs");
+  assert.match(tray, /Phone access: On/);
+  assert.match(tray, /Phone access: Off/);
+  assert.match(tray, /phone-access\.enabled/);
+  assert.match(tray, /RequestDevelopmentShutdown/);
+  assert.match(tray, /--lan/);
+  assert.match(dev, /runtimeDirectory/);
+  assert.match(dev, /dev\.pid/);
+  assert.match(builder, /development-root\.txt/);
+  assert.match(builder, /--start/);
 });
 
 test("the browser distinguishes a stopped AniMessenger service from an Ollama outage", () => {

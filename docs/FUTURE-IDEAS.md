@@ -61,6 +61,68 @@ This mode should be opt-in and should contain conflict through high-confidence f
 - Restarting during a cameo has predictable recovery behavior.
 - Normal one-speaker turns remain close to current response speed.
 
+## Token-aware conversation context
+
+Explore replacing the fixed recent-message limit with a context builder that budgets tokens against the selected Ollama model's actual context window.
+
+The builder should reserve response space first, then fit the character profile, current scene, relevant durable memories, guest context, and the most useful recent conversation into the remaining budget. Older messages should stay saved and visible without being sent on every turn. Current image inputs should receive an explicit token allowance, while earlier images should continue to be represented by compact textual context rather than being resent as pixels.
+
+Important considerations:
+
+- detect the active model's configured context length rather than assuming 16K;
+- preserve the immediately preceding exchange and unresolved conversational referents;
+- rank durable memories by relevance and importance;
+- trim or compact oversized profile sections before dropping recent dialogue;
+- leave enough output capacity for a complete structured response and any repair pass;
+- support guest chats without allowing two profiles to crowd out the shared scene;
+- expose a useful diagnostic when the available context is unusually constrained;
+- keep behavior deterministic enough that changing models does not unpredictably erase continuity.
+
+This is an optimization and reliability exploration, not a reason to change the current rolling-history and durable-memory behavior immediately.
+
+## Narrative mode
+
+Explore an optional per-conversation toggle between the current **Chat mode** and a more story-forward **Narrative mode**.
+
+Chat mode should remain the fast, messaging-first experience: direct character replies, occasional concise `[action: ...]` beats, and minimal prose. Narrative mode would add a third-person narrator that contributes restrained scene-setting, atmosphere, physical continuity, and emotional texture around the character dialogue. Its purpose is to give in-person scenes more color and depth without turning every exchange into a long-form novel.
+
+### Intended experience
+
+- Preserve the character's established profile, voice, relationship, memories, and current scene when switching modes.
+- Present narration as a visually distinct story beat rather than putting narrator prose inside the character's chat bubble.
+- Let narration describe the environment, pacing, observable behavior, and character feelings when they meaningfully deepen the scene.
+- Never invent the user's private thoughts, feelings, dialogue, decisions, or physical actions.
+- Keep narration selective and variable: sometimes one sentence is enough, and routine exchanges may need none.
+- Allow the character's spoken dialogue to remain concise even when the narrator adds context.
+- Keep generated images grounded in the same shared scene regardless of mode.
+- Make switching back to Chat mode immediate and nondestructive.
+
+### Questions to resolve
+
+- Whether narration should be generated in the same Ollama response or by a separate lightweight pass.
+- Whether the toggle applies per chat, per scene, or only until manually changed.
+- How much access the narrator has to character interiority without over-explaining subtext.
+- How narrated beats should be summarized and remembered without bloating the context window.
+- How guest chats identify whose actions or feelings are being narrated.
+- How to prevent repetitive purple prose, constant mood-setting, and narration that merely restates dialogue.
+
+This should begin as an opt-in experiment. Existing chats must remain in Chat mode by default, and enabling it must not rewrite prior messages or alter established personalities.
+
+## Sound design
+
+Explore an optional, restrained sound layer that makes AniMessenger feel tactile and alive without turning conversation into a noisy notification system.
+
+Possible cues include:
+
+- a camera-shutter sound when the user captures the current scene;
+- distinct, subtle message-sent and message-received sounds;
+- a more rewarding relationship-level-up cue reserved for major bond thresholds;
+- a photo-received cue that feels different from an ordinary message;
+- a quiet thinking or discovery texture while meeting and researching a new character;
+- restrained completion and error sounds where they communicate something the user may not be looking at directly.
+
+Sounds should be short, cohesive with the AniMessenger brand, and used only when they add meaningful feedback. Provide a master sound toggle, sensible volume control, and optional per-category controls. Respect browser autoplay restrictions, device silent mode, reduced-motion or reduced-stimulation preferences where available, and avoid playing sounds for background proactive messages when doing so would be intrusive. The experience must remain completely understandable and usable with sound disabled.
+
 ## Secure remote access
 
 Allow a user to reach AniMessenger from their phone while away from the home network without publicly exposing local AI services.

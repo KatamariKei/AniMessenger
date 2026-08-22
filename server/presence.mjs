@@ -42,6 +42,8 @@ function explicitApart(text) {
     /\b(?:i(?:'m| am)|we(?:'re| are)) (?:leaving|heading home|going home)\b/,
     /\b(?:i |we )?(?:leave|left|head home|go home|walk away|drive away)\b/,
     /\b(?:goodbye|see you later|talk to you later|i(?:'ll| will) text you)\b/,
+    /\b(?:why don['’]t |when |once )?(?:you|she|he|they)(?:'ll|'re| will| are| is)? (?:come|coming|head|heading) over\b/,
+    /\b(?:text|texts|texted|message|messages|messaged|call|calls|called) me back\b/,
   ].some((pattern) => pattern.test(value));
 }
 
