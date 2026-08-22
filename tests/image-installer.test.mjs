@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import http from "node:http";
-import { comfyOutputDirectoryFromSystemStats, detectComfyModelsDirectories, ensureStandardComfyOutputDirectory, imagePackInstallStatus, imagePackStatus, startImagePackInstall, validateModelsDirectory } from "../server/image-installer.mjs";
+import { comfyOutputDirectoryFromSystemStats, detectComfyModelsDirectories, ensureStandardComfyOutputDirectory, imagePackInstallStatus, imagePackStatus, prepareComfyOutputDirectory, startImagePackInstall, validateModelsDirectory } from "../server/image-installer.mjs";
 
 function tinyManifest(body = "abc") {
   return {
@@ -58,6 +58,24 @@ test("ComfyUI launch details reveal custom and base output folders", () => {
     path.resolve("custom-output"),
   );
   assert.equal(comfyOutputDirectoryFromSystemStats({ system: { argv: ["main.py"] } }), "");
+});
+
+test("a malformed ComfyUI output report can never replace the finished-images folder with models", async (context) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "animessenger-output-guard-"));
+  context.after(() => fs.rm(root, { recursive: true, force: true }));
+  const models = path.join(root, "models");
+  await fs.mkdir(models);
+  const server = http.createServer((_request, response) => {
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ system: { argv: ["main.py", "--base-directory", root, "--output-directory", models] } }));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise((resolve) => server.close(resolve)));
+  const address = server.address();
+
+  const output = await prepareComfyOutputDirectory({ modelsDirectory: models, comfyUrl: `http://127.0.0.1:${address.port}` });
+  assert.equal(output, path.resolve(root, "output"));
+  assert.notEqual(output, path.resolve(models));
 });
 
 test("image-pack status distinguishes missing, verified, and invalid assets", async (context) => {

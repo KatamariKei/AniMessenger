@@ -33,39 +33,71 @@ export async function ensureStandardComfyOutputDirectory(modelsDirectory) {
   return outputDirectory;
 }
 
-export function comfyOutputDirectoryFromSystemStats(payload) {
+function comfyLaunchArgument(payload, name) {
   const argv = Array.isArray(payload?.system?.argv) ? payload.system.argv.map((value) => String(value)) : [];
-  const argument = (name) => {
-    const direct = argv.findIndex((value) => value === name);
-    if (direct >= 0 && argv[direct + 1]) return argv[direct + 1];
-    const inline = argv.find((value) => value.startsWith(`${name}=`));
-    return inline ? inline.slice(name.length + 1) : "";
-  };
-  const output = argument("--output-directory");
+  const direct = argv.findIndex((value) => value === name);
+  if (direct >= 0 && argv[direct + 1]) return argv[direct + 1];
+  const inline = argv.find((value) => value.startsWith(`${name}=`));
+  return inline ? inline.slice(name.length + 1) : "";
+}
+
+export function comfyOutputDirectoryFromSystemStats(payload) {
+  const output = comfyLaunchArgument(payload, "--output-directory");
   if (output && path.isAbsolute(output)) return path.resolve(output);
-  const base = argument("--base-directory");
+  const base = comfyLaunchArgument(payload, "--base-directory");
   return base && path.isAbsolute(base) ? path.resolve(base, "output") : "";
+}
+
+function comfyBaseOutputDirectoryFromSystemStats(payload) {
+  const base = comfyLaunchArgument(payload, "--base-directory");
+  return base && path.isAbsolute(base) ? path.resolve(base, "output") : "";
+}
+
+function directoriesOverlap(left, right) {
+  const contains = (parent, candidate) => {
+    const relative = path.relative(parent, candidate);
+    return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
+  };
+  return contains(left, right) || contains(right, left);
+}
+
+function validOutputDirectoryForModels(outputDirectory, modelsDirectory) {
+  return Boolean(outputDirectory) && !directoriesOverlap(path.resolve(outputDirectory), path.resolve(modelsDirectory));
 }
 
 export async function prepareComfyOutputDirectory({ modelsDirectory, comfyUrl = "" } = {}) {
   const models = await validateModelsDirectory(modelsDirectory);
   let outputDirectory = "";
+  let comfyResponded = false;
   try {
     const target = new URL(comfyUrl);
     if (!["127.0.0.1", "localhost", "[::1]"].includes(target.hostname)) throw new Error("ComfyUI is not local.");
     const response = await fetch(new URL("/system_stats", target), { signal: AbortSignal.timeout(3000) });
-    if (response.ok) outputDirectory = comfyOutputDirectoryFromSystemStats(await response.json());
+    if (response.ok) {
+      comfyResponded = true;
+      const payload = await response.json();
+      const reportedOutput = comfyOutputDirectoryFromSystemStats(payload);
+      const baseOutput = comfyBaseOutputDirectoryFromSystemStats(payload);
+      outputDirectory = validOutputDirectoryForModels(reportedOutput, models)
+        ? reportedOutput
+        : validOutputDirectoryForModels(baseOutput, models)
+          ? baseOutput
+          : "";
+    }
   } catch {
     // Older and custom ComfyUI launches may not expose a usable base directory.
   }
   if (!outputDirectory) {
     const root = path.dirname(models);
     const markers = [path.join(root, "main.py"), path.join(root, "ComfyUI", "main.py")];
-    const looksLikeComfyRoot = (await Promise.all(markers.map((marker) => fsp.stat(marker).catch(() => null)))).some((stats) => stats?.isFile());
+    const looksLikeComfyRoot = comfyResponded || (await Promise.all(markers.map((marker) => fsp.stat(marker).catch(() => null)))).some((stats) => stats?.isFile());
     if (!looksLikeComfyRoot) {
       throw new Error("Start ComfyUI so AniMessenger can locate its output folder, or open the custom output-folder option below.");
     }
     outputDirectory = path.join(root, "output");
+  }
+  if (!validOutputDirectoryForModels(outputDirectory, models)) {
+    throw new Error("ComfyUI reported its models folder as the finished-images folder. Choose ComfyUI's separate output folder instead.");
   }
   await fsp.mkdir(outputDirectory, { recursive: true });
   const stats = await fsp.stat(outputDirectory).catch(() => null);

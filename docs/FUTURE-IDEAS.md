@@ -179,3 +179,7 @@ Before remote access can be considered release-ready, AniMessenger should have:
 ### Performance expectations
 
 Chat generation should remain dominated by local Ollama speed. Remote image delivery will depend on the home connection's upload speed, so thumbnails and appropriately sized previews should load before full-resolution files.
+
+## Interface performance follow-up
+
+Investigate stuttery or chunky scrolling reported on the Settings page on an RTX 3090 system. Profile the browser rendering path independently from Ollama and ComfyUI activity, with particular attention to fixed overlays, backdrop effects, large scrolling containers, and unnecessary repaints. Preserve the current visual design unless measurements identify a specific costly effect; this is a post-release optimization rather than a blocker for the current Windows build.

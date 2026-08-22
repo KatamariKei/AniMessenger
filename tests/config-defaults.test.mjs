@@ -3,7 +3,7 @@ import test from "node:test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { defaultConfig, discoverLegacyConfig } from "../server/config.mjs";
+import { defaultConfig, discoverLegacyConfig, normalizeConfigPaths } from "../server/config.mjs";
 
 test("new installs use the approved global ANIMA quality prompts", () => {
   assert.equal(
@@ -30,4 +30,15 @@ test("an earlier local config is discovered generically for one-time migration",
   assert.equal(discovered?.path, earlierPath);
   assert.equal(discovered?.value.chatModel, "gemma4:12b");
   await fs.rm(directory, { recursive: true, force: true });
+});
+
+test("a saved models folder can never remain configured as the finished-images folder", () => {
+  const root = path.resolve("test-comfy");
+  const models = path.join(root, "models");
+  const repaired = normalizeConfigPaths({ comfyModelsDir: models, comfyOutputDir: models });
+  assert.equal(repaired.comfyOutputDir, path.join(root, "output"));
+
+  const customOutput = path.resolve("custom-finished-images");
+  const preserved = normalizeConfigPaths({ comfyModelsDir: models, comfyOutputDir: customOutput });
+  assert.equal(preserved.comfyOutputDir, customOutput);
 });
