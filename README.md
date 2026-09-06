@@ -28,7 +28,7 @@ AniMessenger is available under the [MIT License](LICENSE). See the [changelog](
 
 ### [Download the latest Windows release](https://github.com/KatamariKei/AniMessenger/releases/latest)
 
-1. Download and extract `AniMessenger-Windows-v0.3.2.zip`.
+1. Download and extract `AniMessenger-Windows-v0.4.0.zip`.
 2. Run `Install-AniMessenger.cmd` from the extracted folder.
 3. Use the AniMessenger tray icon to open, start, stop, or check for updates.
 
@@ -174,9 +174,11 @@ The first time a character is selected, AniMessenger:
 5. caches personality, speech, mannerisms, history, relationships, knowledge boundaries, and dialogue guidance;
 6. creates a private local thread with relationship, scene, and durable memory state.
 
-The chat opens immediately with a letter avatar while this first dossier is prepared. If ComfyUI is connected, a generated profile portrait can replace the placeholder asynchronously without delaying the first conversation.
+The chat shell opens immediately with a letter avatar while this first dossier is prepared. If ComfyUI is connected, a generated profile portrait can replace the placeholder asynchronously. Messaging becomes available after the dossier is ready and you accept an opening adventure.
 
-Later chats reuse that dossier. Recent dialogue maintains immediate context, while extracted durable memories preserve important facts, shared events, creations, promises, boundaries, and open threads.
+Before the first exchange, AniMessenger creates a character-specific opening adventure. You can accept it or ask for another opening without deleting the character. Starting the adventure establishes the initial location, surroundings, activity, and contact method; when ComfyUI is connected, an optional establishing image follows without blocking chat.
+
+Later chats reuse that dossier. A token-aware context builder fits the character identity, current scene, relevant durable memories, guest context, and the newest useful conversation into the selected Ollama model's actual context window. Older messages stay visible and saved locally even when they no longer need to be sent on every turn.
 
 Normal chat, reaction follow-ups, proactive outreach, profile research, and memory extraction all use explicit structured Ollama contracts. This reduces model-specific formatting failures and lets AniMessenger validate or retry incomplete local-model output before it reaches the interface.
 
@@ -193,9 +195,9 @@ Every generated character profile is normalized to an adult age of at least 18. 
 Image prompts use two separate layers:
 
 - **Identity lock:** face, hair, eyes, body presentation, skin, species traits, scars, and other permanent features.
-- **Scene state:** clothing, location, activity, expression, camera, and lighting.
+- **Scene state:** revisioned, atomic transitions for shared or remote locations, detailed surroundings, activity, physical presence, clothing, expression, framing, and lighting.
 
-The identity lock stays stable while contextual outfits can replace the default costume. A school, exercise, bedtime, formal, rain, or snow scene can therefore change clothing without changing who the character is.
+The identity lock stays stable while contextual outfits can replace the default costume. A school, exercise, bedtime, formal, rain, or snow scene can therefore change clothing without changing who the character is. Location changes require conversational evidence, preventing an activity such as air hockey from silently moving the scene to an ice rink.
 
 ## Local files and privacy
 

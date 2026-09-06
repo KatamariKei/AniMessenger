@@ -16,6 +16,16 @@ test("new installs use the approved global ANIMA quality prompts", () => {
   );
 });
 
+test("sound feedback starts restrained and its saved volume stays in range", () => {
+  assert.equal(defaultConfig.soundEnabled, true);
+  assert.equal(defaultConfig.soundVolume, 0.35);
+  assert.equal(defaultConfig.bondSound, "celebration");
+  assert.equal(normalizeConfigPaths({ soundVolume: 4 }).soundVolume, 1);
+  assert.equal(normalizeConfigPaths({ soundVolume: -2 }).soundVolume, 0);
+  assert.equal(normalizeConfigPaths({ bondSound: "heartbeat" }).bondSound, "heartbeat");
+  assert.equal(normalizeConfigPaths({ bondSound: "unknown" }).bondSound, "celebration");
+});
+
 test("an earlier local config is discovered generically for one-time migration", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "animessenger-config-migration-"));
   const destination = path.join(directory, "animessenger.config.json");

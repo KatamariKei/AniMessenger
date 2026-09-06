@@ -29,7 +29,18 @@ export function removeCurrentPhotoClaim(value) {
   return kept || "I wanted to show you, but the picture didn't go through.";
 }
 
+export function pendingOutfitReveal(reply = "") {
+  const value = String(reply).replace(/[’]/g, "'");
+  const preparation = /\b(?:give me (?:a |an |some |a few )?(?:moment|minute|second)s? to change|(?:getting ready|going|about|need|want) to (?:change|get dressed|try on)|(?:i'll|i will|let me) (?:go )?(?:change|get dressed)|(?:goes|heads|leaves|steps|slips)\b[^.!?\]]{0,60}\bto change)\b/ig;
+  const matches = [...value.matchAll(preparation)];
+  if (!matches.length) return false;
+  const after = value.slice(matches.at(-1).index + matches.at(-1)[0].length);
+  // A single reply may include both preparation and the completed reveal.
+  return !/\b(?:now (?:wearing|dressed)|(?:comes?|came|steps?|stepped|returns?|returned) (?:back |out )?(?:from|wearing|in|into)|changed into|finished (?:changing|dressing)|here(?:'s| is) my (?:new )?outfit)\b/i.test(after);
+}
+
 export function shouldQueueCharacterPhoto({ hasUserImage = false, explicitRequest = false, modelRequested = false, visualEvent = null, reply = "" } = {}) {
   const claimedTransfer = claimsCurrentPhotoTransfer(reply);
+  if (!claimedTransfer && pendingOutfitReveal(reply)) return false;
   return claimedTransfer || (!hasUserImage && Boolean(explicitRequest || modelRequested || visualEvent));
 }

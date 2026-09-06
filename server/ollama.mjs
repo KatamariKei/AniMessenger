@@ -9,12 +9,16 @@ import { currentPresence, presencePromptGuidance, presenceSceneCue } from "./pre
 import {
   characterChatSchema,
   characterProfileSchema,
+  firstContactScenarioSchema,
   memoryExtractionSchema,
   proactiveOutreachSchema,
   profileGuideSchema,
   replyOnlySchema,
 } from "./ollama-schemas.mjs";
+import { normalizeFirstContactScenario, openingsAreTooSimilar } from "./first-contact.mjs";
 import { normalizeProactiveState, normalizeProactiveTopicKey } from "./proactive.mjs";
+import { buildTokenAwareMessages, resolveOllamaContextWindow } from "./context-builder.mjs";
+import { wardrobeDescriptionRequested } from "./wardrobe.mjs";
 
 function ollamaError(error, selectedModel = "") {
   const message = error instanceof Error ? error.message : String(error);
@@ -228,11 +232,6 @@ export function isRunawayAssistantHistory(text) {
 
 export function inventsUserBehavior(reply, userText, recentMessages = []) {
   const value = String(reply || "");
-  const claimedCue = /\b(?:that look|give me (?:that|a) look|you(?:'re| are) (?:staring|glaring)|stop staring|don['’]t stare|your (?:face|expression|gaze|gesture)|you (?:flinched|blushed|looked away|rolled your eyes|shrugged|nodded|smirked))\b/i.test(value);
-  const unsupportedInterpretation = /\b(?:is that your way of saying|don['’]t tell me you(?:(?:'re| are) (?:getting|being|suddenly|actually)|(?:'ve| have)\b)|you(?:'re| are) being awfully|you(?:'re| are)? (?:going|getting) (?:all )?quiet|you(?:'ve| have) gone silent)\b/i.test(value)
-    || /(?:\byou\b[^.!?]{0,35}\b(?:quiet|silent|bored|boring|los(?:e|ing|t) interest)\b|\bdon['’]t\b[^.!?]{0,35}\bquiet\b)/i.test(value);
-  if (unsupportedInterpretation) return true;
-  if (!claimedCue) return false;
   const recentUserText = [
     ...(Array.isArray(recentMessages) ? recentMessages : [])
       .filter((message) => message?.from === "user" && typeof message.text === "string")
@@ -240,6 +239,19 @@ export function inventsUserBehavior(reply, userText, recentMessages = []) {
       .map((message) => message.text),
     String(userText || ""),
   ].join(" ");
+  const claimedCue = /\b(?:that look|give me (?:that|a) look|you(?:'re| are) (?:staring|glaring)|stop staring|don['’]t stare|your (?:face|expression|gaze|gesture)|you (?:flinched|blushed|looked away|rolled your eyes|shrugged|nodded|smirked))\b/i.test(value);
+  const claimsQuietOrSilence = /(?:\byou\b[^.!?]{0,35}\b(?:quiet|silent)\b|\bdon['’]t\b[^.!?]{0,35}\bquiet\b)/i.test(value);
+  const quietOrSilenceWasEstablished = /\b(?:quiet(?:ly)?|silent(?:ly)?|silence|shut up|stop(?:ped)? talking|say(?:ing)? nothing|said nothing|without (?:speaking|talking|a word)|don['’]t speak|do not speak)\b/i.test(recentUserText);
+  const claimsBoredomOrLostInterest = /\byou\b[^.!?]{0,35}\b(?:bored|boring|los(?:e|ing|t) interest)\b/i.test(value);
+  const boredomOrLostInterestWasEstablished = /\b(?:I(?:'m| am| was| feel| felt| seem)? (?:bored|boring|losing interest)|I (?:lost|lose|have lost) interest|not interested|this is boring)\b/i.test(recentUserText);
+  const claimsLostAppetite = /\byou\b[^.!?]{0,35}\b(?:lost|losing|lose|have lost|no) (?:your )?appetite\b/i.test(value);
+  const lostAppetiteWasEstablished = /\b(?:I(?:'m| am| was)? not hungry|I (?:lost|am losing|have lost) (?:my )?appetite|no appetite)\b/i.test(recentUserText);
+  const unsupportedInterpretation = /\bis that your way of saying\b/i.test(value)
+    || (claimsBoredomOrLostInterest && !boredomOrLostInterestWasEstablished)
+    || (claimsLostAppetite && !lostAppetiteWasEstablished)
+    || (claimsQuietOrSilence && !quietOrSilenceWasEstablished);
+  if (unsupportedInterpretation) return true;
+  if (!claimedCue) return false;
   const cueWasEstablished = /\b(?:look|stare|glar|gaze|watch|eye on|flinch|blush|look away|roll(?:ed)? my eyes|shrug|nod|smirk|expression|gesture)\b/i.test(recentUserText);
   return !cueWasEstablished;
 }
@@ -314,7 +326,12 @@ export function groundedReplyFallback(reply, userText, recentMessages = []) {
   const briefGuard = briefReactionGuard(userText);
   const attributesStateToBriefReaction = Boolean(briefGuard) && /\b(?:quiet|silent|bored|boring|interest|appetite|something bothering you|what['’]s wrong)\b/i.test(String(reply || ""));
   if (!attributesStateToBriefReaction && !inventsUserBehavior(reply, userText, recentMessages)) return String(reply || "");
-  return briefGuard ? "Hmm?" : "What do you mean?";
+  // A substantive user turn contains too much meaning for a deterministic
+  // clarification to preserve. The draft has already passed through the
+  // dialogue editor, so retaining it is less destructive than replacing it
+  // with an unrelated stock question. Brief ambiguous reactions still receive
+  // the deliberately neutral fallback.
+  return briefGuard ? "Hmm?" : String(reply || "");
 }
 
 export function needsReplyRepair(reply, userText, recentMessages = []) {
@@ -715,6 +732,81 @@ export async function buildCharacterProfile(config, character, research) {
   });
 }
 
+export async function generateFirstContactScenario(config, character, profile, rejectedOpenings = []) {
+  const avoided = (Array.isArray(rejectedOpenings) ? rejectedOpenings : rejectedOpenings ? [rejectedOpenings] : []).slice(-8);
+  const noveltyDirections = [
+    "a purposeful task, errand, investigation, or practical problem",
+    "an unexpected but low-stakes world-native connection or discovery",
+    "travel, transit, arrival, or a threshold between two places",
+    "a social, cultural, recreational, or public occasion",
+    "a quiet private moment interrupted by a specific curiosity",
+    "a character-led invitation to attempt, witness, choose, or help with something concrete",
+  ];
+  const noveltyDirection = noveltyDirections[avoided.length % noveltyDirections.length];
+  const selectedModel = config.profileModel || config.chatModel || (await listOllamaModels(config))[0];
+  const visual = profile?.visual?.userOverrides
+    ? {
+        ...profile.visual,
+        identity: profile.visual.userOverrides.identity || profile.visual.identity,
+        signature: profile.visual.userOverrides.signature || profile.visual.signature,
+        defaultWardrobe: profile.visual.userOverrides.defaultWardrobe || profile.visual.defaultWardrobe,
+      }
+    : profile?.visual;
+  const system = [
+    "You design AniMessenger's first-contact adventures for fictional adult characters.",
+    "Create one inviting, character-specific premise that lets a new user begin naturally without assuming they have met before.",
+    "Choose in_person when a shared physical opening best fits. Choose remote only when the character's world plausibly supports a phone, terminal, radio, letter, or equivalent communication. Choose world_link for a magical, anomalous, dreamlike, or setting-native connection across distance.",
+    "The interface looks like messaging, but the character experiences only the world-appropriate contact method you describe. Never force every character to own or understand a modern phone.",
+    "Do not invent romance, friendship, shared memories, promises, or prior history. Do not assign the user a body, identity, emotions, motives, dialogue, or consequential actions.",
+    "Keep the premise accessible rather than beginning with a lore dump, emergency, or world-ending crisis. It should invite curiosity and leave the user room to decide what happens.",
+    "The premise is a one- or two-sentence atmospheric preview without quoted dialogue. The connection is one short plain-language sentence explaining how contact is possible.",
+    "The openingLine is the character's actual first message or spoken line. It must be original, natural, grounded in the premise, and recognizably in character.",
+    "The scene.environment must describe concrete visible surroundings in enough detail to anchor later conversation and images. The scene.location is only a short label.",
+    "Use the supplied exact default wardrobe. Do not substitute casual clothes, standard attire, or another outfit.",
+    "For in_person, presence is together. For remote or world_link, presence is apart.",
+    avoided.length ? "The user rejected every opening listed below. Do not revisit, remix, rename, or paraphrase any of them. Change the setting category, contact approach, activity, mood, and conversational hook." : "",
+    avoided.length ? `For this reroll, explore this broad direction if it suits canon: ${noveltyDirection}. Do not force it when canon makes it implausible.` : "",
+    "Return JSON only. No markdown.",
+  ].filter(Boolean).join("\n");
+  const prompt = [
+    `CHARACTER: ${character.name}`,
+    `SERIES: ${character.series}`,
+    `CURRENT ADULT PROFILE: ${profile.summary}`,
+    `CANON OVERVIEW: ${profile.canon?.overview || ""}`,
+    `RELEVANT HISTORY: ${(profile.canon?.history || []).slice(0, 6).join("; ")}`,
+    `PERSONALITY: ${(profile.persona?.traits || []).join(", ")}`,
+    `VOICE: ${profile.persona?.baselineVoice || profile.persona?.speechStyle || "Speak naturally in character."}`,
+    `VISUAL IDENTITY: ${(visual?.identity || []).join(", ")}`,
+    `EXACT DEFAULT WARDROBE: ${visual?.defaultWardrobe || "character-appropriate default outfit"}`,
+    avoided.length ? `REJECTED OPENINGS TO AVOID:\n${JSON.stringify(avoided)}` : "",
+    "Return: title, premise, contactMode, connection, scene (location, environment, activity, outfit, expression, lighting, presence), and openingLine.",
+  ].filter(Boolean).join("\n\n");
+
+  let parsed;
+  let candidate;
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      parsed = extractJson(await nativeChat(config, selectedModel, [
+        { role: "system", content: system },
+        { role: "user", content: prompt },
+        ...(attempt ? [{ role: "system", content: "Create a genuinely different opening. Avoid all rejected settings and hooks, and return every required field in the exact JSON structure." }] : []),
+      ], { json: true, jsonSchema: firstContactScenarioSchema, temperature: attempt ? 0.88 : 0.76, maxTokens: 1400 }));
+      candidate = normalizeFirstContactScenario(parsed, profile, character);
+      if (avoided.some((opening) => openingsAreTooSimilar(candidate, opening))) {
+        lastError = new Error("The model repeated a rejected opening.");
+        candidate = undefined;
+        continue;
+      }
+      return candidate;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (!candidate) throw lastError instanceof Error ? lastError : new Error("The profile model could not create a fresh first-contact opening.");
+  return candidate;
+}
+
 export function adultCharacterAge(value) {
   const match = String(value ?? "").match(/\d+/);
   const parsed = match ? Number(match[0]) : 18;
@@ -801,11 +893,17 @@ function profileContext(thread, options = {}) {
     "CURRENT RELATIONSHIP CLOSENESS: " + thread.relationship + "/100.",
     relationshipGuidance(thread.relationship),
     timeContext.prompt,
-    "CURRENT SCENE: location=" + thread.scene.location + "; activity=" + thread.scene.activity + "; outfit=" + thread.scene.outfit + "; expression=" + thread.scene.expression + "; lighting=" + thread.scene.lighting + "; presence=" + presence,
+    "CURRENT SCENE: location=" + thread.scene.location + "; environment=" + (thread.scene.environment || "not yet established") + "; activity=" + thread.scene.activity + "; outfit=" + thread.scene.outfit + "; expression=" + thread.scene.expression + "; lighting=" + thread.scene.lighting + "; presence=" + presence,
     presencePromptGuidance(thread),
+    "CURRENT SCENE has already applied any authoritative movement or arrival established by the latest user action. Continue from it; never restore the previous location, surroundings, activity, or physical distance.",
     "Scene continuity is authoritative until the latest user turn changes it. Explicit arrivals, departures, door openings, shared physical actions, sitting together, touching, or statements such as 'I'm right here' update physical presence immediately.",
+    "scene.location is a short place label. scene.environment is the persistent, visibly specific surroundings: terrain, architecture, room details, weather, horizon, and other composition-defining features. Preserve established environment details until the conversation visibly changes locations or surroundings. Never compress a rich environment into a vague word such as outside, indoors, room, area, or scenery. Return null for environment when it has not changed.",
     "The permanent visual identity is locked: " + profile.visual.identity.join(", ") + ". Never change those traits.",
     "Clothing is NOT locked. Update scene.outfit when the conversation establishes a new context such as school, work, sleep, exercise, formal events, weather, or a direct clothing request.",
+    "A character's explicit description of clothes they are currently wearing is authoritative scene evidence, even when the clothes did not just change. Save the concrete description in scene.outfit rather than preserving an older vague summary.",
+    wardrobeDescriptionRequested(options.userText)
+      ? "OUTFIT DESCRIPTION REQUEST: The user asked what you are currently wearing. This is a refinement of scene continuity even if no clothing changed. Describe the visible garments naturally in your reply, and replace scene.outfit with one compact, complete description containing the same concrete garment types, cut or silhouette, material or pattern, stable colors, and distinguishing details. Never return the previous vague label."
+      : "",
     "When scene.outfit changes, never return only a vague category such as casual clothes, bikini, swimsuit, athletic wear, pajamas, school uniform, or formalwear. Design a compact character-appropriate outfit with a specific silhouette or cut, material or pattern, stable colors, and one distinguishing detail—for example ruffles, contrast piping, tartan, sequins, a thigh slit, embroidery, or asymmetric fasteners. Preserve that exact outfit until the conversation changes it.",
     "An explicit user clothing correction is authoritative. Words such as just, only, without, remove, or take off must replace or remove the conflicting outfit layers in both scene.outfit and photoBrief; never rationalize an accidental layer from an earlier generated image.",
     "Reply as one natural conversational turn displayed inside a chat bubble. The interface format does not determine whether this is remote texting or an in-person scene. Vary naturally from a few words to roughly 1-4 sentences; meaningful questions, disclosures, decisions, and relationship moments may use 30-90 words when the substance warrants it.",
@@ -847,9 +945,10 @@ function profileContext(thread, options = {}) {
     options.explicitPhotoRequest
       ? "The user's latest message is a clear request to SEE the character or a visual detail now, even if they did not say photo or picture. Treat wording such as 'let me see,' 'show me,' or 'let me get a better look' as a natural request for a character-sent visual. Respond in character, set shouldSendPhoto to true, make photoBrief show the requested subject in the current scene, and write a short contextual photoMessage. Do not ask whether they want a picture; they already did."
       : "If the user directly asks you to send a photo, picture, or visual view, agree in character, set shouldSendPhoto to true, describe the desired current-moment image in photoBrief, and write a short in-character message to accompany the finished image in photoMessage.",
-    "For every requested image, photoBrief must use a third-person composition with the character clearly visible in frame. Describe the viewpoint without mentioning a physical camera. Refer to the user visually only as the viewer, never by name. Never describe the image from the character's perspective, point of view, or POV, and never make the plate, scenery, or an unseen user the sole subject.",
+    "For every requested image, photoBrief must use a third-person composition with the character as the primary subject. Describe the viewpoint without mentioning a physical camera or using the phrase 'in frame.' Refer to the user visually only as the viewer, never by name. Never describe the image from the character's perspective, point of view, or POV, and never make the plate, scenery, or an unseen user the sole subject.",
+    "PHOTO WARDROBE CONTINUITY: If photoBrief depicts a new outfit or gives a more specific version of the current outfit, set photoOutfit to one compact exact description of the garments visibly depicted and set scene.outfit to the same description. Use null when the image preserves the already-saved outfit. Never put a hypothetical, planned, removed, or merely discussed outfit in photoOutfit.",
     options.photoOpportunity || options.visualEventOpportunity
-      ? "A private visual-update opportunity is available this turn" + (options.visualEventOpportunity ? " because the scene contains " + options.visualEventOpportunity : "") + ". If the immediate conversation, current activity, location, outfit, or mood offers something genuinely visual and natural to share, you may set shouldSendPhoto to true without being asked. This is permission, not a requirement: send an image only when it delivers a clear visual payoff. Prefer an outfit change, reveal, striking discovery, new location, expressive reaction, or activity worth seeing over a generic check-in. Describe a specific candid current-moment image in photoBrief using a third-person composition with the character clearly visible in frame. Describe the viewpoint without mentioning a physical camera, and refer to the user visually only as the viewer, never by name; never use the character's perspective, point of view, or POV. Write a contextual in-character caption in photoMessage. Respect the character's personality: reserved characters may decline. Never mention a timer, cadence, quota, or system decision, and never force a generic selfie."
+      ? "A private visual-update opportunity is available this turn" + (options.visualEventOpportunity ? " because the scene contains " + options.visualEventOpportunity : "") + ". If the immediate conversation, current activity, location, outfit, or mood offers something genuinely visual and natural to share, you may set shouldSendPhoto to true without being asked. This is permission, not a requirement: send an image only when it delivers a clear visual payoff. Prefer an outfit change, reveal, striking discovery, new location, expressive reaction, or activity worth seeing over a generic check-in. Describe a specific candid current-moment image in photoBrief using a third-person composition with the character as the primary subject. Describe the viewpoint without mentioning a physical camera or using the phrase 'in frame,' and refer to the user visually only as the viewer, never by name; never use the character's perspective, point of view, or POV. Write a contextual in-character caption in photoMessage. Respect the character's personality: reserved characters may decline. Never mention a timer, cadence, quota, or system decision, and never force a generic selfie."
       : "Do not proactively send a photo this turn unless the user directly requests one.",
     "The photoMessage should fit the immediate conversation and your personality. Never use a generic stock caption such as 'I thought you might like this one.'",
     "Also extract new durable relationship memories from the latest interaction only. Save specific user facts or preferences, boundaries, promises, unresolved plans, meaningful shared events, and named things you created together. When the latest interaction completes or disproves an existing promise or open loop, return one shared_event using the same specific topic keywords; state the concrete outcome, who did what, and any consequence that remains active. Never preserve a completed plan as if it were still in the future. Do not save routine chatter, fleeting moods, generic compliments, sexual details, or facts already supplied in DURABLE SHARED MEMORIES. Write each memory as a neutral, self-contained fact that will still make sense months later. Use an empty array when nothing qualifies.",
@@ -859,7 +958,7 @@ function profileContext(thread, options = {}) {
     "Set otherShouldRespond false unless the SHARED CAMEO SCENE instructions explicitly say that an occasional brief response from the other character is eligible.",
     "TIME IS ELASTIC BETWEEN USER SESSIONS. Never scold, guilt, punish, or claim a plan is overdue because real time passed. A date, outing, task, or promise involving the user remains an open story thread until the user resumes or resolves it.",
     "If you explicitly commit to contacting the user later about a concrete subject, set followUp to {subject, earliestMinutes}. earliestMinutes is merely the earliest natural outreach opportunity, not a deadline or exact appointment. Do not create a followUp for vague pleasantries, ordinary questions, user-owned plans, or statements such as 'talk later' with no concrete subject. Otherwise use null.",
-    "Return JSON only with: reply (string), relationshipDelta (integer -2 to 2), scene (object with nullable location, activity, outfit, expression, lighting, presence), shouldSendPhoto (boolean), photoBrief (string or null), photoMessage (string or null), memoryCandidates (array of objects with kind, text, keywords, importance), followUp (null or object with subject and earliestMinutes), resolvesPendingFollowUp (boolean), otherShouldRespond (boolean). scene.presence must be apart, together, uncertain, or null. Valid memory kinds: user_fact, preference, shared_event, shared_creation, promise, boundary, open_loop. Importance is 1 to 5.",
+    "Return JSON only with: reply (string), relationshipDelta (integer -2 to 2), scene (object with nullable location, environment, activity, outfit, expression, lighting, presence), shouldSendPhoto (boolean), photoBrief (string or null), photoOutfit (string or null), photoMessage (string or null), memoryCandidates (array of objects with kind, text, keywords, importance), followUp (null or object with subject and earliestMinutes), resolvesPendingFollowUp (boolean), otherShouldRespond (boolean). scene.presence must be apart, together, uncertain, or null. Valid memory kinds: user_fact, preference, shared_event, shared_creation, promise, boundary, open_loop. Importance is 1 to 5.",
   ].filter(Boolean).join("\n");
 }
 
@@ -867,6 +966,16 @@ export function generatedPhotoHistory(message) {
   if (!message?.generated || !message.image || message.from !== "character") return [];
   const caption = String(message.text || "").trim();
   const context = String(message.imageContext || "").trim();
+  if (message.imageOrigin === "opening_scene") {
+    return [{
+      role: "system",
+      content: [
+        "Conversation memory: An establishing visual showed the character and surroundings at the beginning of this adventure; the character did not send it as a photo.",
+        context ? "The opening visual depicted: " + context + "." : "The exact visual details were not saved.",
+        "Treat it as shared scene context and never claim that you photographed or messaged it.",
+      ].join(" "),
+    }];
+  }
   if (message.imageOrigin === "captured_moment") {
     return [{
       role: "system",
@@ -938,7 +1047,7 @@ export async function generateReactionFollowup(config, thread, targetMessage, re
     performance.emotionalVariations.length ? "EMOTIONAL RANGE: " + performance.emotionalVariations.join("; ") : "",
     performance.avoidPatterns.length ? "AVOID: " + performance.avoidPatterns.join("; ") : "",
     "RELATIONSHIP: " + relationshipStage(thread.relationship) + " (" + thread.relationship + "/100).",
-    "CURRENT SCENE: location=" + resolvedScene.location + "; activity=" + resolvedScene.activity + "; outfit=" + resolvedScene.outfit + "; presence=" + resolvedScene.presence + ".",
+    "CURRENT SCENE: location=" + resolvedScene.location + "; environment=" + (resolvedScene.environment || "not yet established") + "; activity=" + resolvedScene.activity + "; outfit=" + resolvedScene.outfit + "; presence=" + resolvedScene.presence + ".",
     presencePromptGuidance({ ...thread, scene: resolvedScene }),
     relevantMemories.length
       ? "RELEVANT SHARED CONTEXT: " + relevantMemories.map((memory) => memory.text).join("; ")
@@ -1028,7 +1137,8 @@ export async function generateProactiveOutreach(config, thread, now = new Date()
     "SPEECH: " + profile.persona.speechStyle,
     "RELATIONSHIP: " + relationshipStage(thread.relationship) + " (" + thread.relationship + "/100). Closeness means familiarity, not obedience, romance, or emotional dependence.",
     timeContext.prompt,
-    "CURRENT SCENE: location=" + resolvedScene.location + "; activity=" + resolvedScene.activity + "; outfit=" + resolvedScene.outfit + "; expression=" + resolvedScene.expression + "; lighting=" + resolvedScene.lighting + "; presence=" + resolvedScene.presence,
+    "CURRENT SCENE: location=" + resolvedScene.location + "; environment=" + (resolvedScene.environment || "not yet established") + "; activity=" + resolvedScene.activity + "; outfit=" + resolvedScene.outfit + "; expression=" + resolvedScene.expression + "; lighting=" + resolvedScene.lighting + "; presence=" + resolvedScene.presence,
+    "The environment is persistent visual continuity. Keep its specific terrain, architecture, weather, and room details unless this outreach genuinely establishes a changed setting; use null rather than replacing it with a generic label.",
     presencePromptGuidance({ ...thread, scene: resolvedScene }),
     resolvedScene.presence === "together"
       ? "This proactive turn is a spontaneous contribution within the shared physical scene, not a remote check-in. Build on what is happening around you without pretending the user is elsewhere."
@@ -1046,7 +1156,8 @@ export async function generateProactiveOutreach(config, thread, now = new Date()
     resolvedScene.presence === "together"
       ? "Do not advance the shared scene offscreen. Return a scenePatch containing only details genuinely established by this message, using null for unchanged fields."
       : "You may gently evolve what the character is currently doing or where they are when it makes the update more specific. Put only newly established details in scenePatch and use null for everything unchanged.",
-    "If the current situation would make a genuinely fun visual update, set visualCandidate true and provide a concrete ANIMA photoBrief describing what the character is doing, wearing, and showing. Frame it as an external view with the character clearly visible; never use the character's perspective, point of view, or POV. Do not default to a generic selfie.",
+    "If the current situation would make a genuinely fun visual update, set visualCandidate true and provide a concrete ANIMA photoBrief describing what the character is doing, wearing, and showing. Use an external view with the character as the primary subject; never use the phrase 'in frame' or the character's perspective, point of view, or POV. Do not default to a generic selfie.",
+    "If photoBrief depicts a new outfit or a more specific version of the current outfit, set photoOutfit to one compact exact description of the garments shown and put the same description in scenePatch.outfit. Otherwise set photoOutfit to null. Never use a hypothetical or merely discussed outfit.",
     "Return the complete structured response requested by the schema.",
   ].join("\n");
   let parsed;
@@ -1073,7 +1184,7 @@ export async function generateProactiveOutreach(config, thread, now = new Date()
   if (!parsed) {
     const fallback = plainStructuredReplyFallback(generationError);
     if (!hasUsableCharacterReply(fallback)) throw generationError instanceof Error ? generationError : new Error("Ollama did not produce a proactive message.");
-    parsed = { message: fallback, intent: "observation", topicKey: "spontaneous-update", scenePatch: {}, resolvesFollowUp: false, visualCandidate: false, photoBrief: null };
+    parsed = { message: fallback, intent: "observation", topicKey: "spontaneous-update", scenePatch: {}, resolvesFollowUp: false, visualCandidate: false, photoBrief: null, photoOutfit: null };
   }
   const text = String(parsed.message || "").trim();
   if (!text) throw new Error("Ollama did not produce a proactive message.");
@@ -1088,6 +1199,9 @@ export async function generateProactiveOutreach(config, thread, now = new Date()
     resolvesFollowUp: Boolean(parsed.resolvesFollowUp),
     visualCandidate: Boolean(parsed.visualCandidate && photoBrief),
     photoBrief,
+    photoOutfit: photoBrief && typeof parsed.photoOutfit === "string" && parsed.photoOutfit.trim()
+      ? parsed.photoOutfit.trim()
+      : null,
   };
 }
 
@@ -1097,19 +1211,20 @@ export function hasUsableCharacterReply(value) {
 }
 
 export async function chatAsCharacter(config, thread, userText, imageBase64, options = {}) {
-  const messages = [{ role: "system", content: profileContext(thread, { ...options, userText, userName: config.userName?.trim() || "" }) }];
+  const systemContext = profileContext(thread, { ...options, userText, userName: config.userName?.trim() || "" });
+  const history = [];
   let suppressedRunawayHistory = false;
   for (const message of thread.messages.slice(-28)) {
     if (message.from === "system") continue;
     const photoHistory = generatedPhotoHistory(message);
     if (photoHistory.length) {
-      messages.push(...photoHistory);
+      history.push(...photoHistory);
       const reaction = reactionHistory(message);
-      if (reaction) messages.push(reaction);
+      if (reaction) history.push(reaction);
       continue;
     }
     if (message.from === "user" && message.image) {
-      messages.push({
+      history.push({
         role: "user",
         content: [String(message.text || "").trim(), "[The user attached an image to this message. Its visual pixels are not included in older history.]"].filter(Boolean).join("\n"),
       });
@@ -1118,7 +1233,7 @@ export async function chatAsCharacter(config, thread, userText, imageBase64, opt
     if (!message.text) continue;
     if (message.from === "character" && isRunawayAssistantHistory(message.text)) {
       if (!suppressedRunawayHistory) {
-        messages.push({
+        history.push({
           role: "system",
           content: "One or more prior character replies were disproportionate reactions caused by an earlier duplicate-input fault. Their visible text is intentionally omitted here: preserve the factual conversation context, but do not continue their invented technical-fault premise, emotional escalation, or writing style.",
         });
@@ -1126,18 +1241,19 @@ export async function chatAsCharacter(config, thread, userText, imageBase64, opt
       }
       continue;
     }
-    messages.push({ role: message.from === "character" ? "assistant" : "user", content: message.text });
+    history.push({ role: message.from === "character" ? "assistant" : "user", content: message.text });
     const reaction = reactionHistory(message);
-    if (reaction) messages.push(reaction);
+    if (reaction) history.push(reaction);
   }
+  const controls = [];
   const reactionGuard = briefReactionGuard(userText);
-  if (reactionGuard) messages.push({ role: "system", content: reactionGuard });
+  if (reactionGuard) controls.push({ role: "system", content: reactionGuard });
   const questionGuard = directQuestionGuard(userText);
-  if (questionGuard) messages.push({ role: "system", content: questionGuard });
+  if (questionGuard) controls.push({ role: "system", content: questionGuard });
   const momentumGuard = conversationMomentumGuard(userText);
-  if (momentumGuard) messages.push({ role: "system", content: momentumGuard });
+  if (momentumGuard) controls.push({ role: "system", content: momentumGuard });
   if (imageBase64) {
-    messages.push({
+    controls.push({
       role: "system",
       content: "The latest user turn includes an uploaded image. Interpret the image and the user's exact caption together as one message. The caption supplies the user's intent and context; do not replace it with an invented scenario. Ground visual details in what the image actually supports. If the user says they drew, made, found, photographed, or selected the image, treat that as user-provided context and respond to both the image and why they shared it. If there is no caption, do not guess an elaborate backstory—react to clearly visible details and ask one concise question when the purpose is unclear.",
     });
@@ -1147,8 +1263,18 @@ export async function chatAsCharacter(config, thread, userText, imageBase64, opt
     content: String(userText || "").trim() || (imageBase64 ? "[The user shared an image without a caption.]" : ""),
   };
   if (imageBase64) current.images = [imageBase64];
-  if (!options.currentTurnAlreadyInHistory) messages.push(current);
   const model = imageBase64 ? (config.visionModel || config.chatModel) : config.chatModel;
+  const contextWindow = await resolveOllamaContextWindow(config, model);
+  const context = buildTokenAwareMessages({
+    systemContext,
+    history,
+    controls,
+    current: options.currentTurnAlreadyInHistory ? null : current,
+    contextWindow,
+    responseReserve: 2200,
+    imageInput: Boolean(imageBase64),
+  });
+  const messages = context.messages;
   let parsed;
   let generationError;
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -1184,6 +1310,7 @@ export async function chatAsCharacter(config, thread, userText, imageBase64, opt
         scene: {},
         shouldSendPhoto: false,
         photoBrief: null,
+        photoOutfit: null,
         photoMessage: null,
         memoryCandidates: [],
         followUp: null,
@@ -1205,6 +1332,7 @@ export async function chatAsCharacter(config, thread, userText, imageBase64, opt
     relationshipDelta: Math.max(-2, Math.min(2, Math.trunc(Number(parsed.relationshipDelta) || 0))),
     scene: {
       location: typeof scene.location === "string" ? scene.location : null,
+      environment: typeof scene.environment === "string" ? scene.environment : null,
       activity: typeof scene.activity === "string" ? scene.activity : null,
       outfit: typeof scene.outfit === "string" ? scene.outfit : null,
       expression: typeof scene.expression === "string" ? scene.expression : null,
@@ -1213,6 +1341,9 @@ export async function chatAsCharacter(config, thread, userText, imageBase64, opt
     },
     shouldSendPhoto: Boolean(parsed.shouldSendPhoto),
     photoBrief: typeof parsed.photoBrief === "string" ? parsed.photoBrief : null,
+    photoOutfit: typeof parsed.photoBrief === "string" && parsed.photoBrief.trim() && typeof parsed.photoOutfit === "string" && parsed.photoOutfit.trim()
+      ? parsed.photoOutfit.trim()
+      : null,
     photoMessage: typeof parsed.photoMessage === "string" ? parsed.photoMessage : null,
     memoryCandidates: Array.isArray(parsed.memoryCandidates) ? parsed.memoryCandidates : [],
     followUp: parsed.followUp && typeof parsed.followUp === "object" && String(parsed.followUp.subject || "").trim()

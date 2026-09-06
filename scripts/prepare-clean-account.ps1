@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 $name = "AniMessengerTest"
 $workspace = Split-Path -Parent $PSScriptRoot
 $release = Join-Path $workspace "release"
-$publicRoot = "C:\Users\Public\Desktop\AniMessenger Clean Test"
+$publicRoot = Join-Path $env:PUBLIC "Desktop\AniMessenger Clean Test"
 $resultPath = Join-Path $release "clean-account-prepared.json"
 $errorPath = Join-Path $release "clean-account-error.txt"
 Remove-Item -LiteralPath $resultPath, $errorPath -Force -ErrorAction SilentlyContinue
@@ -22,7 +22,12 @@ if (-not ($members | Where-Object { $_.Name -match ("\\" + [regex]::Escape($name
 }
 
 New-Item -ItemType Directory -Force -Path $publicRoot | Out-Null
-foreach ($filename in @("AniMessenger-Windows-v0.3.2.zip", "CLEAN-ACCOUNT-TEST.txt", "CLEAN-ACCOUNT-NOTES.txt")) {
+$package = Get-ChildItem -LiteralPath $release -Filter "AniMessenger-Windows-v*.zip" -File |
+  Sort-Object LastWriteTimeUtc -Descending |
+  Select-Object -First 1
+if (-not $package) { throw "No versioned AniMessenger Windows ZIP was found in $release." }
+
+foreach ($filename in @($package.Name, "CLEAN-ACCOUNT-TEST.txt", "CLEAN-ACCOUNT-NOTES.txt")) {
   Copy-Item -LiteralPath (Join-Path $release $filename) -Destination $publicRoot -Force
 }
 

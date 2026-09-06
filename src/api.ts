@@ -71,11 +71,41 @@ export type CharacterProfile = {
 
 export type SceneState = {
   location: string;
+  /** Persistent visible surroundings, separate from the short location label. */
+  environment?: string;
   activity: string;
   outfit: string;
   expression: string;
   lighting: string;
   presence?: "apart" | "together" | "uncertain";
+  /** Monotonically increases whenever an authoritative location transition commits. */
+  revision?: number;
+  locationOwner?: "shared" | "character" | "user" | "unknown";
+  sharedLocation?: string;
+  characterLocation?: string;
+  userLocation?: string;
+  locationEvidence?: { source: string; kind: string; text: string };
+};
+
+export type FirstContactScenario = {
+  version: number;
+  status: "preview" | "started";
+  title: string;
+  premise: string;
+  contactMode: "remote" | "in_person" | "world_link";
+  connection: string;
+  scene: SceneState;
+  openingLine: string;
+  generatedAt: string;
+  startedAt?: string | null;
+  openingImage?: { status: "pending" | "complete" | "error"; promptId: string; requestedAt?: string | null };
+  rejectedOpenings?: Array<{
+    title: string;
+    premise: string;
+    contactMode: "remote" | "in_person" | "world_link";
+    location: string;
+    connection: string;
+  }>;
 };
 
 export type Message = {
@@ -90,7 +120,7 @@ export type Message = {
   image?: string;
   generated?: boolean;
   imageContext?: string;
-  imageOrigin?: "captured_moment";
+  imageOrigin?: "captured_moment" | "opening_scene";
   proactive?: boolean;
   proactiveIntent?: "follow_up" | "callback" | "observation" | "activity_update" | "question" | "invitation";
   proactiveTopicKey?: string;
@@ -110,6 +140,7 @@ export type Message = {
     visualExceptions?: string[];
     visualDefaultWardrobe?: string;
     sceneOutfit?: string;
+    sceneEnvironment?: string;
   };
   /** Interface-only delivery state; never required in saved thread data. */
   delivery?: "sending" | "failed";
@@ -131,12 +162,14 @@ export type Thread = {
   id: string;
   character: AnimaCharacter;
   profile?: CharacterProfile;
+  firstContact?: FirstContactScenario;
   messages: Message[];
   memories?: CharacterMemory[];
   memoryBackfilledAt?: string;
   relationship: number;
   relationshipMomentum?: number;
   unreadCount?: number;
+  pinned?: boolean;
   proactive?: {
     version?: number;
     nextAt: string | null;
@@ -184,6 +217,9 @@ export type AppConfig = {
   proactivePace: "off" | "relaxed" | "normal" | "lively";
   proactiveDeliveryStart: string;
   proactiveDeliveryEnd: string;
+  soundEnabled: boolean;
+  soundVolume: number;
+  bondSound: "celebration" | "heartbeat";
   accentTheme: "signal";
 };
 
@@ -373,6 +409,11 @@ export const api = {
   markRead: (characterId: string) => request<{ thread: Thread }>(`/api/threads/${encodeURIComponent(characterId)}/read`, {
     method: "POST",
   }),
+  pinThread: (characterId: string, pinned: boolean) => request<{ thread: Thread }>(`/api/threads/${encodeURIComponent(characterId)}/pin`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pinned }),
+  }),
   inviteGuest: (characterId: string, guestCharacterId: string) => request<{ thread: Thread; guest: AnimaCharacter }>(`/api/threads/${encodeURIComponent(characterId)}/guest`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -409,6 +450,15 @@ export const api = {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ character, force }),
   }, 240000),
+  startFirstContact: (characterId: string) => request<{ thread: Thread }>(`/api/threads/${encodeURIComponent(characterId)}/first-contact/start`, {
+    method: "POST",
+  }, 180000),
+  rerollFirstContact: (characterId: string) => request<{ thread: Thread }>(`/api/threads/${encodeURIComponent(characterId)}/first-contact/reroll`, {
+    method: "POST",
+  }, 180000),
+  generateFirstContactImage: (characterId: string) => request<{ thread: Thread; imageJob?: { promptId: string }; imageWarning?: string }>(`/api/threads/${encodeURIComponent(characterId)}/first-contact/image`, {
+    method: "POST",
+  }, 60000),
   saveVisualOverrides: (characterId: string, overrides: { identity: string[]; signature: string[]; hiddenSignature?: string[]; exceptions: string[]; defaultWardrobe?: string } | null, currentOutfit?: string, displayName?: string) => request<{ profile: CharacterProfile; thread?: Thread }>("/api/characters/visual-overrides", {
     method: "POST",
     headers: { "content-type": "application/json" },

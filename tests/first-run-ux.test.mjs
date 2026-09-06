@@ -16,7 +16,7 @@ test("first-run setup treats Ollama as required and ComfyUI as optional", () => 
 });
 
 test("unavailable image controls are disabled or hidden while ComfyUI is offline", () => {
-  assert.match(app, /disabled=\{!active\.profile \|\| !health\.comfy \|\| typing \|\| capturingMoment\}/);
+  assert.match(app, /disabled=\{!activeReadyForChat \|\| !health\.comfy \|\| typing \|\| capturingMoment\}/);
   assert.match(app, /\{health\.comfy && <button[\s\S]*?className="avatar-refresh"/);
   assert.match(app, /if \(!active \|\| !health\.comfy \|\| typing \|\| capturingMoment\) return/);
 });
@@ -37,6 +37,9 @@ test("character catalogue status offers a manual reconnect and refreshes active 
 test("a first meeting opens immediately while the character profile is prepared", () => {
   assert.match(app, /openThread\(started\)/);
   assert.match(app, /className="build-in-chat"/);
-  assert.match(app, /disabled=\{!active\.profile\}/);
+  assert.match(app, /className="first-contact-card"/);
+  assert.match(app, /Start this adventure/);
+  assert.match(app, /Try another opening/);
+  assert.match(app, /disabled=\{!activeReadyForChat\}/);
   assert.doesNotMatch(app, /className="profile-layer build-layer"/);
 });

@@ -341,7 +341,10 @@ button { touch-action: manipulation; }
 
 @media (max-width: 760px) {
   html, body, #root { height: 100%; overflow: hidden; }
-  .site-frame { display: block; width: 100vw; height: var(--mobile-viewport-height, 100dvh); min-height: 0; }
+  /* iOS browsers can restore the document's old page offset when reopening a tab.
+     AniMessenger has its own scroll regions, so pin the application itself to
+     the visible viewport instead of allowing that outer offset to crop it. */
+  .site-frame { position: fixed; inset: 0; display: block; width: 100vw; height: var(--mobile-viewport-height, 100dvh); min-height: 0; }
   .ambient { display: none; }
   .app-shell { display: block; width: 100vw; height: 100%; border: 0; border-radius: 0; background: #0f0b13; }
   .inbox-panel, .chat-panel { position: absolute; inset: 0; width: 100%; height: 100%; }

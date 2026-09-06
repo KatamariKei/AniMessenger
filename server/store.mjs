@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { dataDir } from "./config.mjs";
 import { mergeMemories } from "./memory.mjs";
+import { normalizeSceneState } from "./scene-state.mjs";
 
 const threadsDir = path.join(dataDir, "threads");
 const profilesDir = path.join(dataDir, "profiles");
@@ -23,8 +24,12 @@ async function writeJson(filePath, value) {
 }
 
 function canonicalThread(thread) {
-  if (!thread || !Array.isArray(thread.memories)) return thread;
-  return { ...thread, memories: mergeMemories(thread.memories, []) };
+  if (!thread) return thread;
+  return {
+    ...thread,
+    scene: thread.scene ? normalizeSceneState({ environment: "", ...thread.scene }) : thread.scene,
+    ...(Array.isArray(thread.memories) ? { memories: mergeMemories(thread.memories, []) } : {}),
+  };
 }
 
 export async function listThreads() {
@@ -38,7 +43,14 @@ export async function listThreads() {
       // One damaged local thread should not hide the others.
     }
   }
-  return threads.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+  return sortThreads(threads);
+}
+
+export function sortThreads(threads = []) {
+  return [...threads].sort((a, b) => {
+    const pinned = Number(Boolean(b?.pinned)) - Number(Boolean(a?.pinned));
+    return pinned || String(b?.updatedAt || "").localeCompare(String(a?.updatedAt || ""));
+  });
 }
 
 export function summarizeThread(thread) {
@@ -76,8 +88,9 @@ export async function deleteThread(id) {
   }
 }
 
-export async function saveThread(thread) {
-  const next = canonicalThread({ ...thread, updatedAt: new Date().toISOString() });
+export async function saveThread(thread, options = {}) {
+  const updatedAt = options.preserveUpdatedAt && thread.updatedAt ? thread.updatedAt : new Date().toISOString();
+  const next = canonicalThread({ ...thread, updatedAt });
   await writeJson(path.join(threadsDir, safeId(thread.id) + ".json"), next);
   return next;
 }
@@ -93,6 +106,7 @@ export async function createThread(character) {
     unreadCount: 0,
     scene: {
       location: "somewhere familiar",
+      environment: "",
       activity: "chatting with you",
       outfit: "default outfit",
       expression: "natural expression",

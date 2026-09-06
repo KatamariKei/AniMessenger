@@ -91,6 +91,32 @@ test("allows reference to a user gaze when the user explicitly established it", 
   assert.equal(inventsUserBehavior("Stop staring. You're going to make me choke.", "I know the Heimlich maneuver.", history), false);
 });
 
+test("allows a character to acknowledge explicitly established silence and action cues", () => {
+  const history = [
+    { from: "character", text: "Now shut up and just walk!" },
+    { from: "user", text: "[action: I shut up and walk until we get to the fountain]" },
+    { from: "character", text: "You really did go quiet." },
+  ];
+  const latestAction = "[action: I walk in silence. We get to the fountain she mentioned]";
+
+  assert.equal(inventsUserBehavior("You went quiet all the way here. This is the north fountain.", latestAction, history), false);
+  assert.equal(needsReplyRepair("You went quiet all the way here. This is the north fountain.", latestAction, history), false);
+  assert.equal(groundedReplyFallback("You went quiet all the way here. This is the north fountain.", latestAction, history), "You went quiet all the way here. This is the north fountain.");
+});
+
+test("allows silence established in recent user history to remain grounded", () => {
+  const history = [{ from: "user", text: "[action: I say nothing and follow her down the path]" }];
+  assert.equal(inventsUserBehavior("You're awfully quiet back there.", "[action: We arrive at the gate]", history), false);
+});
+
+test("allows ordinary character interpretation after a substantive relationship observation", () => {
+  const userText = "We have an appreciation for metal in common. And spicy things. And video games. Not bad.";
+  const reply = "Hah. Don't tell me you're getting sentimental just because we like some of the same things.";
+  assert.equal(inventsUserBehavior(reply, userText, []), false);
+  assert.equal(needsReplyRepair(reply, userText, []), false);
+  assert.equal(groundedReplyFallback(reply, userText, []), reply);
+});
+
 test("repairs canned interpretations that replace the user's literal meaning", () => {
   assert.equal(inventsUserBehavior("Is that your way of saying I'm a handful?", "I thought you were craving salty.", []), true);
   assert.equal(inventsUserBehavior("Don't tell me you're getting bored already.", "hmm... ok", []), true);
@@ -105,10 +131,10 @@ test("adds a grounding guard for brief conversational reactions", () => {
   assert.equal(briefReactionGuard("I just thought you were craving salty."), "");
 });
 
-test("uses a deterministic clarification when a repaired reply still invents user state", () => {
+test("uses a deterministic clarification only for a brief ambiguous reaction", () => {
   assert.equal(groundedReplyFallback("You going quiet on me already?", "hmm... ok", []), "Hmm?");
   assert.equal(groundedReplyFallback("Quiet tonight, aren't you? Is something bothering you?", "hmm... ok", []), "Hmm?");
-  assert.equal(groundedReplyFallback("Is that your way of saying I'm a handful?", "I thought you were craving salty.", []), "What do you mean?");
+  assert.equal(groundedReplyFallback("Is that your way of saying I'm a handful?", "I thought you were craving salty.", []), "Is that your way of saying I'm a handful?");
   assert.equal(groundedReplyFallback("The fries are saltier than I expected.", "hmm... ok", []), "The fries are saltier than I expected.");
 });
 

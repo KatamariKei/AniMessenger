@@ -46,13 +46,17 @@ test("the native tray companion owns installed start, open, stop, and update act
 test("the development tray controls one service and persists phone access", () => {
   const tray = read("installer/AniMessenger.Tray.cs");
   const dev = read("scripts/dev.mjs");
+  const detached = read("scripts/start-detached.mjs");
   const builder = read("scripts/build-dev-tray.mjs");
   assert.match(tray, /Phone access: On/);
   assert.match(tray, /Phone access: Off/);
   assert.match(tray, /phone-access\.enabled/);
   assert.match(tray, /RequestDevelopmentShutdown/);
   assert.match(tray, /--lan/);
+  assert.match(tray, /start-detached\.mjs/);
+  assert.match(detached, /--no-watch/);
   assert.match(dev, /runtimeDirectory/);
+  assert.match(read("vite.config.ts"), /ignored: \["\*\*\/release\/\*\*"/);
   assert.match(dev, /dev\.pid/);
   assert.match(builder, /development-root\.txt/);
   assert.match(builder, /--start/);

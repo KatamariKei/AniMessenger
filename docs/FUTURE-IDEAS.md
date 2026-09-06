@@ -61,25 +61,6 @@ This mode should be opt-in and should contain conflict through high-confidence f
 - Restarting during a cameo has predictable recovery behavior.
 - Normal one-speaker turns remain close to current response speed.
 
-## Token-aware conversation context
-
-Explore replacing the fixed recent-message limit with a context builder that budgets tokens against the selected Ollama model's actual context window.
-
-The builder should reserve response space first, then fit the character profile, current scene, relevant durable memories, guest context, and the most useful recent conversation into the remaining budget. Older messages should stay saved and visible without being sent on every turn. Current image inputs should receive an explicit token allowance, while earlier images should continue to be represented by compact textual context rather than being resent as pixels.
-
-Important considerations:
-
-- detect the active model's configured context length rather than assuming 16K;
-- preserve the immediately preceding exchange and unresolved conversational referents;
-- rank durable memories by relevance and importance;
-- trim or compact oversized profile sections before dropping recent dialogue;
-- leave enough output capacity for a complete structured response and any repair pass;
-- support guest chats without allowing two profiles to crowd out the shared scene;
-- expose a useful diagnostic when the available context is unusually constrained;
-- keep behavior deterministic enough that changing models does not unpredictably erase continuity.
-
-This is an optimization and reliability exploration, not a reason to change the current rolling-history and durable-memory behavior immediately.
-
 ## Narrative mode
 
 Explore an optional per-conversation toggle between the current **Chat mode** and a more story-forward **Narrative mode**.
@@ -110,18 +91,54 @@ This should begin as an opt-in experiment. Existing chats must remain in Chat mo
 
 ## Sound design
 
-Explore an optional, restrained sound layer that makes AniMessenger feel tactile and alive without turning conversation into a noisy notification system.
+The first restrained sound layer is implemented with original procedural cues for messages sent and received, camera capture, completed character photos, and major relationship milestones. Settings provide a master switch, volume control, and previews; background proactive messages remain silent.
 
-Possible cues include:
+Possible later additions include:
 
-- a camera-shutter sound when the user captures the current scene;
-- distinct, subtle message-sent and message-received sounds;
-- a more rewarding relationship-level-up cue reserved for major bond thresholds;
-- a photo-received cue that feels different from an ordinary message;
 - a quiet thinking or discovery texture while meeting and researching a new character;
-- restrained completion and error sounds where they communicate something the user may not be looking at directly.
+- restrained completion and error sounds where they communicate something the user may not be looking at directly;
+- optional per-category controls if the master switch proves too broad in real use.
 
 Sounds should be short, cohesive with the AniMessenger brand, and used only when they add meaningful feedback. Provide a master sound toggle, sensible volume control, and optional per-category controls. Respect browser autoplay restrictions, device silent mode, reduced-motion or reduced-stimulation preferences where available, and avoid playing sounds for background proactive messages when doing so would be intrusive. The experience must remain completely understandable and usable with sound disabled.
+
+## Moment Reels and local video generation
+
+Explore an optional video experience that turns a meaningful established chat moment into a short, coherent scene rather than generating arbitrary background clips. A successful example is a character leading the user into a garden: the conversation already establishes the relationship, location, movement, mood, and visual reveal, while a storyboard turns that context into a deliberate multi-shot sequence for a capable local video model such as MiniMax H3.
+
+### Intended experience
+
+- Identify visually and emotionally meaningful moments without interrupting routine conversation.
+- Let the user explicitly create a **Moment Reel** from an eligible message, generated image, or current scene.
+- Build a concise, reviewable storyboard containing roughly three to five shots, with camera placement, movement, character action, continuity, and a final narrative beat.
+- Carry the character identity lock, current outfit, location, lighting, relationship context, and latest visible evidence into every shot.
+- Use an ANIMA image as an optional anchor or starting frame, then pass the approved scene plan to the selected local video workflow.
+- Generate asynchronously so chat remains usable while video work is queued.
+- Deliver the completed clip naturally into chat and retain it in the character gallery.
+- Provide progress, cancellation, retry, storage management, and failed-generation recovery.
+
+### Storyboard intelligence gap
+
+High-quality multi-shot direction is its own reasoning problem. Current local chat models may produce an acceptable literal shot list while missing the pacing, visual escalation, continuity, camera language, and emotional composition available from a frontier planning model. Do not conceal this quality gap behind increasingly rigid prompt templates.
+
+The eventual design should keep planning provider-agnostic:
+
+- a fully local planner remains the private default and can improve as local models advance;
+- an advanced user may select a stronger local model dedicated to storyboarding;
+- a future opt-in frontier planner could produce only the storyboard while local ANIMA and video models perform all media generation;
+- any hosted planning option must clearly disclose exactly what conversation and scene context leaves the device, require explicit consent, and never silently upload private chats or images;
+- the storyboard should remain visible and editable before expensive generation begins.
+
+Original characters offer the cleanest creative and distribution path. Existing fictional characters may work technically in a user's local workflow, but public-product licensing, identity consistency across shots, and adaptation-specific visual ambiguity require separate consideration.
+
+### Performance and installation boundaries
+
+- Treat video as an optional experimental pack, never a required AniMessenger dependency.
+- Keep large model and workflow downloads outside the base installer.
+- Detect model, node, disk, and VRAM requirements before exposing generation controls.
+- Coordinate Ollama, ANIMA, and video-model GPU use through one queue rather than allowing them to compete unpredictably.
+- Offer idle-only generation, power limits, pause/resume, and an explicit disable switch.
+- Generate mobile-friendly previews while retaining the full local source file.
+- Test the storyboard and rendering pipeline separately before integrating it into normal chat.
 
 ## Secure remote access
 

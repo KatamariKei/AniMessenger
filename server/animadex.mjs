@@ -5,9 +5,9 @@ function absoluteUrl(base, value) {
   return new URL(value, base.endsWith("/") ? base : base + "/").toString();
 }
 
-export async function checkAnimaDex(config) {
+export async function checkAnimaDex(config, timeout = 5000) {
   try {
-    const response = await fetch(config.animadexUrl + "/api/characters/facets", { signal: AbortSignal.timeout(2500) });
+    const response = await fetch(config.animadexUrl + "/api/characters/facets", { signal: AbortSignal.timeout(timeout) });
     return response.ok;
   } catch {
     return false;

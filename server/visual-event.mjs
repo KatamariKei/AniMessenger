@@ -7,11 +7,20 @@ const visualLocation = "beach|festival|concert|party|ballroom|rooftop|garden|tem
 const arrival = new RegExp("\\b(?:arrive(?:d|ing)? at|reach(?:ed|ing)?|step(?:ped|ping)? into|enter(?:ed|ing)?|made it to|just got to|(?:i(?:'m| am)|we(?:'re| are)|she(?:'s| is)|he(?:'s| is)|they(?:'re| are)) (?:now )?(?:at|in|on))\\s+(?:the |a |an )?(?:" + visualLocation + ")\\b", "i");
 const completedVisualActivity = /\b(?:just |finally |all )?(?:finish(?:ed|ing)|done with|wrapped up)\s+(?:(?:my|her|his|their|the|a)\s+)?(?:workout|training|practice|performance|show|makeup|makeover|costume|hair)|\b(?:just |finally )?(?:got|stepped|came) out of (?:the |my |her |his |their )?shower\b|\b(?:just |finally )?shower(?:ed|ing)\b/i;
 const visibleSelfReveal = /\b(?:here(?:'s| is) (?:the |my )?(?:new )?(?:outfit|dress|costume|look)|show(?:ing|s|ed)? (?:off )?(?:my|her|his|their) (?:new )?(?:outfit|dress|costume|look)|take a look at (?:the |my |her |his |their )?(?:new )?(?:outfit|dress|costume|look))\b/i;
+const completedWardrobeReveal = /\b(?:(?:put(?:s)?|slip(?:s|ped)?|pull(?:s|ed)?|throw(?:s)?|fasten(?:s|ed)?)\s+(?:(?:the|a|an|her|his|their|my|this|that)\s+)?[^.!?\]]{0,100}\s+on(?!\s+(?:(?:the|a)\s+)?(?:bed|chair|table|counter|hanger|sofa|couch|floor)\b)|(?:(?:change(?:s|d)|dress(?:es|ed))|(?:i|she|he|they)\s+(?:change|dress))\s+into\s+[^.!?\]]{1,100}|(?:step(?:s|ped)?|come(?:s)?|came|return(?:s|ed)?|emerge(?:s|d)?)\s+(?:back\s+|out\s+)?[^.!?\]]{0,50}\b(?:wearing|dressed in)\b|(?:now\s+)?(?:wearing|dressed in)\s+[^.!?\]]{1,100})\b/i;
+const scenicReveal = /\b(?:cloud sea|panoramic (?:view|vista)|vast (?:landscape|view|vista|fields?|ocean|sea)|rolling (?:green )?hills?|craggy mountains?|distant mountains?|city skyline|cityscape|waterfall|breathtaking (?:view|landscape|scenery)|grass waving in the wind)\b/i;
 
 export function visualEventOpportunity(text, scene = {}, options = {}) {
   const value = String(text || "").replace(/\s+/g, " ").trim();
   const actor = options.actor === "character" ? "character" : "user";
-  if (!value || hypothetical.test(value) || (actor === "user" && userPerformsEvent.test(value)) || scene?.presence === "together") return null;
+  if (!value || hypothetical.test(value)) return null;
+  if (scenicReveal.test(value)) return "a newly revealed, visually distinctive environment";
+  // A completed wardrobe reveal is worth seeing even in a shared physical
+  // scene. This only considers the character's finished action; requests and
+  // preparation such as leaving to change remain non-visual until completion.
+  if (actor === "character" && completedWardrobeReveal.test(value)) return "a completed outfit change or wardrobe reveal";
+  if (scene?.presence === "together") return null;
+  if (actor === "user" && userPerformsEvent.test(value)) return null;
   if (wardrobeChange.test(value)) return "an immediate outfit change or wardrobe reveal";
   if (appearanceReveal.test(value)) return "a visible appearance change or makeover reveal";
   if (completedVisualActivity.test(value)) return "a just-completed visually distinctive activity or transition";

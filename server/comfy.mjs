@@ -283,7 +283,7 @@ export async function queueCharacterImage(config, thread, brief = "", overrides 
     || sceneOutfit === visual.defaultWardrobe;
   const scenePrompt = buildImagePrompt(thread.profile, thread.character, thread.scene, brief, { userName: config.userName });
   const positive = overrides.positivePrompt || [config.globalPositivePrompt, scenePrompt].map((part) => String(part || "").trim()).filter(Boolean).join("\n\n");
-  const continuityNegative = mergePromptTags("duplicate person, inconsistent hair, inconsistent eyes, wrong character, default costume when another outfit is requested", CHARACTER_PHOTO_NEGATIVE, visualExceptionNegative(thread.profile));
+  const continuityNegative = mergePromptTags("duplicate person", CHARACTER_PHOTO_NEGATIVE, visualExceptionNegative(thread.profile));
   const negative = overrides.negativePrompt || mergePromptTags(config.globalNegativePrompt, continuityNegative, overrides.negative);
   const seed = Math.floor(Math.random() * 2147483647);
   const width = overrides.width || settings.width;
@@ -367,6 +367,7 @@ export async function queueCharacterImage(config, thread, brief = "", overrides 
     visualExceptions: visual.exceptions,
     visualDefaultWardrobe: usesDefaultWardrobe ? visual.defaultWardrobe : "",
     sceneOutfit: sceneOutfit && sceneOutfit !== "default outfit" ? sceneOutfit : visual.defaultWardrobe,
+    sceneEnvironment: String(thread.scene?.environment || "").trim(),
   };
 }
 
@@ -408,7 +409,7 @@ export async function fetchComfyImage(config, url) {
   let localFailure = null;
   if (config.comfyOutputDir) {
     try {
-      const filePath = resolveComfyOutputFile(config.comfyOutputDir, url);
+      const filePath = await locateComfyOutputFile(config.comfyOutputDir, url);
       const extension = path.extname(filePath).toLowerCase();
       const type = extension === ".jpg" || extension === ".jpeg" ? "image/jpeg" : extension === ".webp" ? "image/webp" : extension === ".gif" ? "image/gif" : "image/png";
       return { body: await fs.readFile(filePath), type };
@@ -434,6 +435,51 @@ export async function fetchComfyImage(config, url) {
     throw new Error("The ComfyUI image could not be loaded. Run Check image setup in Settings.");
   }
   return { body: Buffer.from(await response.arrayBuffer()), type: response.headers.get("content-type") || "image/png" };
+}
+
+export async function locateComfyOutputFile(outputDir, url) {
+  const expected = resolveComfyOutputFile(outputDir, url);
+  try {
+    await fs.access(expected);
+    return expected;
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+
+  // Users sometimes reorganize AniMessenger's dated output folders. Recover an
+  // unchanged Comfy filename without rewriting or deleting gallery history.
+  const base = path.resolve(String(outputDir || ""));
+  const filename = path.basename(expected);
+  const queue = [{ directory: base, depth: 0 }];
+  const matches = [];
+  let inspected = 0;
+  while (queue.length && inspected < 20_000) {
+    const { directory, depth } = queue.shift();
+    let entries;
+    try {
+      entries = await fs.readdir(directory, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    inspected += entries.length;
+    for (const entry of entries) {
+      const candidate = path.join(directory, entry.name);
+      if (entry.isFile() && entry.name.toLowerCase() === filename.toLowerCase()) {
+        try {
+          matches.push({ path: candidate, modified: (await fs.stat(candidate)).mtimeMs });
+        } catch {}
+      } else if (entry.isDirectory() && depth < 6) {
+        queue.push({ directory: candidate, depth: depth + 1 });
+      }
+    }
+  }
+  if (!matches.length) {
+    const missing = new Error("The image file is missing from the configured ComfyUI output folder.");
+    missing.code = "ENOENT";
+    throw missing;
+  }
+  matches.sort((left, right) => right.modified - left.modified);
+  return matches[0].path;
 }
 
 export function resolveComfyOutputFile(outputDir, url) {

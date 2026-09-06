@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { imageFraming, normalizeWardrobePrompt, stabilizeWardrobePrompt, wardrobeForFraming } from "../server/wardrobe.mjs";
+import { imageFraming, inferWardrobeEvent, isWardrobePlaceholder, normalizeWardrobePrompt, photoOutfitUpdate, replaceWardrobePlaceholders, stabilizeWardrobePrompt, wardrobeChangeIsEstablished, wardrobeDescriptionRequested, wardrobeForFraming } from "../server/wardrobe.mjs";
 
 const visual = {
   defaultWardrobe: "yellow sleeveless top, red shorts, chunky boots",
@@ -38,6 +38,58 @@ test("specific outfits, explicit nudity, and already stabilized outfits remain u
   const first = stabilizeWardrobePrompt("pajamas", visual, "misty");
   assert.equal(stabilizeWardrobePrompt(first, visual, "misty"), first);
   assert.equal(normalizeWardrobePrompt("none"), "completely nude");
+});
+
+test("vague model wardrobe placeholders fall back to the exact canonical outfit", () => {
+  assert.equal(stabilizeWardrobePrompt("standard attire", visual, "pyra"), visual.defaultWardrobe);
+  assert.equal(stabilizeWardrobePrompt("her usual outfit", visual, "pyra"), visual.defaultWardrobe);
+  assert.equal(isWardrobePlaceholder("normal clothes"), true);
+  assert.equal(
+    replaceWardrobePlaceholders("Pyra outside, wearing standard attire, morning light", visual.defaultWardrobe),
+    "Pyra outside, wearing yellow sleeveless top, red shorts, chunky boots, morning light",
+  );
+});
+
+test("ordinary scene movement does not establish an outfit change", () => {
+  assert.equal(wardrobeChangeIsEstablished("Let's step outside and take a walk."), false);
+  assert.equal(wardrobeChangeIsEstablished("She catches me when I stumble."), false);
+  assert.equal(wardrobeChangeIsEstablished("I'll change into my red travel coat before we go."), false);
+  assert.equal(wardrobeChangeIsEstablished("She puts on a swimsuit."), true);
+  assert.equal(wardrobeChangeIsEstablished("She's wearing a fitted blue travel dress."), true);
+});
+
+test("direct requests to describe current clothing refine wardrobe state", () => {
+  assert.equal(wardrobeDescriptionRequested("Can you describe your outfit in detail for me?"), true);
+  assert.equal(wardrobeDescriptionRequested("Describe you outfit in detail for me. I like it"), true);
+  assert.equal(wardrobeDescriptionRequested("What are you wearing right now?"), true);
+  assert.equal(wardrobeDescriptionRequested("Describe your athletic gear, Marie! You look great!"), true);
+  assert.equal(wardrobeDescriptionRequested("That outfit looks comfortable."), false);
+  assert.equal(wardrobeDescriptionRequested("What should we pack for camping?"), false);
+  assert.equal(wardrobeChangeIsEstablished("Go get a jumpsuit on or something."), false);
+  assert.equal(wardrobeChangeIsEstablished("She returns in her athletic gear."), true);
+});
+
+test("extracts completed towel and T-shirt wardrobe changes from actions", () => {
+  assert.equal(
+    inferWardrobeEvent("[action: steps out of the shower and quickly grabs a towel, wrapping it around herself with a huff]", "character")?.outfit,
+    "bath towel wrapped around her body",
+  );
+  assert.equal(
+    inferWardrobeEvent("[action: she walks out wearing my black oversized T-shirt. She looks too cute.]", "user")?.outfit,
+    "black oversized T-shirt",
+  );
+});
+
+test("planned clothing does not become the current outfit before it is worn", () => {
+  assert.equal(inferWardrobeEvent("I'll change into my red travel coat before we go."), null);
+  assert.equal(inferWardrobeEvent("You can grab one of my oversized T-shirts if you want."), null);
+});
+
+test("a generated photo's explicit wardrobe becomes scene continuity only with a visual brief", () => {
+  const swimsuit = "sleek minimalist black one-piece swimsuit with a deep V-neck and open back";
+  assert.equal(photoOutfitUpdate("Motoko reveals her new swimsuit.", swimsuit), swimsuit);
+  assert.equal(photoOutfitUpdate("", swimsuit), "");
+  assert.equal(photoOutfitUpdate("Motoko considers changing later.", null), "");
 });
 
 test("image framing keeps the complete outfit in scene data but trims invisible garments from prompts", () => {

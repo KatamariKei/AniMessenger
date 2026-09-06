@@ -28,6 +28,8 @@ function explicitTogether(text) {
     /\b(?:you|she|he|they) (?:kiss|hug|embrace|touch|hold|grab|pull|cuddle|stroke|caress)(?:es|s)? me\b/,
     /\bding dong\b[\s\S]*\bi(?:'m| am) here\b/,
     /\b(?:open|answer) the door\b[\s\S]*\b(?:i(?:'m| am)|you(?:'re| are)) here\b/,
+    /\b(?:hear|heard) (?:a )?knock at (?:my|our|the) door\b/,
+    /\b(?:arrives?|arrived|shows? up|showed up) at (?:my|our|the) (?:place|apartment|house|home|door)\b/,
   ].some((pattern) => pattern.test(value));
 }
 
@@ -40,7 +42,8 @@ function explicitApart(text) {
     /\b(?:i(?:'ll| will)|we(?:'ll| will)) (?:be there|come over|head over|see you) (?:soon|later|tonight|tomorrow|in a bit)\b/,
     /\bwhen (?:i|we) (?:get|arrive) there\b/,
     /\b(?:i(?:'m| am)|we(?:'re| are)) (?:leaving|heading home|going home)\b/,
-    /\b(?:i |we )?(?:leave|left|head home|go home|walk away|drive away)\b/,
+    /\b(?:i |we )?(?:head home|go home|walk away|drive away)\b/,
+    /\b(?:i|we)\s+(?:leave|left)(?:\s+(?:you|her|him|them|the (?:house|apartment|home|place|building|venue|party)))?(?:[.!?;:]|$)/,
     /\b(?:goodbye|see you later|talk to you later|i(?:'ll| will) text you)\b/,
     /\b(?:why don['’]t |when |once )?(?:you|she|he|they)(?:'ll|'re| will| are| is)? (?:come|coming|head|heading) over\b/,
     /\b(?:text|texts|texted|message|messages|messaged|call|calls|called) me back\b/,
@@ -50,14 +53,22 @@ function explicitApart(text) {
 function arrivalLocation(text, recentMessages, characterName) {
   const value = clean(text);
   const recent = [...(recentMessages || [])].slice(-18).reverse();
-  const atCharacterHome = /\b(?:your|her|his|their) (?:place|apartment|house|home|door)\b/.test(value)
-    || recent.some((message) => {
-      const content = clean(message.text);
-      return message.from === "character"
-        ? /\b(?:my place|my apartment|my house|my home|come over|have you over)\b/.test(content)
-        : /\b(?:your place|your apartment|your house|your home)\b/.test(content);
-    });
-  return atCharacterHome && characterName ? characterName + "'s home" : "";
+  if (/\b(?:my|our) (?:place|apartment|house|home|door)\b/.test(value)) return "the viewer's home";
+  if (/\b(?:your|her|his|their) (?:place|apartment|house|home|door)\b/.test(value)) {
+    return characterName ? characterName + "'s home" : "";
+  }
+  for (const message of recent) {
+    const content = clean(message.text);
+    const atViewerHome = message.from === "character"
+      ? /\b(?:your place|your apartment|your house|your home|come over to you)\b/.test(content)
+      : /\b(?:my place|my apartment|my house|my home|come over to my)\b/.test(content);
+    if (atViewerHome) return "the viewer's home";
+    const atCharacterHome = message.from === "character"
+      ? /\b(?:my place|my apartment|my house|my home|come over|have you over)\b/.test(content)
+      : /\b(?:your place|your apartment|your house|your home)\b/.test(content);
+    if (atCharacterHome) return characterName ? characterName + "'s home" : "";
+  }
+  return "";
 }
 
 export function inferPresenceCue(text, currentPresence = "uncertain", recentMessages = [], characterName = "") {

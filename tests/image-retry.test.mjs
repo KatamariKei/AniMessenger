@@ -33,7 +33,7 @@ test("only generated character images can be retried", () => {
   assert.throws(() => findRetryableImageMessage({ messages: [{ id: "upload", from: "user", image: "/upload.png" }] }, "upload"), /available to retry/);
 });
 
-test("retrying an old character image preserves its scene while applying current camera guards", () => {
+test("retrying an old character image preserves its scene while removing literal framing language", () => {
   const message = {
     generation: {
       positive: "masterpiece, 1person, faye valentine, red bikini, A close-up shot from Faye's perspective looking down at her plate.",
@@ -46,11 +46,53 @@ test("retrying an old character image preserves its scene while applying current
   assert.doesNotMatch(overrides.positivePrompt, /1person|age 18/i);
   assert.match(overrides.positivePrompt, /shot of Faye Valentine looking down at her plate/i);
   assert.doesNotMatch(overrides.positivePrompt, /external[- ]camera/i);
-  assert.match(overrides.positivePrompt, /Faye Valentine clearly visible in frame/i);
+  assert.doesNotMatch(overrides.positivePrompt, /clearly visible in frame/i);
   assert.doesNotMatch(overrides.positivePrompt, /Faye's perspective/i);
   assert.match(overrides.negativePrompt, /low quality/);
   assert.match(overrides.negativePrompt, /first-person POV/);
   assert.match(overrides.negativePrompt, /food-only image/);
+});
+
+test("a legacy retry can recover the established environment missing from its old prompt", () => {
+  const message = {
+    generation: {
+      positive: "quality, 1girl, pyra, outside, red dress",
+      negative: "low quality",
+      scenePrompt: "1girl, adult, pyra, outside, red dress",
+    },
+  };
+  const profile = { visual: { identity: ["red hair"], signature: [], defaultWardrobe: "red dress" } };
+  const overrides = retryPromptOverrides(
+    message,
+    { name: "Pyra" },
+    {},
+    profile,
+    "red dress",
+    "vast cloud sea, rolling green fields, distant craggy mountains",
+  );
+  assert.match(overrides.positivePrompt, /ENVIRONMENT CONTINUITY: vast cloud sea, rolling green fields, distant craggy mountains/i);
+});
+
+test("a retry cannot resurrect a pose accidentally stored as the environment", () => {
+  const direction = "looks toward the window with a soft, distant expression Like this";
+  const message = {
+    generation: {
+      positive: `quality, 1girl, pyra, living room, ${direction}, embracing`,
+      negative: "low quality",
+      sceneEnvironment: direction,
+    },
+  };
+  const profile = { visual: { identity: ["red hair"], signature: [], defaultWardrobe: "red dress" } };
+  const overrides = retryPromptOverrides(
+    message,
+    { name: "Pyra" },
+    {},
+    profile,
+    "red dress",
+    "A comfortable living room with a sofa, low table, curtained windows, and warm lamplight.",
+  );
+  assert.doesNotMatch(overrides.positivePrompt, /looks toward the window/i);
+  assert.match(overrides.positivePrompt, /ENVIRONMENT CONTINUITY: A comfortable living room/i);
 });
 
 test("retrying collapses accumulated negative prompt safeguards", () => {

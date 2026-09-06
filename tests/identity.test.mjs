@@ -67,6 +67,161 @@ test("ANIMA prompt uses scene clothing without reintroducing the default costume
   assert.doesNotMatch(prompt, /1person|age 18/i);
 });
 
+test("ANIMA prompts replace vague photo-brief attire with the established outfit", () => {
+  const prompt = buildImagePrompt(
+    {
+      visual: {
+        identity: ["1girl", "red hair", "red eyes"],
+        signature: ["chest jewel"],
+        defaultWardrobe: "red dress with short shorts, red thighhighs, black fingerless gloves",
+      },
+    },
+    { id: "pyra", name: "Pyra", trigger: "pyra_(xenoblade)" },
+    {
+      location: "outside Pyra's home",
+      environment: "vast cloud sea, rolling green fields, distant craggy mountains, tall grass waving in the wind",
+      activity: "starting a walk",
+      outfit: "red dress with short shorts, red thighhighs, black fingerless gloves",
+    },
+    "Pyra clearly visible in frame, wearing standard attire, natural observer viewpoint",
+  );
+  assert.doesNotMatch(prompt, /standard attire/i);
+  assert.match(prompt, /red dress with short shorts/);
+  assert.match(prompt, /vast cloud sea, rolling green fields, distant craggy mountains/i);
+  assert.equal((prompt.match(/red dress with short shorts/gi) || []).length, 1);
+  assert.doesNotMatch(prompt, /natural observer viewpoint|clearly visible in frame/i);
+});
+
+test("ANIMA prompts use character tags plus one clean natural-language scene", () => {
+  const environment = "A comfortable living room with a sofa, low table, curtained windows, warm lamplight, and clearly visible interior walls and flooring.";
+  const prompt = buildImagePrompt(
+    {
+      socialIdentity: { gender: "woman", pronouns: "she/her" },
+      visual: {
+        identity: ["1girl", "red hair", "red eyes", "short hair", "bob cut", "large breasts"],
+        signature: ["chest jewel"],
+        defaultWardrobe: "red dress",
+      },
+    },
+    { name: "Pyra", trigger: "pyra_(xenoblade), xenoblade" },
+    {
+      outfit: "completely nude",
+      location: "living room",
+      environment,
+      activity: "passionate embracing and kissing",
+      expression: "deeply affectionate and longing",
+      lighting: "warm indoor light",
+    },
+    "A candid third-person image of Pyra clearly visible in frame.",
+  );
+  const sections = prompt.split(/\n\s*\n/);
+  assert.equal(sections.length, 3);
+  assert.match(sections[0], /^1girl, adult, pyra_\(xenoblade\), xenoblade/);
+  assert.match(sections[0], /completely nude/);
+  assert.doesNotMatch(sections[0], /living room|embracing|warm indoor light/);
+  assert.match(sections[1], /The scene takes place in the living room\./);
+  assert.match(sections[1], /Pyra is leaning forward into a passionate embrace and kiss toward the viewer\./);
+  assert.match(sections[1], /Pyra's expression is deeply affectionate and longing\./);
+  assert.equal((prompt.match(/A comfortable living room/gi) || []).length, 1);
+  assert.doesNotMatch(prompt, /wearing completely nude|current-moment candid scene|natural observer viewpoint|clearly visible in frame|\.\s*,/i);
+  assert.ok(sections.every((section) => !/[^\r\n]\s{2,}[^\r\n]/.test(section)));
+});
+
+test("natural scene prompts remove dialogue, duplicated activity, and internal continuity scaffolding", () => {
+  const profile = {
+    socialIdentity: { gender: "woman", pronouns: "she/her" },
+    visual: { identity: ["1girl", "auburn hair", "brown eyes"], signature: [], defaultWardrobe: "blue shinobi outfit" },
+  };
+  const kasumi = buildImagePrompt(
+    profile,
+    { name: "Kasumi (Doa)", trigger: "kasumi_(doa), dead or alive" },
+    {
+      location: "mountainous forest",
+      environment: "Kasumi finally moves on from the training hall and starts her trek to Kyoto through the mountainous forest The air is much crisper here than in the hall, I must keep a steady pace if I am to arrive by next week, but I will be careful to remain hidden among the trees.",
+      activity: "trekking",
+      expression: "determined",
+      lighting: "soft morning light filtering through the canopy",
+      outfit: "blue shinobi outfit",
+    },
+    "A candid third-person image.",
+  );
+  assert.match(kasumi, /A candid third-person image of Kasumi \(Doa\)\./i);
+  assert.doesNotMatch(kasumi, /clearly visible in frame/i);
+  assert.equal((kasumi.match(/\btrekking\b/gi) || []).length, 1);
+  assert.match(kasumi, /A mountain forest with steep wooded terrain, dense trees, a narrow path, and crisp open air\./i);
+  assert.doesNotMatch(kasumi, /I must|next week|training hall/);
+
+  const marie = buildImagePrompt(
+    profile,
+    { name: "Marie Rose", trigger: "marie_rose, dead or alive" },
+    {
+      location: "Kitchen",
+      environment: "The visible surroundings of Kitchen, with setting-appropriate architecture, terrain, objects, and lighting; no remnants of the previous location.",
+      activity: "Preparing dinner",
+      expression: "Flustered but happy",
+      lighting: "Warm kitchen lighting",
+      outfit: "casual dress",
+    },
+    "A candid third-person image.",
+  );
+  assert.match(marie, /warm, functional kitchen with counters, cabinets, cookware/i);
+  assert.doesNotMatch(marie, /setting-appropriate|terrain|remnants|previous location/i);
+  assert.match(marie, /Marie Rose is preparing dinner\./);
+  assert.match(marie, /Marie Rose's expression is flustered but happy\./);
+});
+
+test("natural scene prompts render descriptive cave locations without echoing them", () => {
+  const prompt = buildImagePrompt(
+    {
+      socialIdentity: { gender: "woman", pronouns: "she/her" },
+      visual: { identity: ["1girl", "purple hair", "red eyes"], signature: [], defaultWardrobe: "red and black outfit" },
+    },
+    { name: "Lilith Aensland", trigger: "lilith_aensland, darkstalkers" },
+    {
+      location: "Hidden cave behind Lucifer Falls",
+      environment: "The setting is Hidden cave behind Lucifer Falls.",
+      activity: "exploring the crystal chamber",
+      expression: "awe-struck and amazed",
+      lighting: "flashlight beam reflecting off thousands of purple crystal facets",
+      outfit: "red and black outfit",
+    },
+    "A candid third-person image.",
+  );
+  assert.match(prompt, /The scene takes place in a hidden cave behind Lucifer Falls\./);
+  assert.match(prompt, /A rocky cave chamber with irregular stone walls/i);
+  assert.equal((prompt.match(/Hidden cave behind Lucifer Falls/gi) || []).length, 1);
+  assert.doesNotMatch(prompt, /The setting is/i);
+});
+
+test("legacy beach scene contamination produces a single visible setting without story chatter", () => {
+  const prompt = buildImagePrompt(
+    { visual: { identity: ["orange hair"], signature: [], defaultWardrobe: "black athletic bikini" } },
+    { name: "Neru", trigger: "neru" },
+    {
+      location: "the beach and she was right",
+      environment: "The setting is the beach and she was right.",
+      activity: "... it's completely private. No one is around",
+      expression: "competitive and fired up",
+      lighting: "bright daylight",
+    },
+    "A candid third-person image.",
+  );
+  assert.equal((prompt.match(/the beach/gi) || []).length, 1);
+  assert.match(prompt, /on the beach\./i);
+  assert.match(prompt, /shoreline.*sand.*horizon/i);
+  assert.doesNotMatch(prompt, /she was right|Neru is|The setting is|door|frame/i);
+});
+
+test("an unknown setting fallback is not repeated after the location sentence", () => {
+  const prompt = buildImagePrompt({}, { name: "Traveler" }, {
+    location: "the crystal observatory",
+    environment: "The setting is the crystal observatory.",
+    activity: "studying the stars",
+  });
+  assert.equal((prompt.match(/crystal observatory/gi) || []).length, 1);
+  assert.match(prompt, /studying the stars/i);
+});
+
 test("current social identity chooses one booru subject tag without weakening the adult rule", () => {
   const prompt = buildImagePrompt(
     {
@@ -121,14 +276,14 @@ test("ANIMA prompt uses a user-corrected default outfit", () => {
   assert.doesNotMatch(prompt, /hooded jacket|bike shorts/);
 });
 
-test("character photo prompts replace the character's own POV with a visible third-person composition", () => {
+test("character photo prompts replace the character's own POV with a named third-person composition", () => {
   const brief = normalizeCharacterPhotoBrief(
     "A close-up shot from Faye's perspective looking down at her plate.",
     { name: "Faye Valentine" },
   );
   assert.doesNotMatch(brief, /Faye's perspective|first-person|pov/i);
-  assert.match(brief, /close-up shot of the character looking down at her plate/i);
-  assert.match(brief, /Faye Valentine clearly visible in frame/i);
+  assert.match(brief, /close-up shot of Faye Valentine looking down at her plate/i);
+  assert.doesNotMatch(brief, /clearly visible in frame/i);
 
   const prompt = buildImagePrompt(
     { visual: { identity: ["short purple hair", "green eyes"], signature: [], defaultWardrobe: "yellow top" } },
@@ -137,7 +292,8 @@ test("character photo prompts replace the character's own POV with a visible thi
     "A close-up shot from Faye's perspective looking down at her plate.",
   );
   assert.doesNotMatch(prompt, /external[- ]camera/i);
-  assert.match(prompt, /Faye Valentine clearly visible in frame/i);
+  assert.match(prompt, /close-up shot of Faye Valentine looking down at her plate/i);
+  assert.doesNotMatch(prompt, /clearly visible in frame/i);
   assert.doesNotMatch(prompt, /Faye's perspective/i);
   assert.equal(prompt.split(/\n\s*\n/).length, 3);
 });
@@ -152,7 +308,7 @@ test("the configured user name is replaced with viewer language in image prompts
   assert.match(brief, /viewer/i);
 });
 
-test("ANIMA prompt sections avoid duplicate camera and visibility guards", () => {
+test("ANIMA prompt sections strip legacy camera and literal framing guards", () => {
   const prompt = buildImagePrompt(
     { visual: { identity: ["orange hair", "green eyes"], signature: [], defaultWardrobe: "athletic wear" } },
     { name: "Misty (Pokemon)", trigger: "misty (pokemon)" },
@@ -161,8 +317,7 @@ test("ANIMA prompt sections avoid duplicate camera and visibility guards", () =>
     { userName: "Alex" },
   );
   assert.equal(prompt.split(/\n\s*\n/).length, 3);
-  assert.equal((prompt.match(/clearly visible in frame/gi) || []).length, 1);
-  assert.doesNotMatch(prompt, /external[- ]camera|Alex/i);
+  assert.doesNotMatch(prompt, /clearly visible in frame|external[- ]camera|Alex/i);
   assert.match(prompt, /looking toward the viewer/i);
 });
 

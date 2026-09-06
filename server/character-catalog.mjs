@@ -5,6 +5,7 @@ const ANILIST = "https://graphql.anilist.co";
 const WIKIDATA = "https://www.wikidata.org/w/api.php";
 const cache = new Map();
 const cacheTtlMs = 10 * 60 * 1000;
+const catalogHeaders = { "user-agent": "AniMessenger/0.4 character catalogue" };
 
 function cleanText(value = "") {
   return String(value || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
@@ -207,7 +208,7 @@ async function searchDanbooru(query) {
       url.searchParams.set("search[category]", "4");
       url.searchParams.set("search[order]", "count");
       url.searchParams.set("limit", "16");
-      const matches = await fetchJson(url, { headers: { "user-agent": "AniMessenger/0.3 character catalogue" } });
+      const matches = await fetchJson(url, { headers: { "user-agent": "AniMessenger/0.4 character catalogue" } });
       tags = (Array.isArray(matches) ? matches : []).filter((tag) => {
         const name = normalizedKey(tag?.name);
         return tokens.every((token) => name.includes(token));
@@ -223,13 +224,13 @@ async function searchDanbooru(query) {
       const wikiUrl = new URL("/wiki_pages.json", DANBOORU);
       wikiUrl.searchParams.set("search[title]", tag.name);
       wikiUrl.searchParams.set("limit", "1");
-      const requests = [fetchJson(wikiUrl, { headers: { "user-agent": "AniMessenger/0.3 character catalogue" } }, 6000)];
+      const requests = [fetchJson(wikiUrl, { headers: { "user-agent": "AniMessenger/0.4 character catalogue" } }, 6000)];
       if (index < 6) {
         const postsUrl = new URL("/posts.json", DANBOORU);
         postsUrl.searchParams.set("tags", tag.name);
         postsUrl.searchParams.set("limit", "100");
         postsUrl.searchParams.set("only", "id,tag_string_general,tag_string_character");
-        requests.push(fetchJson(postsUrl, { headers: { "user-agent": "AniMessenger/0.3 character catalogue" } }, 7000).catch(() => []));
+        requests.push(fetchJson(postsUrl, { headers: { "user-agent": "AniMessenger/0.4 character catalogue" } }, 7000).catch(() => []));
       }
       const [pages, posts = []] = await Promise.all(requests);
       return parseDanbooruCharacter(tag, pages?.[0], summarizeDanbooruEvidence(posts, tag.name));
@@ -243,7 +244,7 @@ async function searchDanbooru(query) {
 async function searchAniList(query) {
   const payload = await fetchJson(ANILIST, {
     method: "POST",
-    headers: { "content-type": "application/json", "user-agent": "AniMessenger/0.3 character catalogue" },
+    headers: { "content-type": "application/json", "user-agent": "AniMessenger/0.4 character catalogue" },
     body: JSON.stringify({
       query: `query CharacterSearch($search: String) {
         Page(page: 1, perPage: 10) {
@@ -270,7 +271,7 @@ async function searchWikidata(query) {
   url.searchParams.set("limit", "12");
   url.searchParams.set("format", "json");
   url.searchParams.set("origin", "*");
-  const payload = await fetchJson(url, { headers: { "user-agent": "AniMessenger/0.3 character catalogue" } });
+  const payload = await fetchJson(url, { headers: { "user-agent": "AniMessenger/0.4 character catalogue" } });
   return (payload?.search || []).map(parseWikidataCharacter).filter(Boolean);
 }
 
@@ -344,8 +345,14 @@ export function mergeCatalogResults(groups, query, limit = 20) {
 
 export async function checkCharacterCatalog(config) {
   const checks = [
-    fetchJson(`${DANBOORU}/tags.json?limit=1&search%5Bcategory%5D=4`, {}, 2500).then(() => true),
-    checkAnimaDex(config),
+    fetchJson(`${DANBOORU}/tags.json?limit=1&search%5Bcategory%5D=4`, { headers: catalogHeaders }, 5000).then(() => true),
+    fetchJson(ANILIST, {
+      method: "POST",
+      headers: { ...catalogHeaders, "content-type": "application/json" },
+      body: JSON.stringify({ query: "query CatalogueHealth { Page(page: 1, perPage: 1) { characters { id } } }" }),
+    }, 5000).then(() => true),
+    fetchJson(`${WIKIDATA}?action=query&format=json&origin=*`, { headers: catalogHeaders }, 5000).then(() => true),
+    checkAnimaDex(config, 5000),
   ];
   const results = await Promise.allSettled(checks);
   return results.some((result) => result.status === "fulfilled" && result.value === true);
@@ -362,7 +369,9 @@ export async function searchCharacterCatalog(config, query, page = 1) {
   const value = independent.length
     ? { total: independent.length, results: independent, source: "independent" }
     : await searchAnimaDex(config, cleanQuery, page);
-  cache.set(key, { at: Date.now(), value });
+  // A provider outage falls back to the tiny built-in catalogue. Do not retain
+  // that temporary failure for ten minutes after connectivity returns.
+  if (!value.demo) cache.set(key, { at: Date.now(), value });
   return value;
 }
 

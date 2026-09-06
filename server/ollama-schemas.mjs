@@ -7,6 +7,7 @@ export const sceneSchema = {
   additionalProperties: false,
   properties: {
     location: nullableStringSchema,
+    environment: nullableStringSchema,
     activity: nullableStringSchema,
     outfit: nullableStringSchema,
     expression: nullableStringSchema,
@@ -18,7 +19,21 @@ export const sceneSchema = {
       ],
     },
   },
-  required: ["location", "activity", "outfit", "expression", "lighting", "presence"],
+  required: ["location", "environment", "activity", "outfit", "expression", "lighting", "presence"],
+};
+
+export const firstContactScenarioSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    title: stringSchema,
+    premise: stringSchema,
+    contactMode: { type: "string", enum: ["remote", "in_person", "world_link"] },
+    connection: stringSchema,
+    scene: sceneSchema,
+    openingLine: stringSchema,
+  },
+  required: ["title", "premise", "contactMode", "connection", "scene", "openingLine"],
 };
 
 export const memoryCandidateSchema = {
@@ -157,6 +172,7 @@ export const characterChatSchema = {
     scene: sceneSchema,
     shouldSendPhoto: { type: "boolean" },
     photoBrief: nullableStringSchema,
+    photoOutfit: nullableStringSchema,
     photoMessage: nullableStringSchema,
     memoryCandidates: { type: "array", items: memoryCandidateSchema },
     followUp: softFollowUpSchema,
@@ -164,7 +180,7 @@ export const characterChatSchema = {
     otherShouldRespond: { type: "boolean" },
   },
   required: [
-    "reply", "relationshipDelta", "scene", "shouldSendPhoto", "photoBrief", "photoMessage",
+    "reply", "relationshipDelta", "scene", "shouldSendPhoto", "photoBrief", "photoOutfit", "photoMessage",
     "memoryCandidates", "followUp", "resolvesPendingFollowUp", "otherShouldRespond",
   ],
 };
@@ -183,6 +199,7 @@ export const proactiveOutreachSchema = {
     resolvesFollowUp: { type: "boolean" },
     visualCandidate: { type: "boolean" },
     photoBrief: nullableStringSchema,
+    photoOutfit: nullableStringSchema,
   },
-  required: ["message", "intent", "topicKey", "scenePatch", "resolvesFollowUp", "visualCandidate", "photoBrief"],
+  required: ["message", "intent", "topicKey", "scenePatch", "resolvesFollowUp", "visualCandidate", "photoBrief", "photoOutfit"],
 };

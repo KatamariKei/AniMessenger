@@ -2,6 +2,40 @@
 
 AniMessenger is pre-release software. Changes may still adjust local data, model prompts, and installation behavior.
 
+## 0.4.0
+
+### Adventures and scene continuity
+
+- Give newly researched characters a character-specific first-contact adventure with a rerollable premise, world-appropriate contact method, opening line, and persistent initial scene.
+- Generate an optional establishing image after an adventure begins without delaying the first conversation, and recover or retry that image if ComfyUI finishes after the browser disconnects.
+- Track detailed surroundings separately from short location labels so later dialogue and images retain architecture, terrain, weather, room details, and lighting.
+- Require real transition evidence before changing location, preventing activity associations such as air hockey from silently becoming an ice rink while still accepting a remote character's concrete report of their current activity and surroundings.
+- Commit location, environment, activity, presence, and location ownership through one revisioned scene-transition reducer, preventing partial hybrid scenes and preparing the same state pipeline for a future narrative mode.
+
+### Conversation reliability
+
+- Check every character-search provider before showing the catalogue offline, send the required provider identification, tolerate ordinary response latency, and avoid caching temporary all-source failures.
+- Add a token-aware context builder that budgets against the selected Ollama model's configured context window while preserving the newest exchanges, relevant memories, scene state, and core character identity.
+- Improve action-only and substantive-turn grounding so valid replies are no longer replaced by repeated stock clarification messages.
+- Keep explicit current-outfit descriptions authoritative and carry newly depicted photo outfits back into scene continuity without accepting vague wardrobe substitutions.
+
+### Images and galleries
+
+- Capture completed in-person wardrobe reveals automatically while continuing to wait through instructions, garment previews, and trips away to change.
+- Wait for an outfit reveal when a character explicitly asks for time to change, rather than generating the old outfit in response to the initial request.
+- Clean ANIMA prompts into stable character tags plus one concise natural-language scene, with better separation between identity, wardrobe, environment, activity, and framing.
+- Keep conversational clauses out of destination labels and transition activities; omit repeated setting fallbacks and provide visible shoreline surroundings for beach scenes.
+- Preserve the enclosing environment during relative movement such as swimming to the other side of a pool, and reject figurative room language as scenery.
+- Make generated-image retries use current visual corrections and global prompt settings while preserving the intended historical scene.
+- Recover moved or temporarily unavailable gallery files by stable ComfyUI filename, retry interrupted browser loads, and offer a clear regenerate action when an image is genuinely missing.
+
+### Interface and sound
+
+- Keep the mobile application anchored to the visible viewport when an iOS browser restores a stale outer-page scroll position after reopening the tab.
+- Add pinned chats that remain above ordinary recency ordering on desktop and mobile.
+- Add original, restrained sounds for sent and received messages, camera capture, completed photos, and major bond milestones, including selectable celebration and heartbeat cues.
+- Refine Settings spacing, image diagnostics, mobile controls, placeholder typography, and opening-scene presentation.
+
 ## 0.3.2
 
 ### Independent character discovery

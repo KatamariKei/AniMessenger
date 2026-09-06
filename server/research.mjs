@@ -92,7 +92,7 @@ export async function researchCharacter(character, enabled = true) {
     search.searchParams.set("format", "json");
     search.searchParams.set("origin", "*");
     const response = await fetch(search, {
-      headers: { "user-agent": "AniMessenger/0.3 local character research" },
+      headers: { "user-agent": "AniMessenger/0.4 local character research" },
       signal: AbortSignal.timeout(9000),
     });
     if (!response.ok) return { notes, sources };

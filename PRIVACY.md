@@ -12,14 +12,15 @@ Deleting the application code does not automatically delete local conversations 
 
 Some features make direct requests from the user's computer to third-party or user-configured services:
 
-- AnimaDex provides character search results and catalogue images.
-- AniList and Wikipedia may provide limited public character research used to build a profile.
+- Danbooru, AniList, and Wikidata provide public character catalogue identity, series, and visual evidence. AniMessenger queries metadata and does not copy catalogue artwork into a character profile.
+- Wikipedia may provide limited public background research used to build a profile.
+- A user-configured AnimaDex address may be queried only as an optional fallback when the independent catalogue sources return no usable result.
 - Ollama receives prompts and conversation context at the configured Ollama address.
 - ComfyUI receives image prompts and workflow data at the configured ComfyUI address.
 
 With the default configuration, Ollama and ComfyUI use loopback addresses on the same computer. If a user changes those addresses to remote services, the corresponding prompts or images leave the computer and are governed by that service's privacy practices.
 
-Character search and research queries may reveal the character or series being requested to AnimaDex, AniList, or Wikipedia. AniMessenger does not intentionally send private chat history to those catalogue and research services.
+Character search and research queries may reveal the character or series being requested to Danbooru, AniList, Wikidata, Wikipedia, or a configured AnimaDex fallback. AniMessenger does not intentionally send private chat history or user images to those catalogue and research services.
 
 ## Guest chats
 

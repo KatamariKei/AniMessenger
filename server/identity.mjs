@@ -1,4 +1,5 @@
-import { imageFraming, normalizeWardrobePrompt, stabilizeWardrobePrompt, wardrobeForFraming } from "./wardrobe.mjs";
+import { cleanLocationLabel, cleanSceneActivity, environmentForLocation } from "./environment.mjs";
+import { imageFraming, normalizeWardrobePrompt, replaceWardrobePlaceholders, stabilizeWardrobePrompt, wardrobeForFraming } from "./wardrobe.mjs";
 
 const clothingWords = [
   "apron", "armor", "bikini", "blazer", "blindfold", "boots", "cape", "cardigan",
@@ -27,7 +28,7 @@ const correctionGarmentPattern = correctionGarments
   .map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
   .join("|");
 
-export const CHARACTER_PHOTO_NEGATIVE = "first-person POV, character unseen, scenery-only image, food-only image";
+export const CHARACTER_PHOTO_NEGATIVE = "first-person POV, character unseen, scenery-only image, food-only image, crowd, background people, bystanders, extra characters";
 
 export function mergePromptTags(...values) {
   const seen = new Set();
@@ -256,23 +257,134 @@ export function normalizeCharacterPhotoBrief(brief = "", character = {}, options
     .replace(/\bexternal[- ]camera\s+(?:view|shot|angle)\b/giu, "")
     .replace(/\bfrom\s+(?:a|the)\s+camera\s+positioned\s+(?:at|on|near)\s+/giu, "from ")
     .replace(/\b(?:a|the)\s+camera\s+positioned\s+(?:at|on|near)\s+/giu, "a viewpoint from ")
-    .replace(/\blooking\s+(toward|at|into)\s+(?:the\s+)?camera\b/giu, "looking $1 the viewer");
-  const guards = [];
-  if (!new RegExp(name.replace(/[.*+?^$()|[\]\\{}]/g, "\\$&") + "\\s+clearly visible in frame", "i").test(normalized)) {
-    guards.push(name + " clearly visible in frame");
-  }
-  normalized = guards.length ? guards.join(", ") + ", " + normalized : normalized;
+    .replace(/\blooking\s+(toward|at|into)\s+(?:the\s+)?camera\b/giu, "looking $1 the viewer")
+    // "In frame" can be interpreted as a literal architectural or picture
+    // frame by image models. Character tags and the solo/negative guards
+    // already keep the character present, so remove this legacy wording.
+    .replace(/\bclearly\s+visible\s+in\s+(?:the\s+)?frame\b/giu, "")
+    .replace(/\s+([,.;:])/g, "$1")
+    .replace(/,\s*,/g, ", ")
+    .replace(/^\s*[,;:]\s*|\s*[,;:]\s*$/g, "")
+    .trim();
   const deduped = dedupePromptPhrases(normalized);
   return options.reduceCharacterNames === false ? deduped : reduceCharacterNameMentions(deduped, name);
+}
+
+function promptTag(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[.;]+$/g, "")
+    .trim();
+}
+
+function naturalClause(value, options = {}) {
+  return replaceViewerReferences(String(value || ""), options.userName)
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^[,;:\s]+|[,;:\s]+$/g, "")
+    .replace(/[.]+$/g, "")
+    .trim();
+}
+
+function sentence(value) {
+  const clean = naturalClause(value);
+  if (!clean) return "";
+  return clean.charAt(0).toUpperCase() + clean.slice(1) + ".";
+}
+
+function includesClause(text, clause) {
+  const haystack = naturalClause(text).toLowerCase();
+  const needle = naturalClause(clause).toLowerCase();
+  return Boolean(needle && haystack.includes(needle));
+}
+
+function removeNaturalPhrase(value, phrase) {
+  const escapedPhrase = escaped(String(phrase || "").trim());
+  if (!escapedPhrase) return String(value || "");
+  return String(value || "")
+    .replace(new RegExp(escapedPhrase, "giu"), "")
+    .replace(/,\s*,/g, ", ")
+    .replace(/^\s*,\s*|\s*,\s*$/g, "")
+    .trim();
+}
+
+function lowercasePhraseLead(value) {
+  const clean = String(value || "");
+  return /^[A-Z][a-z]/.test(clean) ? clean.charAt(0).toLowerCase() + clean.slice(1) : clean;
+}
+
+function sceneDescription(character, scene = {}, brief = "", outfit = "", options = {}) {
+  const name = promptTag(character?.displayName || character?.name) || "The character";
+  const description = [];
+  let composition = naturalClause(brief, options)
+    .replace(/\b(?:current[- ]moment candid scene|natural observer viewpoint|solo focus)\b/gi, "")
+    .replace(/,\s*,/g, ", ")
+    .replace(/^\s*,\s*|\s*,\s*$/g, "")
+    .trim();
+  composition = removeNaturalPhrase(composition, outfit ? "wearing " + outfit : "");
+  if (/^a candid third-person (?:image|composition)$/i.test(composition)) {
+    description.push(sentence(`A candid third-person image of ${name}`));
+  } else {
+    if (composition) description.push(sentence(composition));
+  }
+
+  const location = naturalClause(cleanLocationLabel(scene?.location), options);
+  if (location && !includesClause(composition, location)) {
+    const genericLocation = /^(?:living room|bedroom|kitchen|bathroom|hallway|classroom|garden|office|library|gym|pool|balcony|rooftop)\b/i.test(location);
+    const indefiniteLocation = /^(?:(?:hidden|ancient|remote|secluded|quiet|dense|dark|misty|snowy|rocky|underground)\s+)*(?:mountainous? forest|forest|woods?|meadow|field|beach|cave|cavern|chamber)\b/i.test(location);
+    const describedLocation = genericLocation
+      ? "the " + lowercasePhraseLead(location)
+      : indefiniteLocation
+        ? "a " + lowercasePhraseLead(location)
+        : location;
+    const positioned = /^(?:at|in|inside|outside|on|near|beside|by|within)\b/i.test(describedLocation)
+      ? `The scene takes place ${describedLocation}`
+      : `The scene takes place ${/\b(?:beach|shore)\b/i.test(location) ? "on" : "in"} ${describedLocation}`;
+    description.push(sentence(positioned));
+  }
+
+  const rawEnvironment = naturalClause(scene?.environment, options);
+  const internalContinuity = /\b(?:no|without)\b[^.]*\b(?:remnants?|traces?)\b[^.]*\b(?:previous|prior|old)\s+(?:location|place|scene)\b/i;
+  const genericScaffolding = /^the visible surroundings of\b.*\bsetting-appropriate\b/i;
+  const echoMatch = /^the (?:setting|location|scene) is (?:in )?(.+?)[.!]?$/i.exec(rawEnvironment);
+  const echoedLocation = echoMatch && cleanLocationLabel(echoMatch[1]).toLowerCase() === location.toLowerCase();
+  const dialogueOrThought = /(?:["“”]|\b(?:i|we|me|my|our|ours)\b|\b(?:next|last)\s+(?:week|month|year)\b)/i;
+  let environment = rawEnvironment
+    .replace(/;?\s*\b(?:no|without)\b[^.]*\b(?:remnants?|traces?)\b[^.]*\b(?:previous|prior|old)\s+(?:location|place|scene)\b\.?/gi, "")
+    .trim();
+  if (echoedLocation || genericScaffolding.test(rawEnvironment) || internalContinuity.test(rawEnvironment) || dialogueOrThought.test(rawEnvironment)) {
+    environment = naturalClause(environmentForLocation(location), options);
+  }
+  // Unknown places may have no richer fallback. Omit a second location label
+  // instead of replacing a redundant sentence with an identical sentence.
+  if (/^the (?:setting|location|scene) is\b/i.test(environment)) environment = "";
+  if (environment && !includesClause(composition, environment)) description.push(sentence(environment));
+
+  let activity = naturalClause(cleanSceneActivity(scene?.activity), options);
+  activity = lowercasePhraseLead(activity);
+  activity = activity.replace(/^passionate\s+(?=(?:embrac|kiss|hold|touch))/i, "passionately ");
+  activity = activity
+    .replace(/^passionately embracing and kissing$/i, "leaning forward into a passionate embrace and kiss toward the viewer")
+    .replace(/^kissing$/i, "leaning forward to kiss the viewer");
+  if (activity && !includesClause(composition, activity) && !includesClause(environment, activity)) {
+    description.push(sentence(`${name} is ${activity}`));
+  }
+
+  const expression = lowercasePhraseLead(naturalClause(scene?.expression, options));
+  if (expression && !includesClause(composition, expression)) description.push(sentence(`${name}'s expression is ${expression}`));
+
+  const lighting = lowercasePhraseLead(naturalClause(scene?.lighting, options));
+  if (lighting && !includesClause(composition, lighting)) description.push(sentence(`${lighting} illuminates the scene`));
+
+  return description.filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
 }
 
 export function buildImagePrompt(profile, character, scene, brief = "", options = {}) {
   const visual = effectiveVisual(profile);
   const identity = list(visual.identity);
   const signature = list(visual.signature);
-  const normalizedBrief = normalizeCharacterPhotoBrief(brief, character, options);
-  const framedIdentity = visualTraitsForFraming(identity, normalizedBrief);
-  const framedSignature = visualTraitsForFraming(signature, normalizedBrief);
+  const preliminaryBrief = normalizeCharacterPhotoBrief(brief, character, options);
   const fullOutfit = stabilizeWardrobePrompt(
     scene?.outfit && scene.outfit !== "default outfit" ? scene.outfit : visual.defaultWardrobe,
     {
@@ -284,29 +396,28 @@ export function buildImagePrompt(profile, character, scene, brief = "", options 
     },
     character?.id || character?.name,
   );
+  const normalizedBrief = replaceWardrobePlaceholders(preliminaryBrief, fullOutfit);
+  const framedIdentity = visualTraitsForFraming(identity, normalizedBrief);
+  const framedSignature = visualTraitsForFraming(signature, normalizedBrief);
   const outfit = wardrobeForFraming(fullOutfit, normalizedBrief);
   const subject = subjectCountTag(profile, identity);
-  const identityAndScene = [
+  const characterTags = [
     subject,
     "adult",
     character.trigger || character.name,
     ...framedIdentity.filter((tag) => !subjectCountTags.has(String(tag).trim().toLowerCase())),
     ...framedSignature,
     outfit,
-    scene?.location,
-    scene?.activity,
-    scene?.expression,
-    scene?.lighting,
   ];
+  const naturalScene = sceneDescription(character, scene, normalizedBrief, fullOutfit, options);
   const continuity = [
     "solo focus",
     "anime illustration",
     "highly coherent character identity",
   ];
-  return [identityAndScene, [normalizedBrief], continuity]
-    .map((section) => [...new Set(section.map((part) => String(part || "").trim()).filter(Boolean))].join(", "))
-    .filter(Boolean)
-    .join("\n\n");
+  const characterSection = [...new Set(characterTags.map(promptTag).filter(Boolean))].join(", ");
+  const continuitySection = [...new Set(continuity.map(promptTag).filter(Boolean))].join(", ");
+  return [characterSection, naturalScene, continuitySection].filter(Boolean).join("\n\n");
 }
 
 const offFrameCloseTrait = /\b(?:penis|foreskin|erection|testicles?|scrotum|vulva|vagina|genitals?|pubic|buttocks?|butt|hips?|thighs?|legs?|feet|toes?|navel|belly button|hands?|fingers?)\b/i;

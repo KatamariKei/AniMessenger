@@ -42,6 +42,7 @@ This checklist prepares a public repository without exposing the creator's local
 - [x] Add durable-memory lifecycle handling. When a promised plan or open loop is completed, replace or retire the future-tense memory and save the concrete outcome—including who won, what changed, and any consequence that remains active—so stale plans cannot override completed events in later conversation.
 - [x] Consolidate semantically duplicate memories across categories. A single subject should not accumulate competing `promise`, `open_loop`, and `shared_event` versions with slightly different wording; merge them into one current canonical fact while preserving useful keywords and source references.
 - [x] **Make key visual moments reliable.** Recognize third-person direction and character-reported transitions such as finishing a workout, showering, getting dressed, arriving somewhere visually distinctive, unveiling something, or texting back with a reveal. Preserve apart/together presence, add the latest visible evidence to the image brief, and never allow a solo or guest reply to claim it sent a current selfie or photo without either queuing the image or repairing the reply.
+- [x] Add an original, lightweight sound layer for messages, camera capture, completed photos, and major bond milestones, with a master toggle, volume control, previews, and silent background proactive delivery.
 
 ## Repository launch decisions
 
@@ -59,6 +60,18 @@ Run:
 
 Then inspect the candidate from a fresh directory before publishing anything.
 
+## 0.4.0 release candidate
+
+- [x] Update the package version, README download name, changelog, privacy notice, content notice, catalogue user-agent, and clean-account helper.
+- [x] Run the expanded public-file audit across application, documentation, PowerShell, batch, and C# installer sources.
+- [x] Pass TypeScript checking, the automated test suite, and the production Vite build.
+- [x] Build `AniMessenger-Windows-v0.4.0.zip` with the pinned Node.js runtime and versioned tray executable.
+- [x] Audit all 75 unpacked package files independently of Git and boot the packaged server against isolated empty storage.
+- [x] Rehearse updating an existing packaged installation on the RTX 3090 test PC and confirm the application remains usable after the update.
+- [x] Rehearse a fresh installation on the RTX 3090 test PC after removing the prior installation, then verify the packaged update path.
+- [x] Complete a live UI soak covering first-contact reroll/start, opening-image recovery, location and outfit continuity, pinned chats, missing-image recovery, sound, and mobile access.
+- [x] Review the staged public diff, commit, push, tag `v0.4.0`, and attach the final ZIP to the GitHub release.
+
 For every public update:
 
 - [x] Review the complete staged file list and public diff.
@@ -75,5 +88,5 @@ For every public update:
 - [x] Add uninstall registration, version-aware upgrades, repair, and application-folder rollback.
 - [x] Add a native tray companion for Open, Start, Stop, update discovery, and Quit.
 - [ ] Add a signed installer.
-- [x] Test the installer on a second PC, including install, launch, ComfyUI folder setup, and Ollama GPU diagnostics.
+- [x] Test the installer on a second PC, including a fresh install, an update, launch, ComfyUI folder setup, and Ollama GPU diagnostics.
 - [ ] Test the installer on a clean Windows user account.

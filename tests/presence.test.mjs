@@ -19,6 +19,11 @@ test("travel and departures establish physical separation", () => {
   assert.equal(inferPresenceCue("[action: I head home.] I'll text you later.", "together").presence, "apart");
 });
 
+test("moving between rooms does not imply physical separation", () => {
+  assert.equal(inferPresenceCue("[action: I throw on a robe and leave the bathroom]", "together").presence, "together");
+  assert.equal(inferPresenceCue("We leave the kitchen and walk into the living room.", "together").presence, "together");
+});
+
 test("leaving to return later or texting back establishes physical separation", () => {
   assert.equal(inferPresenceCue("Why don't you come over after the gym?", "together").presence, "apart");
   assert.equal(inferPresenceCue("Just let me know when you're coming over.", "together").presence, "apart");
@@ -37,6 +42,16 @@ test("arriving after an invitation resolves the character's home", () => {
   ];
   const cue = inferPresenceCue("DING DONG! I'm here!", "apart", recent, "Sadayo");
   assert.deepEqual(cue, { presence: "together", location: "Sadayo's home" });
+});
+
+test("a character knocking after accepting an invitation resolves the viewer's home", () => {
+  const recent = [
+    { from: "user", text: "You are welcome to come over to my apartment." },
+    { from: "character", text: "Fine, I'll come over so I can crush you in person!" },
+    { from: "character", text: "I'm already on my way. Just be ready to lose at your place!" },
+  ];
+  const cue = inferPresenceCue("[action: I hear a knock at my door. It's Neru.] Hey, welcome!", "apart", recent, "Neru");
+  assert.deepEqual(cue, { presence: "together", location: "the viewer's home" });
 });
 
 test("legacy threads infer their latest presence from conversation history", () => {

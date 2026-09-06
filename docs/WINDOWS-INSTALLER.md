@@ -78,4 +78,4 @@ Deleting private data is deliberately separate. Advanced users can run `Uninstal
 - A packaged install and a source clone are separate installations; automatic clone-to-package migration is not implemented.
 - A clean-account and second-PC rehearsal is required for each release candidate.
 
-See [Updating AniMessenger](UPDATING.md) for source-clone and packaged-update procedures.
+See the public [Updating AniMessenger guide](https://github.com/KatamariKei/AniMessenger/blob/main/docs/UPDATING.md) for source-clone and packaged-update procedures.

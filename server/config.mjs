@@ -30,6 +30,9 @@ export const defaultConfig = {
   proactivePace: "normal",
   proactiveDeliveryStart: "08:00",
   proactiveDeliveryEnd: "23:00",
+  soundEnabled: true,
+  soundVolume: 0.35,
+  bondSound: "celebration",
   accentTheme: "signal",
 };
 
@@ -49,6 +52,10 @@ function directoriesOverlap(left, right) {
 
 export function normalizeConfigPaths(config) {
   const next = { ...config };
+  next.soundVolume = Number.isFinite(Number(next.soundVolume))
+    ? Math.max(0, Math.min(1, Number(next.soundVolume)))
+    : defaultConfig.soundVolume;
+  next.bondSound = next.bondSound === "heartbeat" ? "heartbeat" : "celebration";
   const models = String(next.comfyModelsDir || "").trim();
   const output = String(next.comfyOutputDir || "").trim();
   if (models && output && directoriesOverlap(path.resolve(models), path.resolve(output))) {

@@ -10,7 +10,7 @@ import { appendCameoMessage, cameoInterjectionEligible, cameoPromptContext, GUES
 import { inferOutfitCorrection, inferSceneCue, portraitExpression, portraitWardrobe } from "./identity.mjs";
 import { loadImageJobEntries, saveImageJobEntries } from "./image-job-store.mjs";
 import { findRetryableImageMessage, replaceRetriedImage, retryPromptOverrides } from "./image-retry.mjs";
-import { buildCharacterProfile, chatAsCharacter, checkOllama, enforceAdultCharacterProfile, extractHistoricalMemories, generateProactiveOutreach, generateReactionFollowup, listOllamaModelOptions } from "./ollama.mjs";
+import { buildCharacterProfile, chatAsCharacter, checkOllama, enforceAdultCharacterProfile, extractHistoricalMemories, generateFirstContactScenario, generateProactiveOutreach, generateReactionFollowup, listOllamaModelOptions } from "./ollama.mjs";
 import { diagnoseOllamaGpu } from "./ollama-diagnostics.mjs";
 import { cancelOllamaModelInstall, ollamaModelInstallStatus, recommendedOllamaDownloads, startOllamaModelInstall } from "./ollama-installer.mjs";
 import { forgetMemory, mergeMemories } from "./memory.mjs";
@@ -25,9 +25,11 @@ import { researchCharacter } from "./research.mjs";
 import { createThread, deleteThread, listThreads, listThreadSummaries, loadProfile, loadThread, readLocalAsset, saveProfile, saveThread, saveUpload } from "./store.mjs";
 import { applyVisualOverrides, effectiveVisual, preserveVisualOverrides } from "./visual-overrides.mjs";
 import { cancelImagePackInstall, detectComfyModelsDirectories, imagePackInstallStatus, imagePackStatus, prepareComfyOutputDirectory, readImageAssetManifest, startImagePackInstall } from "./image-installer.mjs";
-import { normalizeWardrobePrompt, stabilizeWardrobePrompt } from "./wardrobe.mjs";
+import { isWardrobePlaceholder, normalizeWardrobePrompt, photoOutfitUpdate, stabilizeWardrobePrompt, wardrobeChangeIsEstablished, wardrobeDescriptionRequested } from "./wardrobe.mjs";
 import { capturedMomentBrief } from "./moment-capture.mjs";
 import { keyVisualPhotoBrief, visualEventOpportunity } from "./visual-event.mjs";
+import { mergeScene, previewSceneForUserTurn, reduceSceneTurn } from "./scene-state.mjs";
+import { activateFirstContact, firstContactCanChange, firstContactPreviewMatches, insertOpeningSceneMessage, openingSceneBrief, openingSceneJobMatches, rejectedOpeningHistory } from "./first-contact.mjs";
 
 const port = Number(process.env.PORT || 5174);
 const host = process.env.HOST || "127.0.0.1";
@@ -57,6 +59,7 @@ function generationMetadata(job, currentConfig) {
     visualExceptions: job.visualExceptions || [],
     visualDefaultWardrobe: job.visualDefaultWardrobe || "",
     sceneOutfit: job.sceneOutfit || "",
+    sceneEnvironment: job.sceneEnvironment || "",
   };
 }
 let proactiveCheckInFlight = false;
@@ -113,14 +116,6 @@ function characterDisplayNameForServer(character) {
   return String(character?.displayName || character?.name || "Guest").replace(/\s+/g, " ").trim().slice(0, 100);
 }
 
-function mergeScene(existing, update) {
-  const next = { ...existing };
-  for (const key of ["location", "activity", "outfit", "expression", "lighting", "presence"]) {
-    if (typeof update?.[key] === "string" && update[key].trim()) next[key] = update[key].trim();
-  }
-  return next;
-}
-
 function stabilizeSceneWardrobe(scene, profile, character) {
   if (!scene || !profile?.visual) return scene;
   const visual = effectiveVisual(profile);
@@ -153,6 +148,7 @@ async function queueAvatarJob(config, thread) {
     ...thread,
     scene: {
       location: "simple neutral charcoal-gray studio background, dark gray but not black",
+      environment: "plain neutral charcoal-gray background with subtle tonal depth",
       activity: "posing naturally for a profile picture",
       outfit: portraitWardrobe(effectiveVisual(thread.profile).defaultWardrobe),
       expression: portraitExpression(thread.profile.persona),
@@ -166,7 +162,10 @@ async function queueAvatarJob(config, thread) {
     {
       width: 1024,
       height: 1024,
-      negative: "full body, three-quarter body, cowboy shot, waist-up shot, medium shot, distant subject, small face, excessive background, visible hands, cropped head, face out of frame, extreme angle, multiple panels, picture-in-picture, inset image, border, black bars, large blank space, statue, sculpture, pedestal, mannequin, exaggerated expression, screaming, crying, distorted face, white background, bright background, pure black background",
+      // Portrait composition is established by the positive prompt. A large
+      // portrait-only negative list reduced detail and made results brittle.
+      // Keep profile portraits aligned with the user's tested global negative.
+      negativePrompt: config.globalNegativePrompt,
     },
   );
   await rememberImageJob(job.promptId, {
@@ -199,6 +198,21 @@ async function completeImageJobUnlocked(config, promptId, status) {
   // owning thread instead of returning a bare completion that looks like a new
   // gallery image to the client.
   if (job.appended) return thread;
+  if (job.kind === "opening_scene" && !openingSceneJobMatches(thread, job)) {
+    await rememberImageJob(promptId, { ...job, appended: true, discarded: true });
+    return thread;
+  }
+  if (status.status === "error" && job.kind === "opening_scene") {
+    const saved = await saveThread({
+      ...thread,
+      firstContact: {
+        ...thread.firstContact,
+        openingImage: { status: "error", promptId, requestedAt: job.requestedAt || null },
+      },
+    }, { preserveUpdatedAt: true });
+    await rememberImageJob(promptId, { ...job, appended: true });
+    return saved;
+  }
   if (status.status === "error" && job.kind === "proactive") {
     const message = nowMessage("character", job.caption || "", {
       proactive: true,
@@ -239,6 +253,18 @@ async function completeImageJobUnlocked(config, promptId, status) {
     ...(job.imageOrigin ? { imageOrigin: job.imageOrigin } : {}),
     generation: job.generation,
   });
+  if (job.kind === "opening_scene") {
+    const withImage = insertOpeningSceneMessage(thread, job.openingMessageId, message);
+    const saved = await saveThread({
+      ...withImage,
+      firstContact: {
+        ...withImage.firstContact,
+        openingImage: { status: "complete", promptId, requestedAt: job.requestedAt || null },
+      },
+    });
+    await rememberImageJob(promptId, { ...job, appended: true });
+    return saved;
+  }
   const saved = await saveThread({
     ...thread,
     ...(job.kind === "proactive" ? {
@@ -269,7 +295,7 @@ async function recoverCompletedImageJobs() {
       imageRecoveryCheckedAt.set(promptId, Date.now());
       try {
         const status = await generationStatus(config, promptId);
-        if (status.status === "complete" || (status.status === "error" && job.kind === "proactive")) {
+        if (status.status === "complete" || (status.status === "error" && ["proactive", "opening_scene"].includes(job.kind))) {
           await completeImageJob(config, promptId, status);
           imageRecoveryCheckedAt.delete(promptId);
         }
@@ -340,9 +366,17 @@ async function checkProactiveOutreach(config, activeCharacterId) {
         { topicKey: outreach.topicKey, resolvesFollowUp: outreach.resolvesFollowUp },
       );
       const markUnread = candidate.id !== activeCharacterId;
+      const outreachPhotoOutfit = withImage ? photoOutfitUpdate(outreach.photoBrief, outreach.photoOutfit) : "";
+      const outreachScenePatch = outreachPhotoOutfit
+        ? { ...outreach.scenePatch, outfit: outreachPhotoOutfit }
+        : outreach.scenePatch;
       const nextScene = stabilizeSceneWardrobe(candidate.scene?.presence === "together"
         ? candidate.scene
-        : mergeScene(candidate.scene, outreach.scenePatch), candidate.profile, candidate.character);
+        : reduceSceneTurn(candidate.scene, {
+          characterText: outreach.text,
+          modelScene: outreachScenePatch,
+          presencePatch: presenceSceneCue(candidate, ""),
+        }), candidate.profile, candidate.character);
       if (withImage && config.comfyWorkflowFile && config.comfyMappingFile) {
         try {
           const job = await queueCharacterImage(config, { ...candidate, scene: nextScene }, outreach.photoBrief || "a candid visual update");
@@ -579,6 +613,112 @@ async function handleApi(request, response, url) {
     sendJson(response, 200, { thread: await saveThread({ ...thread, unreadCount: 0 }) });
     return true;
   }
+  const pinThreadMatch = /^\/api\/threads\/([^/]+)\/pin$/.exec(url.pathname);
+  if (request.method === "POST" && pinThreadMatch) {
+    const id = decodeURIComponent(pinThreadMatch[1]);
+    const body = await jsonBody(request);
+    const thread = await loadThread(id);
+    if (!thread) throw new Error("That conversation no longer exists.");
+    const pinned = typeof body.pinned === "boolean" ? body.pinned : !thread.pinned;
+    sendJson(response, 200, { thread: await saveThread({ ...thread, pinned }, { preserveUpdatedAt: true }) });
+    return true;
+  }
+  const firstContactMatch = /^\/api\/threads\/([^/]+)\/first-contact\/(start|reroll)$/.exec(url.pathname);
+  if (request.method === "POST" && firstContactMatch) {
+    const id = decodeURIComponent(firstContactMatch[1]);
+    const action = firstContactMatch[2];
+    const thread = await loadThread(id);
+    if (!thread?.profile) throw new Error("Finish preparing this character before beginning the adventure.");
+    if (action === "start") {
+      if (thread.firstContact?.status === "started") {
+        sendJson(response, 200, { thread });
+        return true;
+      }
+      const opening = nowMessage("character", thread.firstContact?.openingLine || thread.profile.openingLine || "You're here.");
+      sendJson(response, 200, { thread: await saveThread(activateFirstContact(thread, opening)) });
+      return true;
+    }
+    if (!firstContactCanChange(thread)) throw new Error("This adventure has already begun.");
+    const sourceScenarioGeneratedAt = thread.firstContact.generatedAt;
+    const rejectedOpenings = rejectedOpeningHistory(thread.firstContact);
+    const firstContact = await generateFirstContactScenario(config, thread.character, thread.profile, rejectedOpenings);
+    // Profile portraits and other thread state may finish while Ollama is creating
+    // a new opening. Merge the scenario into the latest saved thread instead of
+    // allowing this slower request's stale snapshot to erase those updates.
+    const latest = await loadThread(id);
+    if (!firstContactPreviewMatches(latest, sourceScenarioGeneratedAt)) {
+      sendJson(response, 200, { thread: latest || thread });
+      return true;
+    }
+    const scene = stabilizeSceneWardrobe(firstContact.scene, latest.profile, latest.character);
+    sendJson(response, 200, { thread: await saveThread({ ...latest, firstContact: { ...firstContact, scene, rejectedOpenings }, scene }) });
+    return true;
+  }
+  const firstContactImageMatch = /^\/api\/threads\/([^/]+)\/first-contact\/image$/.exec(url.pathname);
+  if (request.method === "POST" && firstContactImageMatch) {
+    const id = decodeURIComponent(firstContactImageMatch[1]);
+    const thread = await loadThread(id);
+    if (!thread?.profile || thread.firstContact?.status !== "started") throw new Error("Start this adventure before illustrating its opening scene.");
+    const existingImage = thread.messages.find((message) => message.imageOrigin === "opening_scene");
+    if (existingImage) {
+      sendJson(response, 200, { thread });
+      return true;
+    }
+    const pendingPromptId = thread.firstContact?.openingImage?.status === "pending"
+      ? String(thread.firstContact.openingImage.promptId || "")
+      : "";
+    if (pendingPromptId && imageJobs.has(pendingPromptId)) {
+      sendJson(response, 200, { thread, imageJob: { promptId: pendingPromptId } });
+      return true;
+    }
+    if (!config.comfyWorkflowFile || !config.comfyMappingFile) {
+      sendJson(response, 200, { thread });
+      return true;
+    }
+    const requestedAt = new Date().toISOString();
+    const imageContext = openingSceneBrief(thread);
+    let job;
+    try {
+      job = await queueCharacterImage(config, thread, imageContext, {
+        negative: "selfie, phone in hand, handheld camera, taking a photo, first-person POV, user visible, viewer visible, scenery-only image, distant tiny character, extreme high angle, extreme low angle",
+      });
+    } catch (error) {
+      const saved = await saveThread({
+        ...thread,
+        firstContact: {
+          ...thread.firstContact,
+          openingImage: { status: "error", promptId: "", requestedAt },
+        },
+      }, { preserveUpdatedAt: true });
+      sendJson(response, 200, {
+        thread: saved,
+        imageWarning: error instanceof Error ? error.message : "The opening image could not be started.",
+      });
+      return true;
+    }
+    await rememberImageJob(job.promptId, {
+      kind: "opening_scene",
+      characterId: thread.id,
+      appended: false,
+      caption: null,
+      imageContext,
+      imageOrigin: "opening_scene",
+      openingMessageId: thread.messages.findLast((message) => message.from === "character")?.id || "",
+      scenarioGeneratedAt: thread.firstContact.generatedAt,
+      requestedAt,
+      generation: generationMetadata(job, config),
+    });
+    const saved = await saveThread({
+      ...thread,
+      photoCadence: resetPhotoCadence(thread.relationship),
+      firstContact: {
+        ...thread.firstContact,
+        openingImage: { status: "pending", promptId: job.promptId, requestedAt },
+      },
+    });
+    sendJson(response, 200, { thread: saved, imageJob: { promptId: job.promptId } });
+    return true;
+  }
   const guestMatch = /^\/api\/threads\/([^/]+)\/guest$/.exec(url.pathname);
   if (request.method === "POST" && guestMatch) {
     const id = decodeURIComponent(guestMatch[1]);
@@ -713,7 +853,7 @@ async function handleApi(request, response, url) {
       config,
       imageThread,
       message.imageContext || "a candid message photo",
-      retryPromptOverrides(message, imageThread.character, config, imageThread.profile, imageThread.scene?.outfit),
+      retryPromptOverrides(message, imageThread.character, config, imageThread.profile, imageThread.scene?.outfit, imageThread.scene?.environment),
     );
     await rememberImageJob(job.promptId, {
       kind: "retry",
@@ -755,15 +895,21 @@ async function handleApi(request, response, url) {
     if (!body.character?.id) throw new Error("Choose a character first.");
     const profile = await ensureProfile(config, body.character, Boolean(body.force));
     const current = await createThread(body.character);
-    const hasOpening = current.messages.some((message) => message.from === "character");
-    const messages = hasOpening ? current.messages : [
-      ...current.messages,
-      nowMessage("character", profile.openingLine || "You're here."),
-    ];
-    const scene = stabilizeSceneWardrobe(current.scene.outfit === "default outfit"
-      ? { ...current.scene, outfit: effectiveVisual(profile).defaultWardrobe }
-      : current.scene, profile, current.character);
-    const thread = await saveThread({ ...current, profile, scene, messages });
+    const isUntouched = current.messages.length === 0;
+    const shouldCreateOpening = isUntouched && (!current.firstContact || body.force);
+    const generatedFirstContact = shouldCreateOpening
+      ? await generateFirstContactScenario(config, current.character, profile, body.force ? rejectedOpeningHistory(current.firstContact) : [])
+      : current.firstContact;
+    const baseScene = generatedFirstContact?.status === "preview"
+      ? generatedFirstContact.scene
+      : current.scene.outfit === "default outfit"
+        ? { ...current.scene, outfit: effectiveVisual(profile).defaultWardrobe }
+        : current.scene;
+    const scene = stabilizeSceneWardrobe(baseScene, profile, current.character);
+    const firstContact = generatedFirstContact?.status === "preview"
+      ? { ...generatedFirstContact, scene }
+      : generatedFirstContact;
+    const thread = await saveThread({ ...current, profile, scene, ...(firstContact ? { firstContact } : {}) });
     let avatarJob;
     if (!thread.character.avatarUrl && config.comfyWorkflowFile && config.comfyMappingFile) {
       try {
@@ -822,6 +968,7 @@ async function handleApi(request, response, url) {
     const body = await jsonBody(request);
     let thread = await loadThread(body.characterId);
     if (!thread) throw new Error("That conversation does not exist yet.");
+    if (thread.firstContact?.status === "preview") throw new Error("Start this adventure before sending a message.");
     if (!thread.profile) {
       const profile = await ensureProfile(config, thread.character);
       thread = { ...thread, profile };
@@ -852,8 +999,14 @@ async function handleApi(request, response, url) {
     let imageBase64;
     if (body.image) imageBase64 = (await readLocalAsset(body.image)).toString("base64");
     const explicitlyRequestedPhoto = !body.image && isExplicitPhotoRequest(String(body.text || ""), priorThread.messages);
+    const turnPresenceCue = presenceSceneCue(priorThread, String(body.text || ""));
+    const turnSceneCue = inferSceneCue(body.text);
+    const previewScene = previewSceneForUserTurn(priorThread.scene, String(body.text || ""), {
+      presencePatch: turnPresenceCue,
+      deterministicPatch: turnSceneCue,
+    });
     const visualEvent = !body.image && !explicitlyRequestedPhoto
-      ? visualEventOpportunity(String(body.text || ""), mergeScene(priorThread.scene, presenceSceneCue(priorThread, String(body.text || ""))))
+      ? visualEventOpportunity(String(body.text || ""), previewScene)
       : null;
     const cameo = normalizeCameoState(working.cameo, working.character.id);
     if (cameo?.activeGuest) {
@@ -913,6 +1066,17 @@ async function handleApi(request, response, url) {
             ...(isInterjection ? { cameoInterjection: true } : {}),
           });
           replies.push(reply);
+          const photoOutfit = photoOutfitUpdate(result.photoBrief, result.photoOutfit);
+          session.scene = reduceSceneTurn(session.scene, {
+            userText: String(body.text || ""),
+            characterText: result.reply,
+            modelScene: {
+              ...result.scene,
+              ...(photoOutfit ? { outfit: photoOutfit } : {}),
+            },
+            deterministicPatch: turnSceneCue,
+            presencePatch: turnPresenceCue,
+          });
           photoCandidates.push({ speakerId, result, replyId: reply.id, replyClaimsPhoto });
           session = appendCameoMessage(session, reply);
           if (speakerId === working.character.id) {
@@ -951,6 +1115,7 @@ async function handleApi(request, response, url) {
       thread = await saveThread({
         ...latestThread,
         messages: [...latestThread.messages, ...replies],
+        scene: stabilizeSceneWardrobe(session.scene, latestThread.profile, latestThread.character),
         relationship: hostRelationship,
         relationshipMomentum: hostRelationshipMomentum,
         memories: hostMemories,
@@ -1028,10 +1193,9 @@ async function handleApi(request, response, url) {
     }
     // `working` already contains the new user turn for persistence. Give Ollama the
     // prior thread and append the current turn exactly once inside chatAsCharacter.
-    const presenceCue = presenceSceneCue(priorThread, String(body.text || ""));
     const contextThread = {
       ...priorThread,
-      scene: stabilizeSceneWardrobe(mergeScene(priorThread.scene, presenceCue), priorThread.profile, priorThread.character),
+      scene: stabilizeSceneWardrobe(previewScene, priorThread.profile, priorThread.character),
     };
     const result = await chatAsCharacter(config, contextThread, String(body.text || ""), imageBase64, {
       photoOpportunity,
@@ -1045,17 +1209,37 @@ async function handleApi(request, response, url) {
       : result.reply);
     const progression = applyRelationshipDelta(working.relationship, result.relationshipDelta, working.relationshipMomentum);
     const outfitCorrection = inferOutfitCorrection(String(body.text || ""), working.scene.outfit);
-    const sceneCue = inferSceneCue(body.text);
+    const sceneCue = turnSceneCue;
+    const photoOutfit = photoOutfitUpdate(result.photoBrief, result.photoOutfit);
+    const modelScene = { ...result.scene, ...(photoOutfit ? { outfit: photoOutfit } : {}) };
+    const modelChangedOutfit = typeof modelScene.outfit === "string"
+      && normalizeWardrobePrompt(modelScene.outfit).toLowerCase() !== normalizeWardrobePrompt(working.scene.outfit).toLowerCase();
+    const wardrobeChangeEstablished = Boolean(
+      outfitCorrection
+      || sceneCue.outfit
+      || photoOutfit
+      || wardrobeDescriptionRequested(body.text)
+      || wardrobeChangeIsEstablished(body.text, result.reply),
+    );
+    if (isWardrobePlaceholder(modelScene.outfit) || (modelChangedOutfit && !wardrobeChangeEstablished)) {
+      modelScene.outfit = null;
+    }
     const correctedSceneCue = outfitCorrection
-      ? { ...sceneCue, ...presenceCue, outfit: outfitCorrection.outfit }
-      : { ...sceneCue, ...presenceCue };
+      ? { ...sceneCue, outfit: outfitCorrection.outfit }
+      : sceneCue;
     const followUpState = updatePendingFollowUp(
       working.proactive,
       result.followUp,
       result.resolvesPendingFollowUp,
     );
     const nextScene = stabilizeSceneWardrobe(
-      mergeScene(mergeScene(working.scene, result.scene), correctedSceneCue),
+      reduceSceneTurn(working.scene, {
+        userText: String(body.text || ""),
+        characterText: result.reply,
+        modelScene,
+        deterministicPatch: correctedSceneCue,
+        presencePatch: turnPresenceCue,
+      }),
       working.profile,
       working.character,
     );

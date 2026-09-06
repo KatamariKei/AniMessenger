@@ -1,6 +1,51 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mergeCatalogResults, parseAniListCharacter, parseDanbooruCharacter, parseWikidataCharacter, summarizeDanbooruEvidence } from "../server/character-catalog.mjs";
+import { checkCharacterCatalog, mergeCatalogResults, parseAniListCharacter, parseDanbooruCharacter, parseWikidataCharacter, searchCharacterCatalog, summarizeDanbooruEvidence } from "../server/character-catalog.mjs";
+
+test("catalogue health checks all search providers with an identifying user agent", { concurrency: false }, async () => {
+  const originalFetch = globalThis.fetch;
+  const hosts = new Set();
+  const headers = [];
+  globalThis.fetch = async (input, options = {}) => {
+    const url = new URL(String(input));
+    hosts.add(url.hostname);
+    headers.push(options.headers || {});
+    if (url.hostname === "graphql.anilist.co") return new Response(JSON.stringify({ data: { Page: { characters: [] } } }), { status: 200 });
+    return new Response(JSON.stringify(url.hostname === "www.wikidata.org" ? { query: {} } : []), { status: 200 });
+  };
+  try {
+    assert.equal(await checkCharacterCatalog({ animadexUrl: "https://animadex.net" }), true);
+    assert.deepEqual(hosts, new Set(["danbooru.donmai.us", "graphql.anilist.co", "www.wikidata.org", "animadex.net"]));
+    assert.ok(headers.some((value) => String(value["user-agent"] || "").includes("AniMessenger/0.4")));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a temporary all-source failure is not retained in the catalogue cache", { concurrency: false }, async () => {
+  const originalFetch = globalThis.fetch;
+  let available = false;
+  globalThis.fetch = async (input) => {
+    if (!available) throw new Error("temporary provider outage");
+    const url = new URL(String(input));
+    if (url.hostname === "www.wikidata.org") {
+      return new Response(JSON.stringify({ search: [{ id: "Q-test", label: "Resilient Cache Hero", description: "fictional character from the Cache Quest video game series" }] }), { status: 200 });
+    }
+    if (url.hostname === "graphql.anilist.co") return new Response(JSON.stringify({ data: { Page: { characters: [] } } }), { status: 200 });
+    return new Response("[]", { status: 200 });
+  };
+  try {
+    const config = { animadexUrl: "https://animadex.net" };
+    const failed = await searchCharacterCatalog(config, "Resilient Cache Hero");
+    assert.equal(failed.demo, true);
+    available = true;
+    const recovered = await searchCharacterCatalog(config, "Resilient Cache Hero");
+    assert.equal(recovered.results[0]?.name, "Resilient Cache Hero");
+    assert.equal(recovered.source, "independent");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test("Danbooru catalogue records become image-ready candidates without borrowing artwork", () => {
   const candidate = parseDanbooruCharacter(

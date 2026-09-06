@@ -157,7 +157,10 @@ namespace AniMessengerTray
             }
             string root = GetInstallRoot();
             string node = RuntimeMode.Development ? "node.exe" : Path.Combine(root, "runtime", "node.exe");
-            string launcher = Path.Combine(root, "scripts", RuntimeMode.Development ? "dev.mjs" : "launch.mjs");
+            // The development tray is a long-lived GUI process without a console.
+            // Use the detached launcher so the Node/Vite children receive stable
+            // log handles and survive helper invocations of the existing tray.
+            string launcher = Path.Combine(root, "scripts", RuntimeMode.Development ? "start-detached.mjs" : "launch.mjs");
             if ((!RuntimeMode.Development && !File.Exists(node)) || !File.Exists(launcher))
             {
                 MessageBox.Show(RuntimeMode.Development ? "AniMessenger's development files are incomplete. Rebuild the development tray and try again." : "AniMessenger's application files are incomplete. Run the installer again to repair them.", "AniMessenger", MessageBoxButtons.OK, MessageBoxIcon.Error);

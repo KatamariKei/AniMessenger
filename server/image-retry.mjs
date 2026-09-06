@@ -1,4 +1,5 @@
 import { CHARACTER_PHOTO_NEGATIVE, mergePromptTags, normalizeCharacterPhotoBrief, normalizeImageSubjectPrompt } from "./identity.mjs";
+import { isDetailedEnvironment } from "./environment.mjs";
 import { effectiveVisual } from "./visual-overrides.mjs";
 import { normalizeWardrobePrompt, stabilizeWardrobePrompt, wardrobeForFraming } from "./wardrobe.mjs";
 
@@ -23,6 +24,17 @@ function prependLatestGlobal(latestGlobal, preservedPrompt, separator = "\n\n") 
   if (!latest) return preserved;
   if (preserved.toLowerCase().startsWith(latest.toLowerCase())) return preserved;
   return [latest, preserved].filter(Boolean).join(separator);
+}
+
+function removePromptPhrase(prompt, phrase) {
+  const escaped = String(phrase || "").trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (!escaped) return String(prompt || "");
+  return String(prompt || "")
+    .replace(new RegExp(escaped, "gi"), "")
+    .replace(/,\s*,/g, ", ")
+    .replace(/(^|\n)\s*,\s*/g, "$1")
+    .replace(/,\s*(?=\n|$)/g, "")
+    .trim();
 }
 
 function refreshVisualPrompt(prompt, savedVisual = [], currentVisual = []) {
@@ -74,7 +86,7 @@ function inferRecordedSceneOutfit(prompt, savedVisual = []) {
   return lastVisualIndex >= 0 ? String(parts[lastVisualIndex + 1] || "").trim() : "";
 }
 
-export function retryPromptOverrides(message, character, config = {}, profile, currentOutfit) {
+export function retryPromptOverrides(message, character, config = {}, profile, currentOutfit, currentEnvironment) {
   const savedPositive = String(message?.generation?.positive || "").trim();
   const savedNegative = String(message?.generation?.negative || "").trim();
   if (!savedPositive) return {};
@@ -115,6 +127,16 @@ export function retryPromptOverrides(message, character, config = {}, profile, c
       wardrobeParts(wardrobeToReplace),
       wardrobeParts(replacementWardrobe),
     );
+  }
+  const recordedEnvironment = String(message?.generation?.sceneEnvironment || "").trim();
+  const fallbackEnvironment = String(currentEnvironment || "").replace(/\s+/g, " ").trim();
+  if (recordedEnvironment && !isDetailedEnvironment(recordedEnvironment)) {
+    preservedPositive = removePromptPhrase(preservedPositive, recordedEnvironment);
+    if (fallbackEnvironment && !preservedPositive.toLowerCase().includes(fallbackEnvironment.toLowerCase())) {
+      preservedPositive = [preservedPositive, "ENVIRONMENT CONTINUITY: " + fallbackEnvironment].filter(Boolean).join("\n\n");
+    }
+  } else if (!recordedEnvironment && fallbackEnvironment && !preservedPositive.toLowerCase().includes(fallbackEnvironment.toLowerCase())) {
+    preservedPositive = [preservedPositive, "ENVIRONMENT CONTINUITY: " + fallbackEnvironment].filter(Boolean).join("\n\n");
   }
   const preservedNegative = refreshVisualPrompt(
     removeSavedGlobal(savedNegative, message?.generation?.globalNegative),

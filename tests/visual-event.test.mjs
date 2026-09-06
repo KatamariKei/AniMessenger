@@ -37,3 +37,35 @@ test("hypothetical talk and in-person scenes do not create automatic character-s
   assert.equal(visualEventOpportunity("I changed into a red dress.", { presence: "apart" }), null);
   assert.equal(visualEventOpportunity("I opened my email.", { presence: "apart" }), null);
 });
+
+test("a major scenic reveal remains a visual opportunity in a shared physical scene", () => {
+  assert.equal(
+    visualEventOpportunity("We step outside to a vast cloud sea, rolling green hills, and distant craggy mountains.", { presence: "together" }),
+    "a newly revealed, visually distinctive environment",
+  );
+});
+
+test("a character's completed outfit reveal is visual even when together", () => {
+  const together = { presence: "together" };
+  assert.match(
+    visualEventOpportunity("[action: slips the dress on, the fabric clinging to her curves] Well?", together, { actor: "character" }),
+    /completed outfit/i,
+  );
+  assert.match(
+    visualEventOpportunity("[action: steps out from the bathroom wearing the new dress] Do you like it?", together, { actor: "character" }),
+    /completed outfit/i,
+  );
+  assert.equal(visualEventOpportunity("Go try on the new dress.", together), null);
+  assert.equal(
+    visualEventOpportunity("Give me a few minutes to change. [action: takes the dress into the bathroom]", together, { actor: "character" }),
+    null,
+  );
+  assert.equal(
+    visualEventOpportunity("[action: holds the dress up and admires it] This is beautiful.", together, { actor: "character" }),
+    null,
+  );
+  assert.equal(
+    visualEventOpportunity("[action: puts the dress on the bed while she gets ready]", together, { actor: "character" }),
+    null,
+  );
+});

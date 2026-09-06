@@ -24,7 +24,7 @@ const blockedDirectories = [
 ];
 const blockedFiles = new Set(["animessenger.config.json"]);
 const textExtensions = new Set([
-  ".css", ".html", ".js", ".json", ".jsx", ".md", ".mjs", ".svg", ".ts", ".tsx", ".txt", ".yaml", ".yml",
+  ".bat", ".cmd", ".cs", ".css", ".html", ".js", ".json", ".jsx", ".md", ".mjs", ".ps1", ".svg", ".ts", ".tsx", ".txt", ".yaml", ".yml",
 ]);
 const sensitiveContent = [
   { label: "the creator's local identity", pattern: new RegExp("\\b(?:" + ["ja", "son"].join("") + "|" + ["balth", "azar"].join("") + ")\\b", "i") },

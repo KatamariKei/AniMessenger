@@ -1,6 +1,6 @@
 {
   "name": "animessenger",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "private": true,
   "license": "MIT",
   "description": "A local-first character messenger with independent character discovery, Ollama chat, and optional ComfyUI images.",

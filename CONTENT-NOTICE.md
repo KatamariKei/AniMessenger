@@ -1,8 +1,8 @@
 # Content notice
 
-AniMessenger is an unofficial, user-operated character-messaging project. It is not affiliated with, endorsed by, or sponsored by the creators, publishers, studios, game companies, or rights holders associated with characters found through AnimaDex or public research sources.
+AniMessenger is an unofficial, user-operated character-messaging project. It is not affiliated with, endorsed by, or sponsored by the creators, publishers, studios, game companies, catalogue providers, or rights holders associated with characters found through public research sources.
 
-Character names, likenesses, source artwork, franchises, and other third-party material remain the property of their respective owners. The repository does not include commercial model weights, generated user galleries, private conversations, or a bundled copy of the full AnimaDex dataset.
+Character names, likenesses, source artwork, franchises, and other third-party material remain the property of their respective owners. The repository does not include commercial model weights, third-party catalogue artwork or datasets, generated user galleries, or private conversations.
 
 ## Generated profiles and conversations
 

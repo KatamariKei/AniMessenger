@@ -56,3 +56,17 @@ test("captured moments are remembered as shared visuals rather than character-se
   assert.match(history[0].content, /Misty relaxing beside the pool/i);
   assert.doesNotMatch(history[0].content, /you sent the user a photo/i);
 });
+
+test("opening scenes are remembered as establishing visuals rather than character-sent photos", () => {
+  const history = generatedPhotoHistory({
+    from: "character",
+    generated: true,
+    image: "/api/images/view?id=opening",
+    imageOrigin: "opening_scene",
+    imageContext: "Morrigan waiting beneath the moonlit park trees",
+  });
+  assert.equal(history.length, 1);
+  assert.match(history[0].content, /establishing visual/i);
+  assert.match(history[0].content, /did not send it as a photo/i);
+  assert.doesNotMatch(history[0].content, /you sent the user a photo/i);
+});
