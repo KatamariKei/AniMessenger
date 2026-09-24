@@ -16,6 +16,8 @@ AniMessenger's self-contained Windows package is the Git-free installation path.
 
 Git, Node.js, npm, and pnpm are not required on the destination computer. **Ollama is required to find, build, and chat with characters.** ComfyUI remains optional because image generation depends heavily on the user's hardware. AniMessenger's guided setup detects what is missing, can download a reviewed Gemma 4 model through a running Ollama installation without a command window, and provides recovery guidance.
 
+For the complete local workflow, an NVIDIA GPU with **12 GB of VRAM is the recommended minimum**. A 16 GB GPU provides better headroom, while 24 GB or more provides the best experience when moving between Ollama character creation and ComfyUI images. Plan on 32 GB of system memory at minimum and 64 GB when both local services are used heavily. CPU-only systems and 8 GB GPUs can use a smaller Ollama model for lighter or chat-only use, but full character creation and image generation are experimental there and may be dramatically slower or exhaust available memory. Laptop GPUs may perform below desktop cards with the same product name. These are practical targets, not guarantees for every model or custom workflow.
+
 On a fresh computer without a configured ComfyUI installation, setup defaults to **Add images later**. This produces a complete chat-first installation instead of treating optional image generation as a blocker. The image guide remains available from Settings.
 
 ## Download and install

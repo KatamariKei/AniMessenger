@@ -1,6 +1,6 @@
 const hypothetical = /\b(?:would you|could you|might you|maybe (?:later|someday)|what if|imagine|hypothetically|have you ever|do you ever|thinking about|talking about)\b/i;
 const userPerformsEvent = /\b(?:i|we)\s+(?:am |are |just |finally |already )?(?:put(?:ting)? on|try(?:ing)? on|change(?:d|ing)? into|dress(?:ed|ing)?|open(?:ed|ing)?|unveil(?:ed|ing)?|reveal(?:ed|ing)?|arrive(?:d|ing)?|reach(?:ed|ing)?|step(?:ped|ping)? into|enter(?:ed|ing)?|finished (?:my|our) (?:makeup|makeover))\b/i;
-const wardrobeChange = /\b(?:put(?:ting)? on|try(?:ing)? on|change(?:d|ing)? into|chang(?:e|ed|ing) clothes|slip(?:ped|ping)? into|dress(?:ed|ing)? (?:up )?(?:as|in)|get(?:s|ting)? dressed|got dressed|finish(?:ed|es|ing)? (?:getting dressed|dressing)|costume change|outfit reveal)\b/i;
+const wardrobeChange = /\b(?:put(?:ting)? on|try(?:ing)? on|change(?:d|ing)? into|chang(?:e|ed|ing) clothes|slip(?:ped|ping)? into|slid(?:e|es|ing)? into|dress(?:ed|ing)? (?:up )?(?:as|in)|get(?:s|ting)? dressed|got dressed|finish(?:ed|es|ing)? (?:getting dressed|dressing)|costume change|outfit reveal)\b/i;
 const appearanceReveal = /\b(?:your new haircut|cut your hair|dyed your hair|finished your (?:makeup|makeover)|you finished your (?:makeup|makeover)|your new look|transformation reveal)\b/i;
 const objectReveal = /\b(?:unveil(?:ed|ing)?|big reveal|reveal(?:ed|ing)? (?:the|my|your|this|that)|open(?:ed|ing)? (?:the|my|your) (?:gift|present|box|case|door|curtain|package)|pull(?:ed|ing)? back the (?:cover|curtain|sheet))\b/i;
 const visualLocation = "beach|festival|concert|party|ballroom|rooftop|garden|temple|castle|city|arcade|amusement park|stage|viewpoint|lookout|hot springs?|pool|museum|aquarium|carnival|mountains?|waterfall|observation deck";
@@ -31,11 +31,16 @@ export function visualEventOpportunity(text, scene = {}, options = {}) {
 }
 
 export function keyVisualPhotoBrief(baseBrief, visualEvent, claimsPhoto = false, evidence = "") {
-  const visibleEvidence = String(evidence || "").replace(/\[(?:action|thought)\s*:\s*/gi, "").replace(/\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 360);
+  const visualDirection = /outfit|wardrobe/i.test(String(visualEvent || ""))
+    ? "Show the completed current outfit naturally"
+    : /environment|location|arrival/i.test(String(visualEvent || ""))
+      ? "Establish the current settled surroundings"
+      : visualEvent
+        ? "Show the completed current visual change"
+        : "";
   return [
     String(baseBrief || "").trim(),
-    visualEvent ? "KEY VISUAL MOMENT: " + visualEvent + "; clearly depict the newly established state, change, arrival, or reveal rather than the previous scene" : "",
-    visualEvent && visibleEvidence ? "LATEST VISUAL EVIDENCE: " + visibleEvidence : "",
+    visualDirection,
     claimsPhoto ? "the character is actively sharing this current visual with the viewer" : "",
   ].filter(Boolean).join("; ");
 }

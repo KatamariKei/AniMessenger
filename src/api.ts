@@ -58,6 +58,7 @@ export type CharacterProfile = {
     avoidPatterns?: string[];
     emotionalRules: string[];
     exampleLines: string[];
+    characterTensions?: string[];
   };
   canon: {
     overview: string;
@@ -116,6 +117,8 @@ export type Message = {
   /** An occasional second-speaker contribution in a guest chat. */
   cameoInterjection?: boolean;
   text?: string;
+  /** Story-mode prose passage that absorbs the user turn and character response. */
+  narration?: string;
   time: string;
   image?: string;
   generated?: boolean;
@@ -170,6 +173,7 @@ export type Thread = {
   relationshipMomentum?: number;
   unreadCount?: number;
   pinned?: boolean;
+  conversationMode?: "chat" | "story";
   proactive?: {
     version?: number;
     nextAt: string | null;
@@ -414,6 +418,11 @@ export const api = {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ pinned }),
   }),
+  setConversationMode: (characterId: string, mode: "chat" | "story") => request<{ thread: Thread }>(`/api/threads/${encodeURIComponent(characterId)}/conversation-mode`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ mode }),
+  }),
   inviteGuest: (characterId: string, guestCharacterId: string) => request<{ thread: Thread; guest: AnimaCharacter }>(`/api/threads/${encodeURIComponent(characterId)}/guest`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -445,11 +454,12 @@ export const api = {
   deleteThread: (characterId: string) => request<{ deleted: boolean; id: string }>(`/api/threads/${encodeURIComponent(characterId)}`, {
     method: "DELETE",
   }),
+  profileProgress: (id: string) => request<{ stage: string; completed: number; total: number; startedAt: number; failedStage?: string; error?: string } | null>(`/api/characters/profile-progress?id=${encodeURIComponent(id)}`),
   buildProfile: (character: AnimaCharacter, force = false) => request<{ profile: CharacterProfile; thread: Thread; avatarJob?: { promptId: string } }>("/api/characters/profile", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ character, force }),
-  }, 240000),
+  }, 900000),
   startFirstContact: (characterId: string) => request<{ thread: Thread }>(`/api/threads/${encodeURIComponent(characterId)}/first-contact/start`, {
     method: "POST",
   }, 180000),

@@ -30,6 +30,7 @@ import { capturedMomentBrief } from "./moment-capture.mjs";
 import { keyVisualPhotoBrief, visualEventOpportunity } from "./visual-event.mjs";
 import { mergeScene, previewSceneForUserTurn, reduceSceneTurn } from "./scene-state.mjs";
 import { activateFirstContact, firstContactCanChange, firstContactPreviewMatches, insertOpeningSceneMessage, openingSceneBrief, openingSceneJobMatches, rejectedOpeningHistory } from "./first-contact.mjs";
+import { narrativeTurnText, normalizeConversationMode } from "./narrative-mode.mjs";
 
 const port = Number(process.env.PORT || 5174);
 const host = process.env.HOST || "127.0.0.1";
@@ -129,7 +130,23 @@ function stabilizeSceneWardrobe(scene, profile, character) {
   return outfit ? { ...scene, outfit } : scene;
 }
 
-async function ensureProfile(config, character, force = false) {
+const creationProgress = new Map();
+const creationStages = ["sources", "evidence", "profile", "validation", "opening", "complete"];
+function reportCreation(id, stage, error = "") {
+  const previous = creationProgress.get(id);
+  creationProgress.set(id, {
+    stage,
+    completed: stage === "error" ? previous?.completed || 0 : Math.max(0, creationStages.indexOf(stage)),
+    total: 5,
+    startedAt: previous?.startedAt || Date.now(),
+    ...(stage === "error" ? {
+      failedStage: previous?.stage || "sources",
+      error: String(error || "Character preparation stopped unexpectedly."),
+    } : {}),
+  });
+}
+
+async function ensureProfile(config, character, force = false, onProgress = () => {}) {
   const cached = await loadProfile(character.id);
   if (!force) {
     if (cached) {
@@ -137,9 +154,10 @@ async function ensureProfile(config, character, force = false) {
       return adultProfile.age === cached.age ? adultProfile : saveProfile(adultProfile);
     }
   }
+  onProgress("sources");
   const enrichedCharacter = await enrichCharacterCatalog(config, character).catch(() => character);
   const research = await researchCharacter(enrichedCharacter, config.researchEnabled);
-  const rebuilt = await buildCharacterProfile(config, enrichedCharacter, research);
+  const rebuilt = await buildCharacterProfile(config, enrichedCharacter, research, onProgress);
   return saveProfile(preserveVisualOverrides(rebuilt, cached));
 }
 
@@ -376,6 +394,7 @@ async function checkProactiveOutreach(config, activeCharacterId) {
           characterText: outreach.text,
           modelScene: outreachScenePatch,
           presencePatch: presenceSceneCue(candidate, ""),
+          allowModelOutfit: Boolean(outreachPhotoOutfit || wardrobeChangeIsEstablished(outreach.text)),
         }), candidate.profile, candidate.character);
       if (withImage && config.comfyWorkflowFile && config.comfyMappingFile) {
         try {
@@ -623,6 +642,17 @@ async function handleApi(request, response, url) {
     sendJson(response, 200, { thread: await saveThread({ ...thread, pinned }, { preserveUpdatedAt: true }) });
     return true;
   }
+  const conversationModeMatch = /^\/api\/threads\/([^/]+)\/conversation-mode$/.exec(url.pathname);
+  if (request.method === "POST" && conversationModeMatch) {
+    const id = decodeURIComponent(conversationModeMatch[1]);
+    const body = await jsonBody(request);
+    const thread = await loadThread(id);
+    if (!thread) throw new Error("That conversation no longer exists.");
+    if (!["chat", "story"].includes(body.mode)) throw new Error("Choose Chat or Story mode.");
+    const conversationMode = normalizeConversationMode(body.mode);
+    sendJson(response, 200, { thread: await saveThread({ ...thread, conversationMode }, { preserveUpdatedAt: true }) });
+    return true;
+  }
   const firstContactMatch = /^\/api\/threads\/([^/]+)\/first-contact\/(start|reroll)$/.exec(url.pathname);
   if (request.method === "POST" && firstContactMatch) {
     const id = decodeURIComponent(firstContactMatch[1]);
@@ -847,7 +877,16 @@ async function handleApi(request, response, url) {
         loadProfile(message.speakerId),
       ]);
       if (!speakerThread?.character || !speakerProfile) throw new Error("That guest character profile is no longer available.");
-      imageThread = { ...thread, character: speakerThread.character, profile: speakerProfile };
+      imageThread = {
+        ...thread,
+        character: speakerThread.character,
+        profile: speakerProfile,
+        scene: stabilizeSceneWardrobe({
+          ...thread.scene,
+          outfit: speakerThread.scene?.outfit || effectiveVisual(speakerProfile).defaultWardrobe,
+          ...(speakerThread.scene?.expression ? { expression: speakerThread.scene.expression } : {}),
+        }, speakerProfile, speakerThread.character),
+      };
     }
     const job = await queueCharacterImage(
       config,
@@ -890,11 +929,19 @@ async function handleApi(request, response, url) {
     sendJson(response, 200, { thread: saved, added: Math.max(0, memories.length - before) });
     return true;
   }
+  if (request.method === "GET" && url.pathname === "/api/characters/profile-progress") {
+    sendJson(response, 200, creationProgress.get(url.searchParams.get("id")) || null);
+    return true;
+  }
   if (request.method === "POST" && url.pathname === "/api/characters/profile") {
     const body = await jsonBody(request);
     if (!body.character?.id) throw new Error("Choose a character first.");
-    const profile = await ensureProfile(config, body.character, Boolean(body.force));
+    creationProgress.delete(body.character.id);
+    reportCreation(body.character.id, "sources");
+    try {
     const current = await createThread(body.character);
+    const profile = await ensureProfile(config, body.character, Boolean(body.force) || !current.profile, (stage) => reportCreation(body.character.id, stage));
+    reportCreation(body.character.id, "opening");
     const isUntouched = current.messages.length === 0;
     const shouldCreateOpening = isUntouched && (!current.firstContact || body.force);
     const generatedFirstContact = shouldCreateOpening
@@ -918,8 +965,13 @@ async function handleApi(request, response, url) {
         avatarJob = undefined;
       }
     }
+    reportCreation(body.character.id, "complete");
     sendJson(response, 200, { profile, thread, ...(avatarJob ? { avatarJob: { promptId: avatarJob.promptId } } : {}) });
     return true;
+    } catch (error) {
+      reportCreation(body.character.id, "error", error instanceof Error ? error.message : String(error));
+      throw error;
+    }
   }
   if (request.method === "POST" && url.pathname === "/api/characters/visual-overrides") {
     const body = await jsonBody(request);
@@ -1022,6 +1074,9 @@ async function handleApi(request, response, url) {
         guest: guestThread.character,
         lastSpeakerId: session.lastSpeakerId,
         focusSpeakerId: body.focusSpeakerId,
+        guestNeedsFirstTurn: !session.messages.some((message) =>
+          message.from === "character" && message.speakerId === guestThread.character.id
+        ),
       });
       const initialSpeakerCount = speakerIds.length;
       const allowInterjection = initialSpeakerCount === 1 && cameoInterjectionEligible({
@@ -1052,31 +1107,56 @@ async function handleApi(request, response, url) {
             currentTurnAlreadyInHistory: !body.image,
             extraSystemContext: cameoPromptContext(session, speakerId, {
               groupTurn: initialSpeakerCount > 1 || isInterjection,
+              storyMode: working.conversationMode === "story",
+              groupSpeakerIndex: speakerIndex,
+              groupSpeakerCount: speakerIds.length,
               allowInterjection: allowInterjection && speakerIndex === 0,
               interjection: isInterjection,
             }),
             photoOpportunity: false,
             explicitPhotoRequest: explicitlyRequestedPhoto,
+            conversationMode: working.conversationMode,
           });
           const replyClaimsPhoto = claimsCurrentPhotoTransfer(result.reply);
+          const replyNarration = working.conversationMode === "story"
+            ? (result.narration || result.reply)
+            : result.narration;
           const reply = nowMessage("character", replyClaimsPhoto && !imageGenerationConfigured
             ? removeCurrentPhotoClaim(result.reply)
             : result.reply, {
             speakerId,
+            ...(replyNarration ? { narration: replyNarration } : {}),
             ...(isInterjection ? { cameoInterjection: true } : {}),
           });
           replies.push(reply);
           const photoOutfit = photoOutfitUpdate(result.photoBrief, result.photoOutfit);
-          session.scene = reduceSceneTurn(session.scene, {
+          const speakerScene = reduceSceneTurn(speakerThread.scene, {
             userText: String(body.text || ""),
-            characterText: result.reply,
+            characterText: narrativeTurnText(result),
             modelScene: {
               ...result.scene,
               ...(photoOutfit ? { outfit: photoOutfit } : {}),
             },
             deterministicPatch: turnSceneCue,
             presencePatch: turnPresenceCue,
+            allowModelOutfit: Boolean(
+              photoOutfit
+              || wardrobeDescriptionRequested(body.text)
+              || wardrobeChangeIsEstablished(body.text, narrativeTurnText(result))
+            ),
+            allowWardrobeDescription: wardrobeDescriptionRequested(body.text),
           });
+          const speakerState = speakerId === guestThread.character.id ? session.guest : session.host;
+          speakerState.scene = {
+            ...(speakerState.scene || {}),
+            ...(speakerScene.outfit ? { outfit: speakerScene.outfit } : {}),
+            ...(speakerScene.expression ? { expression: speakerScene.expression } : {}),
+          };
+          session.scene = {
+            ...speakerScene,
+            ...(session.host.scene?.outfit ? { outfit: session.host.scene.outfit } : {}),
+            ...(session.host.scene?.expression ? { expression: session.host.scene.expression } : {}),
+          };
           photoCandidates.push({ speakerId, result, replyId: reply.id, replyClaimsPhoto });
           session = appendCameoMessage(session, reply);
           if (speakerId === working.character.id) {
@@ -1092,6 +1172,11 @@ async function handleApi(request, response, url) {
               relationship: progression.relationship,
               relationshipMomentum: progression.relationshipMomentum,
               memories: mergeMemories(nextGuestThread.memories, result.memoryCandidates, reply.id),
+              scene: stabilizeSceneWardrobe(
+                threadForCameoSpeaker(session, guestThread.character.id).scene,
+                guestProfile,
+                guestThread.character,
+              ),
             };
             session.guest.relationship = progression.relationship;
           }
@@ -1126,7 +1211,7 @@ async function handleApi(request, response, url) {
       let imageWarning;
       const photoPlans = photoCandidates.map((candidate) => {
         const imageThread = threadForCameoSpeaker(session, candidate.speakerId);
-        const replyVisualEvent = visualEventOpportunity(candidate.result.reply, imageThread.scene, { actor: "character" });
+        const replyVisualEvent = visualEventOpportunity(narrativeTurnText(candidate.result), imageThread.scene, { actor: "character" });
         const effectiveVisualEvent = visualEvent || replyVisualEvent;
         return {
           ...candidate,
@@ -1151,7 +1236,7 @@ async function handleApi(request, response, url) {
               candidate.result.photoBrief || capturedMomentBrief(candidate.imageThread),
               candidate.effectiveVisualEvent,
               candidate.replyClaimsPhoto,
-              candidate.effectiveVisualEvent ? candidate.result.reply : "",
+              candidate.effectiveVisualEvent ? narrativeTurnText(candidate.result) : "",
             );
             const imageJob = await queueCharacterImage(config, candidate.imageThread, imageContext);
             await rememberImageJob(imageJob.promptId, {
@@ -1206,7 +1291,7 @@ async function handleApi(request, response, url) {
     const replyClaimsPhoto = claimsCurrentPhotoTransfer(result.reply);
     let reply = nowMessage("character", replyClaimsPhoto && !imageGenerationConfigured
       ? removeCurrentPhotoClaim(result.reply)
-      : result.reply);
+      : result.reply, result.narration ? { narration: result.narration } : {});
     const progression = applyRelationshipDelta(working.relationship, result.relationshipDelta, working.relationshipMomentum);
     const outfitCorrection = inferOutfitCorrection(String(body.text || ""), working.scene.outfit);
     const sceneCue = turnSceneCue;
@@ -1219,7 +1304,7 @@ async function handleApi(request, response, url) {
       || sceneCue.outfit
       || photoOutfit
       || wardrobeDescriptionRequested(body.text)
-      || wardrobeChangeIsEstablished(body.text, result.reply),
+      || wardrobeChangeIsEstablished(body.text, narrativeTurnText(result)),
     );
     if (isWardrobePlaceholder(modelScene.outfit) || (modelChangedOutfit && !wardrobeChangeEstablished)) {
       modelScene.outfit = null;
@@ -1235,10 +1320,12 @@ async function handleApi(request, response, url) {
     const nextScene = stabilizeSceneWardrobe(
       reduceSceneTurn(working.scene, {
         userText: String(body.text || ""),
-        characterText: result.reply,
+        characterText: narrativeTurnText(result),
         modelScene,
         deterministicPatch: correctedSceneCue,
         presencePatch: turnPresenceCue,
+        allowModelOutfit: wardrobeChangeEstablished,
+        allowWardrobeDescription: wardrobeDescriptionRequested(body.text),
       }),
       working.profile,
       working.character,
@@ -1258,7 +1345,7 @@ async function handleApi(request, response, url) {
     let imageWarning;
     // The system prompt forbids proactive photos outside cadence opportunities, so
     // shouldSendPhoto can also carry semantic requests that a phrase matcher misses.
-    const replyVisualEvent = visualEventOpportunity(result.reply, nextScene, { actor: "character" });
+    const replyVisualEvent = visualEventOpportunity(narrativeTurnText(result), nextScene, { actor: "character" });
     const effectiveVisualEvent = visualEvent || replyVisualEvent;
     const shouldQueuePhoto = shouldQueueCharacterPhoto({
       hasUserImage: Boolean(body.image),
@@ -1276,7 +1363,7 @@ async function handleApi(request, response, url) {
           result.photoBrief || capturedMomentBrief(thread),
           effectiveVisualEvent,
           replyClaimsPhoto,
-          replyVisualEvent ? result.reply : visualEvent ? String(body.text || "") : "",
+          replyVisualEvent ? narrativeTurnText(result) : visualEvent ? String(body.text || "") : "",
         );
         const correctedPhotoBrief = outfitCorrection
           ? [

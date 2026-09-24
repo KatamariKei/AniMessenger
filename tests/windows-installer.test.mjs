@@ -48,12 +48,17 @@ test("the development tray controls one service and persists phone access", () =
   const dev = read("scripts/dev.mjs");
   const detached = read("scripts/start-detached.mjs");
   const builder = read("scripts/build-dev-tray.mjs");
+  const serviceControl = read("scripts/tray-service.mjs");
   assert.match(tray, /Phone access: On/);
   assert.match(tray, /Phone access: Off/);
   assert.match(tray, /phone-access\.enabled/);
   assert.match(tray, /RequestDevelopmentShutdown/);
   assert.match(tray, /--lan/);
   assert.match(tray, /start-detached\.mjs/);
+  assert.match(tray, /tray-command\.request/);
+  assert.match(tray, /ProcessPendingCommand/);
+  assert.match(serviceControl, /tray-command\.request/);
+  assert.match(serviceControl, /development tray is not running/i);
   assert.match(detached, /--no-watch/);
   assert.match(dev, /runtimeDirectory/);
   assert.match(read("vite.config.ts"), /ignored: \["\*\*\/release\/\*\*"/);

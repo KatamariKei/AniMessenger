@@ -76,12 +76,14 @@ namespace AniMessengerTray
         private readonly ToolStripMenuItem phoneAccessItem;
         private readonly System.Windows.Forms.Timer statusTimer;
         private readonly string trayPidFile;
+        private readonly string trayCommandFile;
 
         internal TrayContext(bool openBrowser)
         {
             string runtimeDirectory = Path.Combine(GetPrivateHome(), "runtime");
             Directory.CreateDirectory(runtimeDirectory);
             trayPidFile = Path.Combine(runtimeDirectory, "tray.pid");
+            trayCommandFile = Path.Combine(runtimeDirectory, "tray-command.request");
             File.WriteAllText(trayPidFile, Process.GetCurrentProcess().Id.ToString());
 
             statusItem = new ToolStripMenuItem("Service status") { Enabled = false };
@@ -122,7 +124,7 @@ namespace AniMessengerTray
             trayIcon.DoubleClick += delegate { RunLauncher(true); };
 
             statusTimer = new System.Windows.Forms.Timer { Interval = 3000 };
-            statusTimer.Tick += delegate { RefreshStatus(); };
+            statusTimer.Tick += delegate { ProcessPendingCommand(); RefreshStatus(); };
             statusTimer.Start();
             RefreshStatus();
             RunLauncher(openBrowser);
@@ -247,6 +249,34 @@ namespace AniMessengerTray
                 else ShowStatus("AniMessenger could not start", "Open AniMessenger again or check the local logs for details.");
             };
             refresh.Start();
+        }
+
+        private void ProcessPendingCommand()
+        {
+            if (!RuntimeMode.Development || !File.Exists(trayCommandFile)) return;
+            string command;
+            try
+            {
+                command = File.ReadAllText(trayCommandFile).Trim().ToLowerInvariant();
+                File.Delete(trayCommandFile);
+            }
+            catch { return; }
+
+            if (command == "start")
+            {
+                if (!ServerIsRunning()) StartService();
+                return;
+            }
+            if (command == "stop")
+            {
+                if (ServerIsRunning()) StopService(true);
+                return;
+            }
+            if (command == "restart")
+            {
+                if (ServerIsRunning() && !StopService(true)) return;
+                StartService();
+            }
         }
 
         private bool StopService(bool quiet)

@@ -1,6 +1,54 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildImagePrompt, inferOutfitCorrection, inferSceneCue, mergePromptTags, normalizeCharacterPhotoBrief, portraitExpression, portraitWardrobe, splitVisualTags, visualTraitsForFraming } from "../server/identity.mjs";
+import { buildImagePrompt, inferOutfitCorrection, inferSceneCue, mergePromptTags, normalizeCharacterPhotoBrief, portraitExpression, portraitWardrobe, reconcileCatalogueHairstyle, reconcileCatalogueWardrobe, splitVisualTags, visualTraitsForFraming } from "../server/identity.mjs";
+
+test("specific catalogue hairstyle corrects twintails wording without changing other visual traits", () => {
+  const profile = { visual: { identity: ["long pink hair", "twintails", "green eyes"], signature: ["pink twintails", "hair bow"] } };
+  reconcileCatalogueHairstyle(profile, ["long_hair", "pink_hair", "two_side_up"]);
+  assert.deepEqual(profile.visual.identity, ["long pink hair", "two side up", "green eyes"]);
+  assert.deepEqual(profile.visual.signature, ["pink hair, two side up", "hair bow"]);
+  const unsupported = { visual: { identity: ["twintails"] } };
+  reconcileCatalogueHairstyle(unsupported, ["long_hair"]);
+  assert.deepEqual(unsupported.visual.identity, ["twintails"]);
+  const sourceSupported = { visual: { identity: ["twintails"] } };
+  reconcileCatalogueHairstyle(sourceSupported, ["two_side_up"], { facts: [
+    { category: "appearance", scope: "baseline", quote: "She wears her hair in twintails." },
+  ] });
+  assert.deepEqual(sourceSupported.visual.identity, ["twintails"]);
+});
+
+test("a vague default outfit yields to a named garment supported by catalogue and research", () => {
+  const tags = ["chinese clothes", "qipao", "red dress", "china dress"];
+  assert.deepEqual(splitVisualTags(tags).wardrobe, tags);
+  const profile = { visual: { defaultWardrobe: "A matching blouse and pants.", wardrobePreferences: ["Apron while working"] } };
+  const research = { evidence: { passages: [{ provider: "franchise_wiki", text:
+    "Shampoo usually wears a matching blouse and pants. For formal occasions, she favors sleeveless cheongsam." }] } };
+  reconcileCatalogueWardrobe(profile, tags, research);
+  assert.equal(profile.visual.defaultWardrobe, "A sleeveless red Chinese dress (qipao/cheongsam).");
+  assert.deepEqual(profile.visual.wardrobePreferences, ["Apron while working", "A matching blouse and pants."]);
+  const noSupport = { visual: { defaultWardrobe: "A matching blouse and pants." } };
+  reconcileCatalogueWardrobe(noSupport, tags, { evidence: { passages: [{ provider: "franchise_wiki", text: "Only a blouse and pants are described." }] } });
+  assert.equal(noSupport.visual.defaultWardrobe, "A matching blouse and pants.");
+  const alreadySpecific = { visual: { defaultWardrobe: "A blue embroidered Chinese blouse and black trousers." } };
+  reconcileCatalogueWardrobe(alreadySpecific, tags, research);
+  assert.equal(alreadySpecific.visual.defaultWardrobe, "A blue embroidered Chinese blouse and black trousers.");
+});
+
+test("carried weapons can never become the character's default wardrobe", () => {
+  const profile = { visual: {
+    defaultWardrobe: "M-23 submachine gun",
+    wardrobePreferences: ["professional attire for official Section 9 business", "tactical gear for field operations"],
+  } };
+  reconcileCatalogueWardrobe(profile, ["fingerless gloves"], null);
+  assert.equal(profile.visual.defaultWardrobe, "professional attire");
+
+  const mixed = { visual: {
+    defaultWardrobe: "black tactical bodysuit, pistol, fingerless gloves",
+    wardrobePreferences: [],
+  } };
+  reconcileCatalogueWardrobe(mixed, [], null);
+  assert.equal(mixed.visual.defaultWardrobe, "black tactical bodysuit, fingerless gloves");
+});
 import { normalizeWardrobePrompt } from "../server/wardrobe.mjs";
 
 test("prompt tags are merged without repeating overlapping safeguards", () => {
@@ -25,11 +73,10 @@ test("separates permanent identity from wardrobe tags", () => {
   assert.deepEqual(split.signature, ["earrings"]);
 });
 
-test("school conversation cues replace the current wardrobe layer", () => {
+test("school conversation cues do not invent a wardrobe change", () => {
   assert.deepEqual(inferSceneCue("Come meet me at school today"), {
     location: "at school",
     activity: "spending time at school",
-    outfit: "character-appropriate school uniform",
   });
 });
 
@@ -220,6 +267,27 @@ test("an unknown setting fallback is not repeated after the location sentence", 
   });
   assert.equal((prompt.match(/crystal observatory/gi) || []).length, 1);
   assert.match(prompt, /studying the stars/i);
+});
+
+test("a settled restaurant patio prompt leads with staging and excludes arrival prose", () => {
+  const prompt = buildImagePrompt(
+    { visual: { identity: ["red hair", "grey eyes"], signature: [], defaultWardrobe: "cream sweater and charcoal leggings" } },
+    { name: "Erica Anderson", trigger: "erica_anderson" },
+    {
+      location: "Big Benedict's patio",
+      environment: "A sunny outdoor restaurant patio with cafe tables, chairs, shade umbrellas, planters, and open morning air.",
+      activity: "sitting at a patio table and having brunch",
+      expression: "warm and playful",
+      lighting: "morning sunlight",
+      outfit: "cream sweater and charcoal leggings",
+    },
+    "A candid third-person image.",
+  );
+  const activityIndex = prompt.indexOf("Erica Anderson is sitting at a patio table and having brunch.");
+  const locationIndex = prompt.indexOf("Big Benedict's patio");
+  assert.ok(activityIndex > -1 && activityIndex < locationIndex);
+  assert.match(prompt, /restaurant patio.*cafe tables.*umbrellas/i);
+  assert.doesNotMatch(prompt, /stepped into|scanned for a spot|settling into|doorway|door frame|threshold|KEY VISUAL|LATEST VISUAL/i);
 });
 
 test("current social identity chooses one booru subject tag without weakening the adult rule", () => {

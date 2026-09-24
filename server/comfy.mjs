@@ -406,6 +406,25 @@ export async function generationStatus(config, promptId) {
 }
 
 export async function fetchComfyImage(config, url) {
+  const requestedPreview = String(url.searchParams.get("preview") || "");
+  const preview = /^(?:webp|jpeg);(?:[1-9]\d?|100)$/i.test(requestedPreview) ? requestedPreview : "";
+  // ComfyUI can return a much smaller WebP/JPEG representation without
+  // altering the original gallery file. Portraits request this path; if
+  // ComfyUI is closed, fall back to the durable original on disk below.
+  if (preview) {
+    const target = new URL("/view", config.comfyUrl);
+    for (const key of ["filename", "subfolder", "type"]) {
+      const value = url.searchParams.get(key);
+      if (value) target.searchParams.set(key, value);
+    }
+    target.searchParams.set("preview", preview);
+    try {
+      const response = await fetch(target, { signal: AbortSignal.timeout(10000) });
+      if (response.ok) return { body: Buffer.from(await response.arrayBuffer()), type: response.headers.get("content-type") || "image/webp" };
+    } catch {
+      // The full local image remains available even when ComfyUI is closed.
+    }
+  }
   let localFailure = null;
   if (config.comfyOutputDir) {
     try {

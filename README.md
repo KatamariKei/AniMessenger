@@ -28,7 +28,7 @@ AniMessenger is available under the [MIT License](LICENSE). See the [changelog](
 
 ### [Download the latest Windows release](https://github.com/KatamariKei/AniMessenger/releases/latest)
 
-1. Download and extract `AniMessenger-Windows-v0.4.0.zip`.
+1. Download and extract `AniMessenger-Windows-v0.5.0.zip`.
 2. Run `Install-AniMessenger.cmd` from the extracted folder.
 3. Use the AniMessenger tray icon to open, start, stop, or check for updates.
 
@@ -39,8 +39,12 @@ The installer is not yet code-signed, so Windows may show a reputation warning. 
 ## What you need
 
 - Windows 10 or 11 is the currently tested platform;
+- for the complete local workflow, an NVIDIA GPU with **12 GB of VRAM is the recommended minimum**; 16 GB provides better headroom and 24 GB or more provides the best experience;
+- 32 GB of system memory is the practical minimum for the complete local workflow, with 64 GB recommended when Ollama and ComfyUI are used together;
 - **Ollama with at least one local model is required** to find, build, and chat with characters;
 - ComfyUI only if you want generated profile pictures and chat images.
+
+CPU-only systems and GPUs with 8 GB of VRAM may still run AniMessenger with a smaller Ollama model, especially for chat-only use, but the complete character-creation and image workflow is experimental on that hardware and may be dramatically slower or run out of memory. Laptop GPUs may also perform below desktop cards with the same product name. The 12 GB tier is a recommended target rather than a guarantee for every model, context size, or ComfyUI workflow.
 
 Building from source additionally requires Git, Node.js 22.13 or newer, and pnpm 11. Packaged Windows users do not need those developer tools.
 

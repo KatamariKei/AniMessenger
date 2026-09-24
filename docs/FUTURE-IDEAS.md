@@ -2,6 +2,30 @@
 
 This document tracks experimental work and intentionally deferred concepts.
 
+## Character-research waiting game
+
+Offer a tiny optional tap-to-jump runner, inspired by Chrome's offline Dino game, while a new character is being researched and prepared. It should work with touch and keyboard, stay responsive without using the local AI/GPU budget, and stop or dismiss cleanly when the profile is ready or setup needs attention. Keep the real preparation progress and any error visible; the game is a diversion, not a substitute for status or a reason to prolong setup.
+
+## Character revelations
+
+Explore a lightweight revelations system that gives each character a small number of meaningful truths, topics, or personal discoveries that can emerge through the relationship. Revelations should create authored-feeling arcs without turning conversation into a checklist or trivia quiz.
+
+### States
+
+- **Unavailable:** The revelation cannot yet be reached. Required relationship, story, memory, or character-awareness conditions have not been met, and the model must not leak the answer.
+- **Discoverable:** Fair clues and story conditions now exist. The user can notice a pattern, follow a lead, ask the right kind of question, or create a safe enough moment for the truth to emerge.
+- **Revealed:** The truth has been meaningfully discovered or disclosed. It becomes durable continuity and can naturally affect later conversation, relationship behavior, and story choices.
+
+### Fair discovery
+
+Every revelation needs at least one understandable path into it: recurring behavior, a contradiction, an object, a memory fragment, a visible reaction, a related topic, a direct question, or a story event. A user should not need to guess an impossible secret or stumble over an invisible score threshold. Relationship level may help make a revelation available, but score alone should not reveal it.
+
+The interface should preserve surprise without becoming opaque. An unavailable revelation can remain entirely hidden; a discoverable one might appear only as a subtle cue such as **Something remains unspoken**. The actual truth should never be spoiled by its label before it is revealed.
+
+Some revelations are also self-discoveries. A character may not know the hidden truth yet, so the system must distinguish what the character currently understands from what the user has discovered. Rin's amnesia and alien origin are a useful test case: early on the truth is unavailable to both; later clues can make it discoverable; only an explicit recovered-memory event should make it known and discussable.
+
+Revelations may grant a relationship bonus and a restrained milestone notification, but the reward size needs testing. The emotional consequence and durable continuity matter more than a large automatic score increase.
+
 ## Guest character cameos — current implementation
 
 Temporary guest appearances are now implemented for one already-researched character inside an existing chat.
@@ -88,6 +112,12 @@ Chat mode should remain the fast, messaging-first experience: direct character r
 - How to prevent repetitive purple prose, constant mood-setting, and narration that merely restates dialogue.
 
 This should begin as an opt-in experiment. Existing chats must remain in Chat mode by default, and enabling it must not rewrite prior messages or alter established personalities.
+
+### Post-release continuity hardening
+
+The v0.5.0 continuity soak confirmed that explicit room moves and wardrobe changes are substantially more reliable, but natural-language scene state remains intentionally conservative and imperfect. A later pass should reject vague location labels such as `the warm place`, normalize durable locations separately from descriptive atmosphere, and expose a compact manual scene editor for correcting location, environment, presence, outfit, and pose without rewriting conversation history.
+
+Add structured physical placement instead of asking image prompts to infer it from prose: posture (standing, sitting, lying, kneeling, crouching, or leaning), supporting surface, orientation, proximity, and relevant character-to-character placement. Persist that state until a completed movement changes it, track its source and confidence, and carry it into generated-image prompts so established seated or reclining scenes do not repeatedly default to standing portraits. Guest Narrative mode should eventually generate one unified ensemble passage with internal speaker attribution so both characters share coherent choreography while memories, relationships, outfits, and image state remain character-specific.
 
 ## Sound design
 

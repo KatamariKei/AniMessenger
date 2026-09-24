@@ -1,6 +1,6 @@
 export function normalizeWardrobePrompt(outfit = "") {
   const cleaned = String(outfit || "").replace(/\s+/g, " ").trim();
-  if (/^(?:none|nothing|no clothes|no clothing|nude|naked)$/i.test(cleaned)) return "completely nude";
+  if (/^(?:none|nothing|no clothes|no clothing|(?:completely\s+)?nude|(?:completely\s+)?naked)$/i.test(cleaned)) return "completely nude";
   return cleaned;
 }
 
@@ -10,15 +10,18 @@ export function photoOutfitUpdate(photoBrief = "", photoOutfit = "") {
 }
 
 const wardrobePlaceholder = /^(?:(?:the|her|his|their)\s+)?(?:standard|usual|normal|default|appropriate|character-appropriate)\s+(?:attire|outfit|clothes|clothing)$/i;
-const wardrobeTransition = /\b(?:put(?:s|ting)? on|try(?:ing|ies)? on|change(?:s|d|ing)? into|chang(?:e|ed|ing) clothes|slip(?:s|ped|ping)? into|dress(?:es|ed|ing)? (?:up )?(?:as|in)|get(?:s|ting)? dressed|got dressed|finish(?:ed|es|ing)? (?:getting dressed|dressing)|costume change|outfit change|outfit reveal|(?:go(?:es|ing)? (?:and )?)?get(?:s|ting)? (?:a|an|the|her|his|their|my|your|some)?\s*(?:[\w-]+\s+){0,4}(?:jumpsuit|outfit|clothes|gear) on|(?:return(?:s|ed|ing)?|come(?:s|ing)? back|back) in\s+(?:[\w-]+\s+){0,4}(?:attire|outfit|clothes|clothing|gear|jumpsuit|dress|shirt|top|pants|shorts|skirt|jacket|coat|robe|uniform|swimsuit|bikini|leggings|sweater)|wear(?:s|ing)?\s+(?:(?:a|an|the|her|his|their|my|your|some)s+)?(?:[\w-]+\s+){0,4}(?:attire|outfit|clothes|clothing|gear|jumpsuit|dress|shirt|top|pants|shorts|skirt|jacket|coat|robe|uniform|swimsuit|bikini|leggings|sweater)|take(?:s|n|ing)? off|remove(?:s|d|ing)? (?:her|his|their|the)?\s*(?:clothes|clothing|outfit|dress|shirt|top|pants|shorts|skirt|jacket|coat|robe))\b/i;
-const garmentWord = /\b(?:t[- ]?shirt|tee|shirt|tank(?: top)?|top|blouse|sweater|hoodie|cardigan|dress|gown|robe|towel|uniform|suit|jumpsuit|bodysuit|swimsuit|bikini|lingerie|underwear|bra|panties|pajamas?|shorts|pants|trousers|jeans|leggings|skirt|jacket|coat|apron|armor|attire|outfit|clothes|clothing|gear)\b/i;
+const wardrobeTransition = /\b(?:put(?:s|ting)? on|try(?:ing|ies)? on|change(?:s|d|ing)? into|chang(?:e|ed|ing) clothes|slip(?:s|ped|ping)? into|slid(?:e|es|ing)? into|dress(?:es|ed|ing)? (?:up )?(?:as|in)|get(?:s|ting)? dressed|got dressed|finish(?:ed|es|ing)? (?:getting dressed|dressing)|costume change|outfit change|outfit reveal|(?:go(?:es|ing)? (?:and )?)?get(?:s|ting)? (?:a|an|the|her|his|their|my|your|some)?\s*(?:[\w-]+\s+){0,4}(?:jumpsuit|outfit|clothes|gear) on|(?:return(?:s|ed|ing)?|come(?:s|ing)? back|back) in\s+(?:[\w-]+\s+){0,4}(?:attire|outfit|clothes|clothing|gear|jumpsuit|dress|shirt|top|pants|shorts|skirt|jacket|coat|robe|uniform|swimsuit|bikini|leggings|sweater)|wear(?:s|ing)?\s+(?:(?:a|an|the|her|his|their|my|your|some)s+)?(?:[\w-]+\s+){0,4}(?:attire|outfit|clothes|clothing|gear|jumpsuit|dress|shirt|top|pants|shorts|skirt|jacket|coat|robe|uniform|swimsuit|bikini|leggings|sweater)|take(?:s|n|ing)? off|remove(?:s|d|ing)? (?:her|his|their|the)?\s*(?:clothes|clothing|outfit|dress|shirt|top|pants|shorts|skirt|jacket|coat|robe))\b/i;
+const garmentWord = /\b(?:t[- ]?shirt|tee|shirt|tank(?: top)?|top|blouse|sweater|hoodie|cardigan|dress|gown|robe|towel|uniform|suit|jumpsuit|bodysuit|swimsuit|bikini|lingerie|underwear|bra|panties|pajamas?|shorts|pants|trousers|jeans|leggings|skirt|jacket|coat|apron|armor|attire|outfit|clothes|clothing|gear|shoes?|boots?|heels?|loafers?|trainers?|sneakers?|sandals?|slippers?|socks?|stockings?|thigh-highs?|gloves?|tie|necktie|ribbon|scarf|choker|necklace|jewelry)\b/i;
+const garmentTerm = "(?:t[- ]?shirt|tee|shirt|tank(?: top)?|top|blouse|sweater|hoodie|cardigan|dress|gown|robe|towel|uniform|suit|jumpsuit|bodysuit|swimsuit|bikini|lingerie|underwear|bra|panties|pajamas?|shorts|pants|trousers|jeans|leggings|skirt|jacket|coat|apron|armor|attire|outfit|clothes|clothing|gear|shoes?|boots?|heels?|loafers?|trainers?|sneakers?|sandals?|slippers?|socks?|stockings?|thigh-highs?|gloves?|tie|necktie|ribbon|scarf|choker|necklace|jewelry)";
 const futureWardrobe = /\b(?:will|would|might|maybe|later|tomorrow|plan(?:ning)? to|want(?:ing)? to|going to|about to|should|could|(?:i|you|she|he|they)['’]ll)\b/i;
 
 function cleanWardrobeCandidate(value = "") {
   const candidate = String(value || "")
     .replace(/\s+/g, " ")
-    .replace(/^(?:(?:a|an|the|her|his|their|my|your|some)\s+)+/i, "")
+    .replace(/^(?:(?:a pair of|a|an|the|this|her|his|their|my|your|some)\s+)+/i, "")
+    .replace(/,\s+(?:she|he|they|i|you)\b.*$/i, "")
     .replace(/\s+(?:and|while|before)\s+(?:she|he|they|i|you)\b.*$/i, "")
+    .replace(/\s+and\s+(?:then\s+)?(?:join|follow|walk|step|come|return|head|go|leave)(?:s|ed|ing)?\b.*$/i, "")
     .replace(/[\].,!?;:]+$/g, "")
     .trim()
     .slice(0, 240);
@@ -26,16 +29,68 @@ function cleanWardrobeCandidate(value = "") {
   return normalizeWardrobePrompt(candidate);
 }
 
+function removalMatcher(garment = "") {
+  const key = String(garment || "").toLowerCase();
+  if (/^(?:clothes|clothing|outfit|attire|gear)$/.test(key)) return /./;
+  if (/^(?:top|shirt|tee|t-shirt|tank|tank top|blouse)$/.test(key)) return /\b(?:top|shirt|tee|t[- ]?shirt|tank(?: top)?|blouse)\b/i;
+  if (/^(?:pants|trousers|jeans|leggings|shorts)$/.test(key)) return new RegExp(`\\b${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+  if (/^(?:shoe|shoes|boot|boots|heel|heels|loafer|loafers|trainer|trainers|sneaker|sneakers|sandal|sandals|slipper|slippers)$/.test(key)) return /\b(?:shoes?|boots?|heels?|loafers?|trainers?|sneakers?|sandals?|slippers?)\b/i;
+  return new RegExp(`\\b${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+}
+
+export function removeWardrobeItems(currentOutfit = "", removedGarments = []) {
+  const current = normalizeWardrobePrompt(currentOutfit);
+  const removed = [...new Set((Array.isArray(removedGarments) ? removedGarments : [removedGarments])
+    .map((item) => String(item || "").toLowerCase().trim())
+    .filter(Boolean))];
+  if (!current || current === "completely nude" || !removed.length) return current;
+  if (removed.some((item) => /^(?:clothes|clothing|outfit|attire|gear|everything|all)$/.test(item))) return "completely nude";
+
+  const splitOnGarmentAnd = new RegExp(`\\s+and\\s+(?=(?:(?:a|an|the|her|his|their)\\s+)?[^,;]{0,70}\\b${garmentTerm}\\b)`, "i");
+  const segments = current
+    .split(/\s*[,;]\s*/)
+    .flatMap((segment) => segment.split(splitOnGarmentAnd))
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  const remaining = segments.filter((segment) => !removed.some((garment) => removalMatcher(garment).test(segment)));
+  if (remaining.length === segments.length) return current;
+  return remaining.length ? remaining.join(", ") : "completely nude";
+}
+
 export function inferWardrobeEvent(text = "", source = "user") {
-  const normalized = String(text || "")
+  const raw = String(text || "");
+  const actionDescription = /\[action\s*:/i.test(raw);
+  const normalized = raw
     .replace(/\[(?:action|thought)\s*:\s*/gi, "")
     .replace(/\]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
   if (!normalized) return null;
 
+  const removal = normalized.match(new RegExp(
+    `\\b(?:take(?:s|n|ing)?\\s+off|remove(?:s|d|ing)?|slip(?:s|ped|ping)?\\s+out\\s+of|shrug(?:s|ged|ging)?\\s+off|peel(?:s|ed|ing)?\\s+off|discard(?:s|ed|ing)?)\\s+(?:(?:her|his|their|the|a|an|my|your)\\s+)?([^.!?;]{0,150}?\\b${garmentTerm}\\b(?:\\s+(?:and|,)\\s+[^.!?;]{0,90}?\\b${garmentTerm}\\b)*)`,
+    "i",
+  )) || normalized.match(new RegExp(
+    `\\b(?:take(?:s|n|ing)?)\\s+(?:(?:her|his|their|the|a|an|my|your)\\s+)?([^.!?;]{0,120}?\\b${garmentTerm}\\b)\\s+off\\b`,
+    "i",
+  ));
+  if (removal?.[1]) {
+    const lead = normalized.slice(Math.max(0, (removal.index || 0) - 45), removal.index || 0);
+    if (!futureWardrobe.test(lead)) {
+      const phrase = removal[1];
+      const broad = /\b(?:all (?:her|his|their|my|your)?\s*(?:clothes|clothing)|everything|clothes|clothing|outfit|attire)\b/i.test(phrase);
+      const removedGarments = broad
+        ? ["clothes"]
+        : [...phrase.matchAll(new RegExp(`\\b(${garmentTerm})\\b`, "gi"))].map((match) => match[1]);
+      if (removedGarments.length) {
+        return { type: "wardrobe_change", phase: "removed", removedGarments, source, evidence: normalized };
+      }
+    }
+  }
+
   const towelAction = normalized.match(/\b(?:grab(?:s|bed|bing)?|take(?:s|n|ing)?)\s+(?:a|the)?\s*([^,.!?;]{0,60}\btowel\b)[^.!?;]{0,100}\bwrap(?:s|ped|ping)?\s+(?:it\s+)?around\s+(?:herself|himself|themself|their body|her body|his body)\b/i)
-    || normalized.match(/\bwrap(?:s|ped|ping)?\s+(?:herself|himself|themself|their body|her body|his body)\s+in\s+(?:a|the)?\s*([^,.!?;]{0,80}\b(?:towel|robe)\b)/i);
+    || normalized.match(/\bwrap(?:s|ped|ping)?\s+(?:herself|himself|themself|their body|her body|his body)\s+in\s+(?:a|the)?\s*([^,.!?;]{0,80}\b(?:towel|robe)\b)/i)
+    || normalized.match(/\bwrap(?:s|ped|ping)?\s+(?:her|him|them)\s+in\s+(?:a|the)?\s*([^,.!?;]{0,80}\b(?:towel|robe)\b)/i);
   if (towelAction?.[1]) {
     const garment = cleanWardrobeCandidate(towelAction[1]);
     if (garment) {
@@ -46,9 +101,41 @@ export function inferWardrobeEvent(text = "", source = "user") {
     }
   }
 
+  // Narrative prose often describes a finished outfit as a coordinated
+  // ensemble: "she slid into charcoal leggings and paired them with a cream
+  // sweater." Capture both concrete garments and their descriptors rather
+  // than accepting only the first item or leaving the previous outfit active.
+  const pairedEnsemble = normalized.match(new RegExp(
+    `\\b(?:slid|slide|slides|sliding|slipped|slips|slipping|changed|changes|changing)\\s+into\\s+(.{1,180}?\\b${garmentTerm}\\b)[^.!?]{0,180}?\\b(?:and\\s+)?(?:pair(?:s|ed|ing)?|match(?:es|ed|ing)?|team(?:s|ed|ing)?)\\s+(?:it|them|that|the\\s+${garmentTerm})\\s+with\\s+(.{1,180}?\\b${garmentTerm}\\b)`,
+    "i",
+  ));
+  if (pairedEnsemble?.[1] && pairedEnsemble?.[2]) {
+    const lead = normalized.slice(Math.max(0, (pairedEnsemble.index || 0) - 50), pairedEnsemble.index || 0);
+    if (!futureWardrobe.test(lead)) {
+      const first = cleanWardrobeCandidate(pairedEnsemble[1]);
+      const second = cleanWardrobeCandidate(pairedEnsemble[2]);
+      if (first && second) {
+        return { type: "wardrobe_change", phase: "changed", outfit: `${first}, ${second}`, source, evidence: normalized };
+      }
+    }
+  }
+
+  // Narrative mode may mark the completion after showing the dressing
+  // process: "Once he's finally settled into the dress...". This is present
+  // state, unlike "begins to put it on" or an instruction to try it on.
+  const completedInto = normalized.match(new RegExp(
+    `\\b(?:once\\s+)?(?:i|you|she|he|they)(?:['’]s|\\s+has|\\s+have)?\\s+(?:finally\\s+)?(?:settled|slipped|changed|dressed)\\s+into\\s+([^.!?;]{0,150}?\\b${garmentTerm}\\b[^.!?;]{0,80})`,
+    "i",
+  ));
+  if (completedInto?.[1]) {
+    const outfit = cleanWardrobeCandidate(completedInto[1]);
+    if (outfit) return { type: "wardrobe_change", phase: "changed", outfit, source, evidence: normalized };
+  }
+
   const patterns = [
     /\b(?:i|you|she|he|they)\s+(?:(?:walk|step|come|came|return|emerge)(?:s|ed|ing)?\s+(?:out|back)\s+)?(?:am|are|is|was|were)?\s*wearing\s+([^,.!?;]+)/i,
-    /\b(?:i|you|she|he|they)\s+(?:put(?:s|ting)? on|changed? into|changes? into|changing into|slip(?:s|ped|ping)? into|dress(?:es|ed|ing)? in|return(?:s|ed|ing)? in|emerge(?:s|d|ing)? in|walk(?:s|ed|ing)? out in|come(?:s|d|ing)? out in)\s+([^,.!?;]+)/i,
+    /\b(?:i|you|she|he|they)\s+(?:put(?:s|ting)? on|changed? into|changes? into|changing into|slip(?:s|ped|ping)? into|slid(?:e|es|ing)? into|dress(?:es|ed|ing)? in|return(?:s|ed|ing)? in|emerge(?:s|d|ing)? in|walk(?:s|ed|ing)? out in|come(?:s|d|ing)? out in)\s+([^,.!?;]+)/i,
+    /\b(?:i|you|she|he|they)\s+(?:get(?:s|ting)?|got)\s+dressed\s+in\s+([^,.!?;]+)/i,
     /\b(?:i|you|she|he|they)(?:['’]m|['’]re|['’]s| am| are| is)\s+(?:now\s+)?(?:dressed in|wearing|in)\s+([^,.!?;]+)/i,
   ];
   for (const pattern of patterns) {
@@ -60,15 +147,64 @@ export function inferWardrobeEvent(text = "", source = "user") {
     if (outfit) return { type: "wardrobe_change", phase: "changed", outfit, source, evidence: normalized };
   }
 
+  // Explicit action corrections may use a character name (including a minor
+  // spelling variation) instead of a pronoun. The action wrapper establishes
+  // that this is present scene state rather than speculation about someone.
+  if (actionDescription) {
+    const namedWearing = normalized.match(/\b[a-z][a-z'-]*(?:\s+[a-z][a-z'-]*){0,2}\s+(?:is|was)\s+(?:now\s+)?wearing\s+([^,.!?;]+)/i);
+    if (namedWearing?.[1]) {
+      const outfit = cleanWardrobeCandidate(namedWearing[1]);
+      if (outfit) return { type: "wardrobe_change", phase: "changed", outfit, source, evidence: normalized };
+    }
+  }
+
+  // Narrative mode often realizes a completed outfit as a fashion sequence
+  // rather than the literal phrase "put on": she opts for a look, pairs its
+  // garments, then finishes it with an accessory. Treat that as authoritative
+  // wardrobe evidence while continuing to reject future or hypothetical plans.
+  const styledChoice = normalized.match(/\b(?:opt(?:s|ed)\s+for|cho(?:ose|oses|se)|select(?:s|ed)|pick(?:s|ed)\s+out)\s+([^.!?;]+)/i);
+  if (styledChoice?.[1]) {
+    const lead = normalized.slice(Math.max(0, (styledChoice.index || 0) - 50), styledChoice.index || 0);
+    if (!futureWardrobe.test(lead)) {
+      let description = styledChoice[1]
+        .replace(/^(?:(?:a|an|the)\s+)?[^:]{0,100}\b(?:look|outfit|ensemble)\s*:\s*/i, "")
+        .trim();
+      const following = normalized.slice((styledChoice.index || 0) + styledChoice[0].length);
+      const finishingTouch = following.match(/^\.\s*(?:she|he|they|i|you)\s+(?:finish(?:es|ed|ing)?|complete(?:s|d|ing)?|accent(?:s|ed|ing)?)\s+(?:(?:the|her|his|their|my|your)\s+)?(?:outfit|look|ensemble)\s+with\s+([^.!?;]+)/i);
+      if (finishingTouch?.[1]) description += ", " + finishingTouch[1].replace(/,\s+(?:adding|giving|creating)\b.*$/i, "").trim();
+      const outfit = cleanWardrobeCandidate(description);
+      if (outfit) return { type: "wardrobe_change", phase: "changed", outfit, source, evidence: normalized };
+    }
+  }
+
   if (/\b(?:i|you|she|he|they)(?:['’]m|['’]re|['’]s| am| are| is| was| were)\s+(?:now\s+)?(?:completely\s+)?(?:naked|nude)\b/i.test(normalized)) {
+    return { type: "wardrobe_change", phase: "changed", outfit: "completely nude", source, evidence: normalized };
+  }
+  if (/\b(?:now|stands?|standing|appears?|appearing|looks?|looking|left|ends? up)\b[^.!?;]{0,100}\b(?:completely\s+)?(?:naked|nude)\b/i.test(normalized)) {
     return { type: "wardrobe_change", phase: "changed", outfit: "completely nude", source, evidence: normalized };
   }
   return null;
 }
 
+export function inferWardrobeDescription(text = "", source = "user") {
+  const normalized = String(text || "")
+    .replace(/\[(?:action|thought)\s*:\s*/gi, "")
+    .replace(/\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return null;
+  const match = normalized.match(new RegExp(
+    `\\b(?:it['’]s|it\\s+is|this\\s+is|the\\s+(?:outfit|dress|ensemble|attire|look)\\s+is)\\s+(?:this\\s+)?([^.!?;]{0,220}?\\b${garmentTerm}\\b[^.!?;]{0,120})`,
+    "i",
+  ));
+  if (!match?.[1]) return null;
+  const outfit = cleanWardrobeCandidate(match[1]);
+  return outfit ? { type: "wardrobe_change", phase: "described", outfit, source, evidence: normalized } : null;
+}
+
 export function wardrobeDescriptionRequested(text = "") {
   const value = String(text || "").replace(/\s+/g, " ").trim();
-  const wardrobeSubject = "(?:outfit|clothes?|clothing|attire|gear|ensemble|look|what (?:you(?:'re| are)|they(?:'re| are)) wearing)";
+  const wardrobeSubject = "(?:outfit|clothes?|clothing|attire|gear|ensemble|look|dress|gown|robe|uniform|suit|jumpsuit|bodysuit|swimsuit|bikini|shirt|top|pants|shorts|skirt|what (?:you(?:'re| are)|they(?:'re| are)) wearing)";
   return new RegExp(
     "\\b(?:what (?:are|r) (?:you|they) wearing|what (?:do|does) (?:your|their) (?:outfit|clothes?|attire|gear) look like|describe[^.!?]{0,48}" + wardrobeSubject + "|(?:give|tell|show) me[^.!?]{0,48}" + wardrobeSubject + "|details? (?:about|of|on)[^.!?]{0,32}" + wardrobeSubject + ")\\b",
     "i",

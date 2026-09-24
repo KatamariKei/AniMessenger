@@ -4,7 +4,7 @@ import { imageFraming, normalizeWardrobePrompt, replaceWardrobePlaceholders, sta
 const clothingWords = [
   "apron", "armor", "bikini", "blazer", "blindfold", "boots", "cape", "cardigan",
   "casual clothes", "coat", "costume", "dress", "detached sleeves", "gloves", "gown",
-  "gym uniform", "haori", "hat", "hoodie", "jacket", "japanese clothes", "jeans",
+  "gym uniform", "haori", "hat", "hoodie", "jacket", "japanese clothes", "chinese clothes", "china dress", "cheongsam", "qipao", "jeans",
   "kimono", "necktie", "pajamas", "pants", "plugsuit", "robe", "school uniform",
   "shirt", "shoes", "shorts", "skirt", "sleeves", "socks", "suit", "sweater",
   "swimsuit", "uniform", "vest", "white shawl",
@@ -15,6 +15,16 @@ const identityWords = [
   "tail", "wings", "scar", "mole", "freckles", "skin", "fang", "antennae", "1girl",
   "1boy", "1other", "no humans", "long hair", "short hair", "very long hair",
 ];
+
+const carriedEquipment = /\b(?:submachine gun|machine gun|assault rifle|sniper rifle|firearm|pistol|revolver|rifle|shotgun|gun|katana|sword|dagger|knife|spear|bow|crossbow|axe|hammer|staff|wand|shield|weapon)\b/i;
+const wearableDescription = /\b(?:attire|armor|bikini|blazer|blindfold|boots|cape|cardigan|clothes|clothing|coat|costume|dress|gloves|gown|gear|haori|hat|hoodie|jacket|jeans|kimono|leotard|lingerie|outfit|pajamas|pants|qipao|robe|shirt|shoes|shorts|skirt|sleeves|socks|stockings|suit|sweater|swimsuit|thigh-?highs|top|trousers|uniform|vest)\b/i;
+
+function wardrobeWithoutCarriedEquipment(value) {
+  return String(value || "").split(/\s*[,;]\s*|\s+and\s+/i)
+    .map((part) => part.trim())
+    .filter((part) => part && (!carriedEquipment.test(part) || wearableDescription.test(part)))
+    .join(", ");
+}
 
 const correctionGarments = [
   "tank top", "t-shirt", "tee shirt", "school uniform", "gym uniform", "swimsuit",
@@ -112,6 +122,61 @@ export function splitVisualTags(tags = []) {
   const identity = clean.filter((tag) => !isClothingTag(tag) && identityWords.some((word) => tag.toLowerCase().includes(word)));
   const signature = clean.filter((tag) => !identity.includes(tag) && !wardrobe.includes(tag));
   return { identity, signature, wardrobe };
+}
+
+// Keep the model's visual prose aligned with a more specific catalogue
+// hairstyle tag. "Two side up" leaves most hair down; twintails do not.
+// Correct this narrow, evidence-backed mismatch without another profile
+// rewrite or a failed character setup.
+export function reconcileCatalogueHairstyle(profile, tags = [], dossier = null) {
+  const tagSet = new Set(tags.map((tag) => String(tag).toLowerCase().replaceAll("_", " ").trim()));
+  const sourceSaysTwintails = (dossier?.facts || []).some((fact) => fact.category === "appearance"
+    && fact.scope !== "variant" && /\btwintails?\b/i.test(String(fact.quote || fact.claim || "")));
+  if (!tagSet.has("two side up") || tagSet.has("twintails") || sourceSaysTwintails || !profile?.visual) return profile;
+  const correct = (value) => {
+    const wording = String(value || "");
+    if (!/\btwintails?\b/i.test(wording)) return value;
+    const remaining = wording.replace(/\btwintails?\b/gi, "").replace(/[\s,;]+$/, "").trim();
+    if (!remaining) return "two side up";
+    return (/\bhair\b/i.test(remaining) ? remaining : remaining + " hair") + ", two side up";
+  };
+  for (const field of ["identity", "signature"]) {
+    if (Array.isArray(profile.visual[field])) profile.visual[field] = profile.visual[field].map(correct);
+  }
+  return profile;
+}
+
+// A wiki's broad everyday-clothes phrase can be factual yet too vague for a
+// recognizable visual default. Prefer a named garment only when both the
+// catalogue and independent character evidence support that garment.
+export function reconcileCatalogueWardrobe(profile, tags = [], research = null) {
+  if (!profile?.visual) return profile;
+  let current = String(profile.visual.defaultWardrobe || "").trim();
+  const wearableCurrent = carriedEquipment.test(current) ? wardrobeWithoutCarriedEquipment(current) : current;
+  if (wearableCurrent !== current) {
+    const preference = (profile.visual.wardrobePreferences || [])
+      .map(wardrobeWithoutCarriedEquipment)
+      .find((value) => wearableDescription.test(value));
+    const catalogueWardrobe = splitVisualTags(tags).wardrobe.join(", ");
+    profile.visual.defaultWardrobe = wearableCurrent
+      || preference?.replace(/\s+for\s+.+$/i, "").trim()
+      || catalogueWardrobe
+      || "casual clothes";
+    current = profile.visual.defaultWardrobe;
+  }
+  if (!/^(?:(?:a|the|her)\s+)?(?:(?:matching|chinese|simple|usual|everyday)\s+)*(?:blouse and pants|top and pants|chinese clothes)\.?$/i.test(current)) return profile;
+  const clothingTags = splitVisualTags(tags).wardrobe.map((tag) => tag.toLowerCase().replaceAll("_", " "));
+  if (!clothingTags.some((tag) => /^(?:qipao|cheongsam|china dress)$/.test(tag))) return profile;
+  const evidence = (research?.evidence?.passages || [])
+    .filter((passage) => ["franchise_wiki", "wikipedia", "anilist"].includes(passage.provider))
+    .map((passage) => String(passage.text || "")).join("\n");
+  if (!/\b(?:cheongsam|qipao)\b/i.test(evidence)) return profile;
+  const color = clothingTags.map((tag) => tag.match(/^(red|blue|purple|pink|green|black|white|yellow)\s+(?:qipao|cheongsam|dress)$/)?.[1]).find(Boolean);
+  const sleeveless = /\bsleeveless\b[^\n.]{0,80}\b(?:cheongsam|qipao)\b/i.test(evidence);
+  profile.visual.defaultWardrobe = `A ${sleeveless ? "sleeveless " : ""}${color ? color + " " : ""}Chinese dress (qipao/cheongsam).`;
+  const preferences = Array.isArray(profile.visual.wardrobePreferences) ? profile.visual.wardrobePreferences : [];
+  profile.visual.wardrobePreferences = [...new Set([...preferences, current])];
+  return profile;
 }
 
 function list(value) {
@@ -329,6 +394,20 @@ function sceneDescription(character, scene = {}, brief = "", outfit = "", option
     if (composition) description.push(sentence(composition));
   }
 
+  // Put the character's current physical staging ahead of setting prose. Image
+  // models weight early natural-language concepts heavily; leading with a
+  // settled action such as "seated at a patio table" prevents an earlier
+  // arrival or doorway from dominating the composition.
+  let activity = naturalClause(cleanSceneActivity(scene?.activity), options);
+  activity = lowercasePhraseLead(activity);
+  activity = activity.replace(/^passionate\s+(?=(?:embrac|kiss|hold|touch))/i, "passionately ");
+  activity = activity
+    .replace(/^passionately embracing and kissing$/i, "leaning forward into a passionate embrace and kiss toward the viewer")
+    .replace(/^kissing$/i, "leaning forward to kiss the viewer");
+  if (activity && !includesClause(composition, activity)) {
+    description.push(sentence(`${name} is ${activity}`));
+  }
+
   const location = naturalClause(cleanLocationLabel(scene?.location), options);
   if (location && !includesClause(composition, location)) {
     const genericLocation = /^(?:living room|bedroom|kitchen|bathroom|hallway|classroom|garden|office|library|gym|pool|balcony|rooftop)\b/i.test(location);
@@ -340,7 +419,7 @@ function sceneDescription(character, scene = {}, brief = "", outfit = "", option
         : location;
     const positioned = /^(?:at|in|inside|outside|on|near|beside|by|within)\b/i.test(describedLocation)
       ? `The scene takes place ${describedLocation}`
-      : `The scene takes place ${/\b(?:beach|shore)\b/i.test(location) ? "on" : "in"} ${describedLocation}`;
+      : `The scene takes place ${/\b(?:beach|shore|patio|terrace|deck)\b/i.test(location) ? "on" : "in"} ${describedLocation}`;
     description.push(sentence(positioned));
   }
 
@@ -360,16 +439,6 @@ function sceneDescription(character, scene = {}, brief = "", outfit = "", option
   // instead of replacing a redundant sentence with an identical sentence.
   if (/^the (?:setting|location|scene) is\b/i.test(environment)) environment = "";
   if (environment && !includesClause(composition, environment)) description.push(sentence(environment));
-
-  let activity = naturalClause(cleanSceneActivity(scene?.activity), options);
-  activity = lowercasePhraseLead(activity);
-  activity = activity.replace(/^passionate\s+(?=(?:embrac|kiss|hold|touch))/i, "passionately ");
-  activity = activity
-    .replace(/^passionately embracing and kissing$/i, "leaning forward into a passionate embrace and kiss toward the viewer")
-    .replace(/^kissing$/i, "leaning forward to kiss the viewer");
-  if (activity && !includesClause(composition, activity) && !includesClause(environment, activity)) {
-    description.push(sentence(`${name} is ${activity}`));
-  }
 
   const expression = lowercasePhraseLead(naturalClause(scene?.expression, options));
   if (expression && !includesClause(composition, expression)) description.push(sentence(`${name}'s expression is ${expression}`));
@@ -440,26 +509,26 @@ export function inferSceneCue(text = "") {
     || /\b(?:go|going|head|heading|come|coming|meet|arrive|return|back)(?:\s+\w+){0,4}\s+(?:school|classroom|campus)\b/.test(value)
     || /\b(?:school|class) uniform\b/.test(value);
   if (schoolTransition) {
-    return { location: "at school", activity: "spending time at school", outfit: "character-appropriate school uniform" };
+    return { location: "at school", activity: "spending time at school" };
   }
   const trainingTransition = /\b(?:at|to|inside) (?:the )?(?:gym|training area)\b/.test(value)
     || /\b(?:go|going|head|heading|come|coming|meet|arrive)(?:\s+\w+){0,4}\s+(?:gym|training area)\b/.test(value)
     || /\b(?:working out|work out together|start (?:a )?workout|exercising now|training together)\b/.test(value);
   if (trainingTransition) {
-    return { location: "at a gym or training area", activity: "training", outfit: "character-appropriate athletic wear" };
+    return { location: "at a gym or training area", activity: "training" };
   }
   if (/\b(?:put on|change into|wearing|wear) (?:my |your |some )?(?:pajamas|pyjamas)\b/.test(value)
     || /\b(?:going to bed|time for bed|bedtime now|sleepover tonight)\b/.test(value)) {
-    return { location: "at home in a comfortable room", activity: "winding down", outfit: "character-appropriate pajamas" };
+    return { location: "at home in a comfortable room", activity: "winding down" };
   }
   if (/\b(?:going|go|heading|dressed|dress|wearing|attending)(?:\s+\w+){0,5}\s+(?:formal event|gala|wedding|fancy dinner)\b/.test(value)) {
-    return { location: "at a formal event", activity: "attending the event", outfit: "character-appropriate formalwear" };
+    return { location: "at a formal event", activity: "attending the event" };
   }
   if (/\b(?:outside|go out|going out|walk|walking)(?:\s+\w+){0,5}\s+(?:snow|snowing|winter weather)\b/.test(value)) {
-    return { location: "outside in winter", outfit: "warm character-appropriate winter clothing" };
+    return { location: "outside in winter" };
   }
   if (/\b(?:outside|go out|going out|walk|walking)(?:\s+\w+){0,5}\s+(?:rain|raining|rainy weather)\b/.test(value)) {
-    return { location: "outside in the rain", outfit: "character-appropriate rainwear" };
+    return { location: "outside in the rain" };
   }
   return {};
 }

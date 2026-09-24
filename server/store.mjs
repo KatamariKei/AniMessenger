@@ -2,11 +2,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { dataDir } from "./config.mjs";
 import { mergeMemories } from "./memory.mjs";
+import { normalizeConversationMode } from "./narrative-mode.mjs";
 import { normalizeSceneState } from "./scene-state.mjs";
 
 const threadsDir = path.join(dataDir, "threads");
 const profilesDir = path.join(dataDir, "profiles");
 const uploadsDir = path.join(dataDir, "uploads");
+let threadCache = null;
 
 function safeId(value) {
   const id = String(value || "").replace(/[^a-zA-Z0-9()_.-]/g, "-").slice(0, 140);
@@ -27,12 +29,14 @@ function canonicalThread(thread) {
   if (!thread) return thread;
   return {
     ...thread,
+    conversationMode: normalizeConversationMode(thread.conversationMode),
     scene: thread.scene ? normalizeSceneState({ environment: "", ...thread.scene }) : thread.scene,
     ...(Array.isArray(thread.memories) ? { memories: mergeMemories(thread.memories, []) } : {}),
   };
 }
 
 export async function listThreads() {
+  if (threadCache) return sortThreads([...threadCache.values()]);
   await fs.mkdir(threadsDir, { recursive: true });
   const names = await fs.readdir(threadsDir);
   const threads = [];
@@ -43,6 +47,7 @@ export async function listThreads() {
       // One damaged local thread should not hide the others.
     }
   }
+  threadCache = new Map(threads.map((thread) => [safeId(thread.id), thread]));
   return sortThreads(threads);
 }
 
@@ -54,8 +59,22 @@ export function sortThreads(threads = []) {
 }
 
 export function summarizeThread(thread) {
+  const profile = thread.profile ? {
+    profileVersion: thread.profile.profileVersion,
+    id: thread.profile.id,
+    name: thread.profile.name,
+    series: thread.profile.series,
+    age: thread.profile.age,
+    status: thread.profile.status,
+    summary: thread.profile.summary,
+    openingLine: thread.profile.openingLine,
+    socialIdentity: thread.profile.socialIdentity,
+    visual: thread.profile.visual,
+    persona: { speechStyle: thread.profile.persona?.speechStyle || "Speak naturally in character." },
+  } : thread.profile;
   return {
     ...thread,
+    profile,
     messages: thread.messages?.length ? [thread.messages.at(-1)] : [],
     memories: undefined,
     summary: true,
@@ -70,8 +89,12 @@ export async function listThreadSummaries() {
 }
 
 export async function loadThread(id) {
+  const key = safeId(id);
+  if (threadCache?.has(key)) return threadCache.get(key);
   try {
-    return canonicalThread(await readJson(path.join(threadsDir, safeId(id) + ".json")));
+    const thread = canonicalThread(await readJson(path.join(threadsDir, key + ".json")));
+    if (threadCache) threadCache.set(key, thread);
+    return thread;
   } catch (error) {
     if (error && error.code === "ENOENT") return null;
     throw error;
@@ -79,8 +102,10 @@ export async function loadThread(id) {
 }
 
 export async function deleteThread(id) {
+  const key = safeId(id);
   try {
-    await fs.unlink(path.join(threadsDir, safeId(id) + ".json"));
+    await fs.unlink(path.join(threadsDir, key + ".json"));
+    if (threadCache) threadCache.delete(key);
     return true;
   } catch (error) {
     if (error && error.code === "ENOENT") return false;
@@ -92,6 +117,7 @@ export async function saveThread(thread, options = {}) {
   const updatedAt = options.preserveUpdatedAt && thread.updatedAt ? thread.updatedAt : new Date().toISOString();
   const next = canonicalThread({ ...thread, updatedAt });
   await writeJson(path.join(threadsDir, safeId(thread.id) + ".json"), next);
+  if (threadCache) threadCache.set(safeId(thread.id), next);
   return next;
 }
 
@@ -103,6 +129,7 @@ export async function createThread(character) {
     character,
     messages: [],
     relationship: 8,
+    conversationMode: "chat",
     unreadCount: 0,
     scene: {
       location: "somewhere familiar",

@@ -5,7 +5,7 @@ const ANILIST = "https://graphql.anilist.co";
 const WIKIDATA = "https://www.wikidata.org/w/api.php";
 const cache = new Map();
 const cacheTtlMs = 10 * 60 * 1000;
-const catalogHeaders = { "user-agent": "AniMessenger/0.4 character catalogue" };
+const catalogHeaders = { "user-agent": "AniMessenger/0.5 character catalogue" };
 
 function cleanText(value = "") {
   return String(value || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
@@ -21,7 +21,7 @@ function titleFromTag(value = "") {
 }
 
 function titleFromSeriesLink(value = "") {
-  return titleFromTag(value).replace(/\s*\((?:series|franchise)\)\s*$/i, "").trim();
+  return titleFromTag(value).replace(/\s*\((?:game|series|franchise)\)\s*$/i, "").trim();
 }
 
 function normalizedKey(value = "") {
@@ -32,10 +32,25 @@ function canonicalNameKey(value = "") {
   return normalizedKey(value).split(" ").filter(Boolean).sort().join(" ");
 }
 
+function catalogNameKey(item = {}) {
+  const name = String(item.name || "").trim();
+  const qualified = name.match(/^(.*?)\s*\(([^()]+)\)\s*$/);
+  if (!qualified) return canonicalNameKey(name);
+  const qualifier = normalizedKey(qualified[2]);
+  const qualifierIsSeriesLabel = seriesKeys(item).some((series) => (` ${series} `).includes(` ${qualifier} `));
+  return canonicalNameKey(qualifierIsSeriesLabel ? qualified[1] : name);
+}
+
 export function seriesKeys(item = {}) {
   return [...new Set([item.series, ...(item.seriesAliases || [])]
     .filter((value) => value && value !== "Series to confirm")
-    .map(normalizedKey)
+    .map((value) => {
+      const key = normalizedKey(value).replace(/^the\s+/, "");
+      // Danbooru occasionally appends `_1` to a copyright tag solely to
+      // resolve an internal tag-name collision. It is not part of the work's
+      // public title (for example Cyberpunk: Edgerunners).
+      return item.sourceProvider === "danbooru" ? key.replace(/\s+1$/, "") : key;
+    })
     .filter((value) => value.length >= 4 && /[a-z]/.test(value)))];
 }
 
@@ -53,6 +68,20 @@ function mergeSourceRefs(...groups) {
     if (url && !refs.has(url)) refs.set(url, ref);
   }
   return [...refs.values()];
+}
+
+const unverifiedPermanentVisualTag = /\b(?:eyes?|hair|bangs|ahoge|ponytail|twintails?|braids?|hair bun|skin|complexion|freckles?|moles?|scars?|tattoos?|breasts?|chest|physique|build|petite|short|tall|muscular|athletic|curvy|slender|fangs?|ears?|horns?|tail|wings?)\b/i;
+
+function mergedEvidenceTags(primary, secondary) {
+  const primaryTags = Array.isArray(primary?.tags) ? primary.tags : [];
+  const secondaryTags = Array.isArray(secondary?.tags) ? secondary.tags : [];
+  if (primary?.sourceProvider === "animadex" && secondary?.sourceProvider !== "animadex") {
+    return [...new Set([...secondaryTags, ...primaryTags.filter((tag) => !unverifiedPermanentVisualTag.test(String(tag)))])];
+  }
+  if (secondary?.sourceProvider === "animadex" && primary?.sourceProvider !== "animadex") {
+    return [...new Set([...primaryTags, ...secondaryTags.filter((tag) => !unverifiedPermanentVisualTag.test(String(tag)))])];
+  }
+  return [...new Set([...primaryTags, ...secondaryTags])];
 }
 
 function booruParts(tagName = "") {
@@ -107,7 +136,15 @@ export function parseDanbooruCharacter(tag, wiki = null, evidenceTags = []) {
     || body.match(/\b(?:protagonist|antagonist|character)\s+(?:from|of|in)\s+(?:the\s+)?\[\[([^\]|]+)/i)?.[1]
     || body.match(/\b(?:from|of|in)\s+(?:the\s+)?\[\[([^\]|]+)(?:\|[^\]]+)?\]\](?:\s+(?:franchise|series|game|anime|manga))?/i)?.[1]
     || "";
-  const series = parsed.series || titleFromSeriesLink(linkedSeries);
+  // A character tag's parenthetical suffix is often only a Danbooru
+  // disambiguator (for example `catherine_(atlus_character)`), not the work
+  // the character belongs to. Prefer the explicitly linked work from the wiki
+  // whenever it is available.
+  const series = titleFromSeriesLink(linkedSeries) || parsed.series;
+  const enclosingSeries = body.match(/\bset\s+in\s+(?:the\s+)?\[\[([^\]|]+)(?:\|[^\]]*)?\]\]\s+(?:universe|franchise|series)\b/i)?.[1]
+    || body.match(/\[\[([^\]|]+)(?:\|[^\]]*)?\]\]\s+(?:universe|franchise)\b/i)?.[1]
+    || "";
+  const seriesAliases = [...new Set([series, titleFromSeriesLink(enclosingSeries)].filter(Boolean))];
   const subject = /\b(?:she|her)\b/i.test(body) ? "1girl" : /\b(?:he|him|his)\b/i.test(body) ? "1boy" : "";
   const hasEvidenceHairColor = evidenceTags.some((item) => /^(?:black|blonde|brown|blue|green|grey|gray|orange|pink|purple|red|silver|white|aqua|multicolored|two-tone) hair$/i.test(item));
   const hasEvidenceEyeColor = evidenceTags.some((item) => /^(?:black|brown|blue|green|grey|gray|orange|pink|purple|red|yellow|aqua|heterochromia) eyes$/i.test(item));
@@ -125,6 +162,7 @@ export function parseDanbooruCharacter(tag, wiki = null, evidenceTags = []) {
     id: `danbooru-${tag.id || normalizedKey(tagName).replaceAll(" ", "-")}`,
     name: parsed.name,
     series: series || "Series to confirm",
+    seriesAliases,
     trigger: [tagName, series ? String(series).toLowerCase().replaceAll(" ", "_") : ""].filter(Boolean).join(", "),
     tags,
     sourceUrl: `${DANBOORU}/wiki_pages/${encodeURIComponent(tagName)}`,
@@ -199,6 +237,11 @@ async function searchDanbooru(query) {
     tokens.length > 1 ? `*${tokens.join("-")}*` : "",
     tokens.length > 1 ? `*${tokens.join("_")}*` : "",
     tokens.length > 1 ? `*${tokens.join("*")}*` : "",
+    // Anime catalogues frequently store Japanese name order while users and
+    // AniList display Western order (Elf Yamada vs. yamada_elf). Query both
+    // orders so verified recurring visual tags are not silently lost.
+    tokens.length > 1 ? `*${[...tokens].reverse().join("_")}*` : "",
+    tokens.length > 1 ? `*${[...tokens].reverse().join("*")}*` : "",
   ].filter(Boolean))];
   let tags = [];
   for (const pattern of patterns) {
@@ -208,7 +251,7 @@ async function searchDanbooru(query) {
       url.searchParams.set("search[category]", "4");
       url.searchParams.set("search[order]", "count");
       url.searchParams.set("limit", "16");
-      const matches = await fetchJson(url, { headers: { "user-agent": "AniMessenger/0.4 character catalogue" } });
+      const matches = await fetchJson(url, { headers: { "user-agent": "AniMessenger/0.5 character catalogue" } });
       tags = (Array.isArray(matches) ? matches : []).filter((tag) => {
         const name = normalizedKey(tag?.name);
         return tokens.every((token) => name.includes(token));
@@ -224,13 +267,13 @@ async function searchDanbooru(query) {
       const wikiUrl = new URL("/wiki_pages.json", DANBOORU);
       wikiUrl.searchParams.set("search[title]", tag.name);
       wikiUrl.searchParams.set("limit", "1");
-      const requests = [fetchJson(wikiUrl, { headers: { "user-agent": "AniMessenger/0.4 character catalogue" } }, 6000)];
+      const requests = [fetchJson(wikiUrl, { headers: { "user-agent": "AniMessenger/0.5 character catalogue" } }, 6000)];
       if (index < 6) {
         const postsUrl = new URL("/posts.json", DANBOORU);
         postsUrl.searchParams.set("tags", tag.name);
         postsUrl.searchParams.set("limit", "100");
         postsUrl.searchParams.set("only", "id,tag_string_general,tag_string_character");
-        requests.push(fetchJson(postsUrl, { headers: { "user-agent": "AniMessenger/0.4 character catalogue" } }, 7000).catch(() => []));
+        requests.push(fetchJson(postsUrl, { headers: { "user-agent": "AniMessenger/0.5 character catalogue" } }, 7000).catch(() => []));
       }
       const [pages, posts = []] = await Promise.all(requests);
       return parseDanbooruCharacter(tag, pages?.[0], summarizeDanbooruEvidence(posts, tag.name));
@@ -244,7 +287,7 @@ async function searchDanbooru(query) {
 async function searchAniList(query) {
   const payload = await fetchJson(ANILIST, {
     method: "POST",
-    headers: { "content-type": "application/json", "user-agent": "AniMessenger/0.4 character catalogue" },
+    headers: { "content-type": "application/json", "user-agent": "AniMessenger/0.5 character catalogue" },
     body: JSON.stringify({
       query: `query CharacterSearch($search: String) {
         Page(page: 1, perPage: 10) {
@@ -271,7 +314,7 @@ async function searchWikidata(query) {
   url.searchParams.set("limit", "12");
   url.searchParams.set("format", "json");
   url.searchParams.set("origin", "*");
-  const payload = await fetchJson(url, { headers: { "user-agent": "AniMessenger/0.4 character catalogue" } });
+  const payload = await fetchJson(url, { headers: { "user-agent": "AniMessenger/0.5 character catalogue" } });
   return (payload?.search || []).map(parseWikidataCharacter).filter(Boolean);
 }
 
@@ -288,7 +331,7 @@ export function mergeCatalogResults(groups, query, limit = 20) {
   const items = groups.flat().filter(Boolean);
   const familyMap = new Map();
   for (const item of items) {
-    const name = canonicalNameKey(item.name);
+    const name = catalogNameKey(item);
     if (!name || !seriesKeys(item).length) continue;
     const families = familyMap.get(name) || [];
     const family = families.find((candidate) => seriesCompatible(candidate, item));
@@ -304,30 +347,32 @@ export function mergeCatalogResults(groups, query, limit = 20) {
     const leftKnown = seriesKeys(left).length > 0;
     const rightKnown = seriesKeys(right).length > 0;
     if (leftKnown === rightKnown) return false;
-    const families = familyMap.get(canonicalNameKey(left.name)) || [];
+    const families = familyMap.get(catalogNameKey(left)) || [];
     const known = leftKnown ? left : right;
     return families.length === 1 && seriesCompatible(families[0], known);
   };
   const merged = [];
   for (const item of items) {
-    const index = merged.findIndex((candidate) => canonicalNameKey(candidate.name) === canonicalNameKey(item.name) && compatibleIncludingUnambiguousUnknown(candidate, item));
+    const index = merged.findIndex((candidate) => catalogNameKey(candidate) === catalogNameKey(item) && compatibleIncludingUnambiguousUnknown(candidate, item));
     const existing = index >= 0 ? merged[index] : null;
     if (!existing) {
       merged.push({ ...item });
     } else if (resultScore(item, query) > resultScore(existing, query)) {
       merged[index] = {
         ...item,
+        thumbUrl: item.thumbUrl || existing.thumbUrl,
         series: seriesKeys(item).length ? item.series : existing.series,
         seriesAliases: [...new Set([...(item.seriesAliases || []), ...(existing.seriesAliases || []), item.series, existing.series].filter(Boolean))],
-        tags: [...new Set([...(item.tags || []), ...(existing.tags || [])])],
+        tags: mergedEvidenceTags(item, existing),
         catalogNotes: [...new Set([...(item.catalogNotes || []), ...(existing.catalogNotes || [])])],
         sourceRefs: mergeSourceRefs(item.sourceRefs, existing.sourceRefs),
       };
     } else {
       if (!seriesKeys(existing).length && seriesKeys(item).length) existing.series = item.series;
       else if (item.sourceProvider === "anilist" && seriesCompatible(existing, item)) existing.series = item.series;
+      existing.thumbUrl ||= item.thumbUrl;
       existing.seriesAliases = [...new Set([...(existing.seriesAliases || []), ...(item.seriesAliases || []), existing.series, item.series].filter(Boolean))];
-      existing.tags = [...new Set([...(existing.tags || []), ...(item.tags || [])])];
+      existing.tags = mergedEvidenceTags(existing, item);
       existing.catalogNotes = [...new Set([...(existing.catalogNotes || []), ...(item.catalogNotes || [])])];
       existing.sourceRefs = mergeSourceRefs(existing.sourceRefs, item.sourceRefs);
     }
@@ -335,7 +380,7 @@ export function mergeCatalogResults(groups, query, limit = 20) {
   const queryKey = normalizedKey(query);
   const filtered = merged.filter((item) => {
     if (!item.isVariant) return true;
-    const hasBase = merged.some((candidate) => canonicalNameKey(candidate.name) === canonicalNameKey(item.name) && !candidate.isVariant);
+    const hasBase = merged.some((candidate) => catalogNameKey(candidate) === catalogNameKey(item) && !candidate.isVariant);
     if (!hasBase) return true;
     const variantKey = normalizedKey(item.variantLabel || item.series);
     return Boolean(variantKey && queryKey.includes(variantKey));
@@ -364,14 +409,30 @@ export async function searchCharacterCatalog(config, query, page = 1) {
   const key = `${normalizedKey(cleanQuery)}:${page}`;
   const cached = cache.get(key);
   if (cached && Date.now() - cached.at < cacheTtlMs) return cached.value;
-  const settled = await Promise.allSettled([searchDanbooru(cleanQuery), searchAniList(cleanQuery), searchWikidata(cleanQuery)]);
-  const independent = mergeCatalogResults(settled.filter((result) => result.status === "fulfilled").map((result) => result.value), cleanQuery);
-  const value = independent.length
-    ? { total: independent.length, results: independent, source: "independent" }
-    : await searchAnimaDex(config, cleanQuery, page);
+  const settled = await Promise.allSettled([
+    searchDanbooru(cleanQuery),
+    searchAniList(cleanQuery),
+    searchWikidata(cleanQuery),
+    searchAnimaDex(config, cleanQuery, page),
+  ]);
+  const independentGroups = settled.slice(0, 3)
+    .filter((result) => result.status === "fulfilled")
+    .map((result) => result.value);
+  const animaResult = settled[3].status === "fulfilled" ? settled[3].value : null;
+  const animaOnline = animaResult && !animaResult.demo ? animaResult.results || [] : [];
+  const results = mergeCatalogResults([...independentGroups, animaOnline], cleanQuery);
+  const value = results.length
+    ? {
+        total: results.length,
+        results,
+        source: independentGroups.some((group) => group.length) ? (animaOnline.length ? "combined" : "independent") : "animadex",
+      }
+    : (animaResult || { total: 0, results: [], source: "independent" });
   // A provider outage falls back to the tiny built-in catalogue. Do not retain
-  // that temporary failure for ten minutes after connectivity returns.
-  if (!value.demo) cache.set(key, { at: Date.now(), value });
+  // that temporary failure for ten minutes after connectivity returns. This
+  // also lets a healthy independent result gain AnimaDex evidence as soon as
+  // the optional provider recovers.
+  if (!value.demo && !animaResult?.demo) cache.set(key, { at: Date.now(), value });
   return value;
 }
 

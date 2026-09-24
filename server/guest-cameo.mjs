@@ -59,7 +59,7 @@ function mentioned(text, character) {
   return speakerAliases(character).some((alias) => new RegExp("(^|[^a-z0-9])" + alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "([^a-z0-9]|$)", "i").test(value));
 }
 
-export function routeCameoSpeakers({ text, host, guest, lastSpeakerId = "", focusSpeakerId = "" }) {
+export function routeCameoSpeakers({ text, host, guest, lastSpeakerId = "", focusSpeakerId = "", guestNeedsFirstTurn = false }) {
   const hostId = cleanId(host?.id);
   const guestId = cleanId(guest?.id);
   if (!hostId || !guestId) throw new Error("Guest routing requires a host and guest character.");
@@ -71,6 +71,10 @@ export function routeCameoSpeakers({ text, host, guest, lastSpeakerId = "", focu
   }
   if (guestMentioned) return [guestId];
   if (hostMentioned) return [hostId];
+  // A newly invited guest must get a chance to enter the conversation. Without
+  // this, the host's first reply becomes the last-speaker focus and can strand
+  // a silent guest indefinitely when the user addresses them descriptively.
+  if (guestNeedsFirstTurn) return [guestId];
   const focusedId = cleanId(focusSpeakerId);
   if (focusedId === hostId || focusedId === guestId) return [focusedId];
   if ([hostId, guestId].includes(cleanId(lastSpeakerId))) return [cleanId(lastSpeakerId)];
@@ -91,8 +95,8 @@ export function beginCameoSession({ hostThread, guestCharacter, guestProfile, lo
   return {
     id: "cameo-" + crypto.randomUUID(),
     version: GUEST_CAMEO_VERSION,
-    host: { character: structuredClone(hostThread.character), profile: structuredClone(hostThread.profile), relationship: Number(hostThread.relationship) || 8 },
-    guest: { character: structuredClone(guestCharacter), profile: structuredClone(guestProfile), relationship: 8 },
+    host: { character: structuredClone(hostThread.character), profile: structuredClone(hostThread.profile), relationship: Number(hostThread.relationship) || 8, scene: structuredClone(hostThread.scene || {}) },
+    guest: { character: structuredClone(guestCharacter), profile: structuredClone(guestProfile), relationship: 8, scene: { outfit: guestProfile.visual?.defaultWardrobe || "default outfit", expression: "" } },
     scene: { ...structuredClone(hostThread.scene || {}), location, activity, presence: "together" },
     hostHistory: structuredClone((hostThread.messages || []).slice(-24)),
     messages: [],
@@ -113,11 +117,12 @@ export function resumeCameoSession({ hostThread, guestCharacter, guestProfile, g
   return {
     id: "cameo-" + cleanId(cameo.activeGuest.joinedAtMessageId || crypto.randomUUID()),
     version: GUEST_CAMEO_VERSION,
-    host: { character: structuredClone(hostThread.character), profile: structuredClone(hostThread.profile), relationship: Number(hostThread.relationship) || 8 },
+    host: { character: structuredClone(hostThread.character), profile: structuredClone(hostThread.profile), relationship: Number(hostThread.relationship) || 8, scene: structuredClone(hostThread.scene || {}) },
     guest: {
       character: structuredClone(guestCharacter),
       profile: structuredClone(guestProfile),
       relationship: Number(guestThread?.relationship) || 8,
+      scene: structuredClone(guestThread?.scene || { outfit: guestProfile.visual?.defaultWardrobe || "default outfit", expression: "" }),
     },
     scene: { ...structuredClone(hostThread.scene || {}), presence: "together" },
     hostHistory: structuredClone((hostThread.messages || []).slice(0, Math.max(0, sharedStart - 1)).slice(-24)),
@@ -171,6 +176,7 @@ export function threadForCameoSpeaker(session, speakerId) {
   const visibleMessages = cleanId(selected.character.id) === hostId
     ? [...structuredClone(session.hostHistory || []), ...sharedMessages]
     : sharedMessages;
+  const personalScene = selected.scene || {};
   return {
     id: "prototype-" + selected.character.id,
     character: structuredClone(selected.character),
@@ -178,7 +184,11 @@ export function threadForCameoSpeaker(session, speakerId) {
     messages: visibleMessages,
     memories: [],
     relationship: selected.relationship,
-    scene: structuredClone(session.scene),
+    scene: {
+      ...structuredClone(session.scene),
+      ...(Object.hasOwn(personalScene, "outfit") ? { outfit: personalScene.outfit } : {}),
+      ...(Object.hasOwn(personalScene, "expression") ? { expression: personalScene.expression } : {}),
+    },
     updatedAt: new Date().toISOString(),
   };
 }
@@ -186,14 +196,23 @@ export function threadForCameoSpeaker(session, speakerId) {
 export function cameoPromptContext(session, speakerId, options = {}) {
   const selected = cleanId(speakerId) === cleanId(session.guest.character.id) ? session.guest : session.host;
   const other = selected === session.guest ? session.host : session.guest;
+  const otherName = cleanText(other.profile.name || other.character.name, 100);
+  const groupSpeakerIndex = Math.max(0, Number(options.groupSpeakerIndex) || 0);
+  const groupSpeakerCount = Math.max(1, Number(options.groupSpeakerCount) || 1);
+  const finalGroupSpeaker = groupSpeakerIndex >= groupSpeakerCount - 1;
+  const groupTurnGuidance = options.groupTurn
+    ? options.storyMode
+      ? finalGroupSpeaker
+        ? "CONTINUOUS GROUP NARRATIVE — FINAL SEGMENT: Continue directly from the preceding character's passage instead of restarting, recapping, or answering the user from scratch. Add a distinct reaction, choice, complication, or change in the scene. End with forward pressure: a concrete unresolved beat or opportunity the user can naturally act on. Do not tack on a generic question, a tidy conclusion, or an inert description."
+        : "CONTINUOUS GROUP NARRATIVE — HANDOFF SEGMENT: Write one focused part of a single unfolding scene. Advance the immediate beat, then end with a line, action, or point of attention that naturally yields to " + otherName + ". Do not resolve the whole moment, invite the user's next move yet, or write " + otherName + "'s response."
+      : "BOTH CHARACTERS ARE RESPONDING THIS TURN: Make one focused contribution, usually one to three concise sentences. Leave conversational space for the other character instead of delivering a complete monologue."
+    : "";
   return [
-    "SHARED CAMEO SCENE: You are in the same conversation as " + cleanText(other.profile.name || other.character.name, 100) + " and the user.",
+    "SHARED CAMEO SCENE: You are in the same conversation as " + otherName + " and the user.",
     "Reply only as " + cleanText(selected.profile.name || selected.character.name, 100) + ". Never write dialogue, actions, thoughts, or decisions for the other character or the user.",
-    "Lines labeled [" + cleanText(other.profile.name || other.character.name, 100) + "] are the other character speaking. Treat them as visible shared conversation, not as the user and not as your own prior dialogue.",
+    "Lines labeled [" + otherName + "] are the other character speaking. Treat them as visible shared conversation, not as the user and not as your own prior dialogue.",
     "Keep your voice distinct. You may respond to the other character, the user, or both, but do not summarize the entire scene and do not announce speaker labels in your reply.",
-    options.groupTurn
-      ? "BOTH CHARACTERS ARE RESPONDING THIS TURN: Make one focused contribution, usually one to three concise sentences. Leave conversational space for the other character instead of delivering a complete monologue."
-      : "",
+    groupTurnGuidance,
     options.interjection
       ? "You are adding an occasional interjection after the other character has already answered. Contribute one distinct, directly relevant thought in one or two concise sentences. Do not merely agree, restate, police, scold, or summarize what was just said. Set otherShouldRespond false."
       : options.allowInterjection

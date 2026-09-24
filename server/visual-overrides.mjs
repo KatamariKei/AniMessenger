@@ -13,8 +13,9 @@ function cleanText(value, limit = 500) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, limit);
 }
 
-export function normalizeVisualOverrides(value = {}) {
+export function normalizeVisualOverrides(value = {}, baseline = {}) {
   const defaultWardrobe = normalizeWardrobePrompt(cleanText(value.defaultWardrobe));
+  const researchedDefaultWardrobe = normalizeWardrobePrompt(cleanText(baseline.defaultWardrobe));
   const signature = cleanList(value.signature);
   const signatureKeys = new Set(signature.map((item) => item.toLowerCase()));
   const hiddenSignature = cleanList(value.hiddenSignature)
@@ -24,7 +25,7 @@ export function normalizeVisualOverrides(value = {}) {
     signature,
     hiddenSignature,
     exceptions: cleanList(value.exceptions),
-    ...(defaultWardrobe ? { defaultWardrobe } : {}),
+    ...(defaultWardrobe && defaultWardrobe !== researchedDefaultWardrobe ? { defaultWardrobe } : {}),
     updatedAt: new Date().toISOString(),
   };
 }
@@ -33,7 +34,7 @@ export function applyVisualOverrides(profile, value) {
   if (!profile?.visual) throw new Error("That character profile does not have visual identity data.");
   const visual = { ...profile.visual };
   if (value === null) delete visual.userOverrides;
-  else visual.userOverrides = normalizeVisualOverrides(value);
+  else visual.userOverrides = normalizeVisualOverrides(value, visual);
   return { ...profile, visual };
 }
 

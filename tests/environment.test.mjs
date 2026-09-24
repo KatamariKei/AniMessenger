@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { environmentChangeIsEstablished, environmentForLocation, inferEnvironmentCue, inferExplicitLocation, isDetailedEnvironment, locationChangeIsEstablished, meaningfulLocationChange, stabilizeEnvironment } from "../server/environment.mjs";
+import { cleanLocationLabel, environmentChangeIsEstablished, environmentForLocation, inferActionLocationEvent, inferDepartureEvent, inferEnvironmentCue, inferExplicitLocation, inferLocationEvent, isDetailedEnvironment, locationChangeIsEstablished, meaningfulLocationChange, resolveSceneLocation, stabilizeEnvironment } from "../server/environment.mjs";
 
 test("extracts a visually described landscape from an in-person action", () => {
   const cue = inferEnvironmentCue("[action: Pyra opens the door and we step outside. My eyes adjust to a vast cloud sea, rolling green hills, craggy mountains, and grass waving in the wind.] Wow!");
@@ -17,7 +17,7 @@ test("preserves detailed surroundings when a model falls back to a vague label",
 
 test("generic indoor environments do not invent a doorway composition", () => {
   const bedroom = environmentForLocation("bedroom");
-  assert.match(bedroom, /walls, floor, furniture/i);
+  assert.match(bedroom, /bedroom.*bed.*nightstands/i);
   assert.doesNotMatch(bedroom, /\b(?:door|doorway|frame)\b/i);
 });
 
@@ -121,6 +121,32 @@ test("extracts an explicit current room from a user action", () => {
   assert.equal(locationChangeIsEstablished("the viewer's bedroom", inferExplicitLocation(text), text), true);
 });
 
+test("an action can state the present room after describing the current pose", () => {
+  const text = "[action: we're lying in bed, in the bedroom. Talking ]";
+  const event = inferActionLocationEvent(text);
+  assert.equal(event?.location, "the bedroom");
+  assert.equal(event?.actor, "shared");
+  assert.equal(event?.kind, "action_present");
+  assert.equal(inferActionLocationEvent("We're talking about meeting in the kitchen later."), null);
+});
+
+test("an explicit placement action establishes a settled area and staging", () => {
+  const event = inferActionLocationEvent("[action: we sit down at a table on the patio and check out the menu]");
+  assert.equal(event?.location, "the patio");
+  assert.equal(event?.actor, "shared");
+  assert.equal(event?.kind, "action_placement");
+  assert.match(event?.activity || "", /^sitting at a table on the patio and checking out the menu$/i);
+  assert.equal(resolveSceneLocation("Big Benedict's", event?.location), "Big Benedict's patio");
+});
+
+test("transition prose cannot masquerade as persistent surroundings", () => {
+  const prose = "As they stepped into Big Benedict's and scanned for a spot, she beamed at the suggestion of the patio";
+  assert.equal(cleanLocationLabel("Big Benedict's and scanned for a spot"), "Big Benedict's");
+  assert.equal(isDetailedEnvironment(prose), false);
+  assert.match(environmentForLocation("Big Benedict's patio"), /restaurant patio.*tables.*umbrellas/i);
+  assert.doesNotMatch(environmentForLocation("Big Benedict's patio"), /\bdoor(?:way)?\b|entrance|\bstep\w*/i);
+});
+
 test("extracts an outdoor yard reached through natural action phrasing", () => {
   const text = "[action: we go outside in the yard and check on the construction progress]";
   assert.equal(inferExplicitLocation(text), "yard");
@@ -132,16 +158,43 @@ test("completed movement can establish a new narrative location without a place-
   assert.equal(inferExplicitLocation(text), "the moonlit crystal observatory");
 });
 
+test("walking along a setting commits that setting rather than the place just left", () => {
+  const text = "We leave the restaurant and walk along the beach, headed back to the bungalow.";
+  assert.equal(inferExplicitLocation(text), "the beach");
+  assert.equal(locationChangeIsEstablished("the restaurant", inferExplicitLocation(text), text), true);
+});
+
+test("a completed departure becomes an exterior scene before arrival elsewhere", () => {
+  const event = inferDepartureEvent("Fine. Let's go get those parfaits. [action: we finally leave the house]", "bedroom", "user");
+  assert.equal(event?.phase, "departed");
+  assert.equal(event?.actor, "shared");
+  assert.equal(event?.location, "outside the house");
+  assert.match(environmentForLocation(event?.location), /exterior area.*outside the house.*open air/i);
+  assert.equal(inferDepartureEvent("Maybe we should leave the house later.", "bedroom", "user"), null);
+});
+
 test("destination labels retain place qualifiers but exclude coordinated story clauses", () => {
   assert.equal(inferExplicitLocation("We arrive at the beach and she was right... it's private."), "the beach");
+  assert.equal(inferExplicitLocation("We enter the shower and the water feels fantastic."), "the shower");
+  assert.equal(inferExplicitLocation("We arrive at the sauna and enter it."), "the sauna");
+  assert.equal(inferExplicitLocation("We enter the bedroom and dive into bed."), "the bedroom");
   assert.equal(inferExplicitLocation("We enter the moonlit crystal observatory and she smiles."), "the moonlit crystal observatory");
   assert.equal(inferExplicitLocation("We walk into the cave behind the waterfall and inspect the crystals."), "the cave behind the waterfall");
   assert.equal(inferExplicitLocation("We arrive at the Salt and Pepper cafe."), "the Salt and Pepper cafe");
 });
 
+test("arrival wardrobe commentary cannot become part of a location label", () => {
+  assert.equal(
+    inferLocationEvent("She walks into the bar looking like she just survived a hurricane.", "character")?.location,
+    "the bar",
+  );
+});
+
 test("does not invent a location from ordinary conversation or future plans", () => {
   assert.equal(inferExplicitLocation("We're in trouble if we burn the parfait."), "");
   assert.equal(inferExplicitLocation("We'll go into the kitchen later."), "");
+  assert.equal(inferExplicitLocation("Her gaze followed him as he moved to settle his bill."), "");
+  assert.equal(locationChangeIsEstablished("The Stray Sheep", "settle his bill", "Her gaze followed him as he moved to settle his bill."), false);
 });
 
 test("relative movement does not establish an independent destination", () => {
@@ -155,5 +208,6 @@ test("relative movement does not establish an independent destination", () => {
 test("figurative room language is not an environment", () => {
   assert.equal(isDetailedEnvironment("There is no room for error now."), false);
   assert.equal(isDetailedEnvironment("The room is moving a little bit because it's exciting"), false);
+  assert.equal(isDetailedEnvironment('"The view" is an understatement.'), false);
   assert.match(environmentForLocation("massive indoor pool"), /clear water.*high ceiling/i);
 });

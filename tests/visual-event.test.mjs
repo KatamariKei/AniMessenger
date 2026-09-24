@@ -19,14 +19,12 @@ test("character replies can independently establish a missed visual payoff", () 
   assert.equal(visualEventOpportunity("I just finished my workout.", { presence: "together" }, { actor: "character" }), null);
 });
 
-test("a model photo brief cannot replace the deterministic key-moment instruction", () => {
+test("a model photo brief gets a concise current-state visual direction", () => {
   const brief = keyVisualPhotoBrief("standing in a room", "an immediate outfit change", true, "[action: She changes into a red sequin dress]");
   assert.match(brief, /standing in a room/);
-  assert.match(brief, /KEY VISUAL MOMENT/);
-  assert.match(brief, /newly established state/);
+  assert.match(brief, /completed current outfit/i);
   assert.match(brief, /actively sharing/);
-  assert.match(brief, /red sequin dress/);
-  assert.doesNotMatch(brief, /\[action:/i);
+  assert.doesNotMatch(brief, /KEY VISUAL|LATEST VISUAL|red sequin dress|\[action:/i);
 });
 
 test("hypothetical talk and in-person scenes do not create automatic character-sent photos", () => {

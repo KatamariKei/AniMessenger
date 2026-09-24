@@ -1,4 +1,6 @@
-.portrait--remote { display: grid; place-items: center; background-position: center; background-size: cover; }
+.portrait--remote { position: relative; display: grid; place-items: center; background-position: center; background-size: cover; }
+.portrait--remote > img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; }
+.portrait--source-thumbnail > img { object-fit: cover; object-position: center top; }
 .portrait--remote b { color: rgba(255,255,255,.78); font-family: inherit; font-size: 18px; font-weight: 700; line-height: 1; }
 .list-state { padding: 34px 24px; color: #6f6875; font-size: 11px; line-height: 1.55; text-align: center; }
 .signal-dot.offline { background: #746b79; box-shadow: none; }
@@ -49,7 +51,9 @@
 .build-in-chat small { display: block; margin-bottom: 4px; color: var(--accent-bright); font-size: 11px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
 .build-in-chat strong { color: #e7e4df; font-size: 16px; }
 .build-in-chat p { margin: 6px 0 0; color: #92989a; font-size: 13px; line-height: 1.5; }
+.build-in-chat .build-recovery-error { margin-top: 10px; padding: 10px 12px; border: 1px solid rgba(225, 123, 108, .25); border-radius: var(--radius-sm); background: rgba(225, 123, 108, .07); color: #d69b92; overflow-wrap: anywhere; }
 .build-in-chat .build-progress { grid-column: 1 / -1; margin-top: 2px; }
+.build-in-chat > progress { grid-column: 1 / -1; height: 6px; margin-top: 10px; }
 .build-in-chat .build-actions { grid-column: 1 / -1; display: flex; gap: 10px; padding-top: 2px; }
 .build-in-chat .build-actions button { min-height: 40px; padding: 0 15px; border: 1px solid rgba(var(--accent-rgb), .28); border-radius: var(--radius-sm); background: rgba(var(--accent-rgb), .1); color: #d9e1df; font: inherit; cursor: pointer; }
 .build-in-chat .build-actions .build-remove { border-color: rgba(225, 123, 108, .24); background: rgba(225, 123, 108, .06); color: #d49a91; }
@@ -744,7 +748,12 @@
 .bond-summary .profile-meter { grid-column: 1 / -1; height: 5px; margin: 5px 0 0; }
 .profile-card .profile-tabs { margin: 18px 0 15px; }
 .profile-card .profile-section { align-items: stretch; text-align: left; }
-.profile-card .profile-section > p:first-child { max-width: none; }
+.profile-about { width: 100%; padding: 12px 13px; border: 1px solid rgba(255,255,255,.065); border-radius: var(--radius-md); background: rgba(255,255,255,.018); }
+.profile-about header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 5px; }
+.profile-about header small { color: #77717b; font-size: 10px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+.profile-about header button { padding: 2px 0; border: 0; background: transparent; color: var(--accent-bright); font-size: 11px; cursor: pointer; }
+.profile-about p { display: -webkit-box; margin: 0; overflow: hidden; color: #aaa3ad; font-size: 14px; line-height: 1.55; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.profile-about.is-expanded p { display: block; overflow: visible; }
 .profile-card .profile-section dl { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 16px; }
 .profile-card .profile-section dl > div:first-child { grid-column: 1 / -1; }
 .profile-card .profile-section dl div { padding: 11px 10px; }
@@ -1093,6 +1102,8 @@
   padding: 9px 8px;
   border: 0;
   border-radius: 7px;
+  content-visibility: auto;
+  contain-intrinsic-block-size: 78px;
 }
 .contact-row.active { border: 0; }
 .contact-row.active::before { display: none; }
@@ -1150,6 +1161,28 @@
 }
 .chat-person:hover { background: rgba(255, 255, 255, .028); }
 .chat-person-copy { pointer-events: none; }
+.conversation-mode-control {
+  display: inline-flex;
+  width: 62px;
+  height: 48px;
+  flex: 0 0 62px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin-right: 8px;
+  padding: 0 8px;
+  border: 1px solid rgba(232, 237, 239, .1);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .025);
+  color: #858d90;
+  cursor: pointer;
+  transition: border-color .16s ease, background .16s ease, color .16s ease;
+}
+.conversation-mode-control svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
+.conversation-mode-control small { font-size: 10px; font-weight: 650; letter-spacing: .01em; }
+.conversation-mode-control:hover { border-color: rgba(var(--accent-rgb), .25); background: rgba(var(--accent-rgb), .055); color: #c2cac9; }
+.conversation-mode-control.is-story { border-color: rgba(var(--accent-rgb), .3); background: rgba(var(--accent-rgb), .1); color: var(--accent-bright); box-shadow: inset 0 0 18px rgba(var(--accent-rgb), .025); }
+.conversation-mode-control:disabled { cursor: not-allowed; opacity: .5; }
 .guest-control {
   display: inline-flex;
   min-width: 52px;
@@ -1216,6 +1249,83 @@
   background: #24201f !important;
 }
 .message-line--guest .message-speaker { color: #b9867b; }
+.message-line.has-narration > .message-content { width: min(680px, 92%); max-width: min(680px, 92%); }
+.narration-beat {
+  max-width: 630px;
+  margin: 4px 8px 14px 40px;
+  padding: 1px 0 1px 14px;
+  border-left: 1px solid rgba(var(--accent-rgb), .25);
+  color: #a9acab;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 15px;
+  line-height: 1.65;
+  letter-spacing: .005em;
+  text-wrap: pretty;
+}
+.has-cameo .message-line.has-narration .narration-beat { margin-left: 48px; }
+.message-line.story-passage-line {
+  justify-content: center;
+  margin-block: 22px 34px;
+}
+.story-passage-line > .message-content {
+  width: min(760px, 94%);
+  max-width: min(760px, 94%);
+}
+.story-speaker {
+  display: block;
+  margin: 0 0 8px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.story-passage {
+  min-height: 1.75em;
+  margin: 0;
+  padding-bottom: .22em;
+  color: #d4d1cb;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 17px;
+  line-height: 1.78;
+  letter-spacing: .006em;
+  white-space: pre-wrap;
+  /* Pretty wrapping rebalances earlier lines whenever another word appears.
+     Normal greedy wrapping keeps already-revealed prose stationary on mobile. */
+  text-wrap: wrap;
+}
+.story-passage.is-writing { cursor: pointer; }
+.story-token { animation: story-token-reveal 90ms ease-out both; }
+.story-reveal-edge {
+  display: inline-block;
+  width: 1px;
+  height: 1.15em;
+  vertical-align: text-bottom;
+  scroll-margin-block-end: 20px;
+}
+@keyframes story-token-reveal { from { opacity: .12; } to { opacity: 1; } }
+.story-passage-line .message-meta {
+  min-height: 25px;
+  margin: 9px 0 0;
+  opacity: .55;
+}
+.story-writing-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 15px 3px 20px;
+  color: #838a8c;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 14px;
+  font-style: italic;
+}
+.story-writing-status span { margin-right: 4px; }
+.story-writing-status i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(var(--accent-rgb), .58);
+  animation: typing 1.1s ease-in-out infinite;
+}
+.story-writing-status i:nth-of-type(2) { animation-delay: .14s; }
+.story-writing-status i:nth-of-type(3) { animation-delay: .28s; }
 .message-payload {
   display: flex;
   min-width: 0;
@@ -1365,6 +1475,13 @@
   .contact-portrait .portrait { width: 58px; height: 58px; }
   .contact-copy { height: 58px; }
   .message-line > .message-content { max-width: 88%; }
+  .message-line.has-narration > .message-content { width: 94%; max-width: 94%; }
+  .narration-beat { margin: 5px 2px 14px 0; padding-left: 13px; font-size: 15px; line-height: 1.62; }
+  .has-cameo .message-line.has-narration .narration-beat { margin-left: 0; }
+  .message-line.story-passage-line { margin-block: 17px 28px; }
+  .story-passage-line > .message-content { width: 95%; max-width: 95%; }
+  .story-passage { font-size: 16px; line-height: 1.72; }
+  .conversation-mode-control { width: 58px; flex-basis: 58px; margin-right: 6px; padding-inline: 6px; }
   .guest-control { min-width: 46px; width: 46px; padding: 5px; }
   .guest-control:not(.has-guest) small { display: none; }
   .guest-layer { padding: 0; place-items: stretch; }

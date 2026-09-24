@@ -2,6 +2,36 @@
 
 AniMessenger is pre-release software. Changes may still adjust local data, model prompts, and installation behavior.
 
+## 0.5.0
+
+### Narrative Mode
+
+- Add an optional long-form Narrative Mode that folds the user's action, character reactions, dialogue, and the next story beat into cohesive prose instead of ordinary message bubbles.
+- Preserve paragraph rhythm and quoted dialogue while making the typewriter animation stable, readable, and one-time-only across chat navigation and delayed image completion.
+- Keep texting conversations conversational, recover malformed or incomplete story passages, and remove message reactions that do not fit the narrative presentation.
+
+### Character research and creation
+
+- Rebuild character creation around an evidence dossier, source-aware claim checking, and a richer performance guide for personality, emotional range, conversational habits, vulnerabilities, and distinctive voice.
+- Improve research recovery so unsupported embellishments are removed without flattening defining flaws, darker traits, canon relationships, or character-specific initiative.
+- Merge equivalent catalogue and AnimaDex candidates, normalize franchise variants, reuse useful thumbnails, and keep independent online research available when optional sources fail.
+- Strengthen visual-identity and wardrobe requirements so profiles are less likely to pass with generic appearance details, vague clothing, or placeholder voice text.
+
+### Scene, wardrobe, and image continuity
+
+- Separate concise location, detailed environment, and current activity so dialogue fragments and actions no longer become locations or contaminate image prompts.
+- Accept explicit location transitions while rejecting figurative movement, relative movement within a setting, and phrases such as `the sauna and enter it` or `the shower and the water feels fantastic`.
+- Lock clothing across ordinary location and context changes; school, work, weather, or going outdoors no longer silently replaces a known outfit.
+- Track explicit garment removal incrementally, preserving every known remaining layer and using `completely nude` only when no known layer remains.
+- Improve environmental image prompts, current-scene recovery, doorway resistance, and synchronization between generated photos and durable scene state.
+
+### Performance and reliability
+
+- Make initial mobile loading substantially faster, reduce long main-thread stalls, and smooth scrolling through earlier narrative responses.
+- Improve Windows tray-service recovery, online-source startup behavior, profile retry errors, Ollama repetition recovery, and setup progress feedback.
+- Document 12 GB of NVIDIA VRAM as the recommended minimum for the complete local workflow, with clear expectations for 8 GB, 16 GB, and 24 GB systems.
+- Expand automated coverage for research quality, Narrative Mode, catalogue merging, scene transitions, wardrobe continuity, Windows packaging, and mobile-facing state.
+
 ## 0.4.0
 
 ### Adventures and scene continuity

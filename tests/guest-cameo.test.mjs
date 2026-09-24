@@ -33,7 +33,16 @@ test("routing favors direct address, group address, follow-ups, then the host", 
   assert.deepEqual(routeCameoSpeakers({ ...input, text: "That picture looks great.", focusSpeakerId: guestCharacter.id }), [guestCharacter.id]);
   assert.deepEqual(routeCameoSpeakers({ ...input, text: "Misty, your turn.", focusSpeakerId: guestCharacter.id }), [hostCharacter.id]);
   assert.deepEqual(routeCameoSpeakers({ ...input, text: "Both of you try again.", focusSpeakerId: guestCharacter.id }), [hostCharacter.id, guestCharacter.id]);
+  assert.deepEqual(routeCameoSpeakers({ ...input, text: "What's your name? Can you speak?", lastSpeakerId: hostCharacter.id, focusSpeakerId: hostCharacter.id, guestNeedsFirstTurn: true }), [guestCharacter.id]);
+  assert.deepEqual(routeCameoSpeakers({ ...input, text: "Misty, tell her what happened.", guestNeedsFirstTurn: true }), [hostCharacter.id]);
   assert.deepEqual(routeCameoSpeakers({ ...input, text: "This place is crowded." }), [hostCharacter.id]);
+});
+
+test("the server keeps every guest speaker in the active conversation mode", async () => {
+  const source = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../server/index.mjs", import.meta.url), "utf8"));
+  assert.match(source, /conversationMode:\s*working\.conversationMode/);
+  assert.doesNotMatch(source, /conversationMode:\s*speakerIndex\s*===\s*0/);
+  assert.match(source, /working\.conversationMode\s*===\s*"story"[\s\S]*?result\.narration\s*\|\|\s*result\.reply/);
 });
 
 test("interjections are occasional and never override explicit addressing or picture requests", () => {
@@ -48,21 +57,44 @@ test("interjections are occasional and never override explicit addressing or pic
 
 test("speaker-specific transcripts keep the other character distinct", () => {
   let session = beginCameoSession({
-    hostThread: { character: hostCharacter, profile: profile(hostCharacter, "direct"), relationship: 75, scene: {} },
+    hostThread: { character: hostCharacter, profile: profile(hostCharacter, "direct"), relationship: 75, scene: { outfit: "yellow raincoat", expression: "focused" } },
     guestCharacter,
-    guestProfile: profile(guestCharacter, "theatrical"),
+    guestProfile: { ...profile(guestCharacter, "theatrical"), visual: { identity: [], signature: [], defaultWardrobe: "white suit" } },
   });
   session = appendCameoMessage(session, { from: "user", text: "You two know each other?" });
   session = appendCameoMessage(session, { from: "character", speakerId: hostCharacter.id, text: "Unfortunately." });
   session = appendCameoMessage(session, { from: "character", speakerId: guestCharacter.id, text: "How rude!" });
 
   const guestThread = threadForCameoSpeaker(session, guestCharacter.id);
+  const hostThread = threadForCameoSpeaker(session, hostCharacter.id);
   assert.equal(guestThread.profile.name, guestCharacter.name);
+  assert.equal(hostThread.scene.outfit, "yellow raincoat");
+  assert.equal(hostThread.scene.expression, "focused");
+  assert.equal(guestThread.scene.outfit, "white suit");
+  assert.notEqual(guestThread.scene.expression, "focused");
   assert.equal(guestThread.messages[1].from, "user");
   assert.match(guestThread.messages[1].text, /^\[Misty\]:/);
   assert.equal(guestThread.messages[2].from, "character");
   assert.match(cameoPromptContext(session, guestCharacter.id), /Never write dialogue.*other character/i);
   assert.match(cameoPromptContext(session, guestCharacter.id, { groupTurn: true }), /one to three concise sentences/i);
+  const firstStorySegment = cameoPromptContext(session, hostCharacter.id, {
+    groupTurn: true,
+    storyMode: true,
+    groupSpeakerIndex: 0,
+    groupSpeakerCount: 2,
+  });
+  const finalStorySegment = cameoPromptContext(session, guestCharacter.id, {
+    groupTurn: true,
+    storyMode: true,
+    groupSpeakerIndex: 1,
+    groupSpeakerCount: 2,
+  });
+  assert.match(firstStorySegment, /HANDOFF SEGMENT/);
+  assert.match(firstStorySegment, /naturally yields to Jessie/);
+  assert.doesNotMatch(firstStorySegment, /forward pressure/i);
+  assert.match(finalStorySegment, /FINAL SEGMENT/);
+  assert.match(finalStorySegment, /forward pressure/i);
+  assert.match(finalStorySegment, /opportunity the user can naturally act on/i);
   assert.match(cameoPromptContext(session, guestCharacter.id, { allowInterjection: true }), /Usually set it false/i);
   assert.match(cameoPromptContext(session, guestCharacter.id, { interjection: true }), /one or two concise sentences/i);
 });
@@ -73,7 +105,7 @@ test("a resumed guest sees only the shared encounter while the host keeps recent
     character: hostCharacter,
     profile: profile(hostCharacter, "direct"),
     relationship: 75,
-    scene: {},
+    scene: { outfit: "yellow raincoat", expression: "focused" },
     messages: [
       { id: "private-1", from: "user", text: "My private secret is apricot.", time: "2026-01-01T00:00:00Z" },
       { id: "private-2", from: "character", text: "I'll remember.", time: "2026-01-01T00:00:01Z" },
@@ -87,9 +119,11 @@ test("a resumed guest sees only the shared encounter while the host keeps recent
       encounters: [],
     },
   };
-  const session = resumeCameoSession({ hostThread, guestCharacter, guestProfile: profile(guestCharacter, "theatrical"), guestThread: { relationship: 62 } });
+  const session = resumeCameoSession({ hostThread, guestCharacter, guestProfile: profile(guestCharacter, "theatrical"), guestThread: { relationship: 62, scene: { outfit: "white suit", expression: "amused" } } });
   const guestThread = threadForCameoSpeaker(session, guestCharacter.id);
   assert.equal(guestThread.relationship, 62);
+  assert.equal(guestThread.scene.outfit, "white suit");
+  assert.equal(guestThread.scene.expression, "amused");
   const resumedHostThread = threadForCameoSpeaker(session, hostCharacter.id);
   assert.doesNotMatch(guestThread.messages.map((message) => message.text).join(" "), /apricot/i);
   assert.match(resumedHostThread.messages.map((message) => message.text).join(" "), /apricot/i);

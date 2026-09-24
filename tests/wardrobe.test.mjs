@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { imageFraming, inferWardrobeEvent, isWardrobePlaceholder, normalizeWardrobePrompt, photoOutfitUpdate, replaceWardrobePlaceholders, stabilizeWardrobePrompt, wardrobeChangeIsEstablished, wardrobeDescriptionRequested, wardrobeForFraming } from "../server/wardrobe.mjs";
+import { imageFraming, inferWardrobeDescription, inferWardrobeEvent, isWardrobePlaceholder, normalizeWardrobePrompt, photoOutfitUpdate, removeWardrobeItems, replaceWardrobePlaceholders, stabilizeWardrobePrompt, wardrobeChangeIsEstablished, wardrobeDescriptionRequested, wardrobeForFraming } from "../server/wardrobe.mjs";
 
 const visual = {
   defaultWardrobe: "yellow sleeveless top, red shorts, chunky boots",
@@ -63,10 +63,26 @@ test("direct requests to describe current clothing refine wardrobe state", () =>
   assert.equal(wardrobeDescriptionRequested("Describe you outfit in detail for me. I like it"), true);
   assert.equal(wardrobeDescriptionRequested("What are you wearing right now?"), true);
   assert.equal(wardrobeDescriptionRequested("Describe your athletic gear, Marie! You look great!"), true);
+  assert.equal(wardrobeDescriptionRequested("Describe the dress you're wearing, Asty!"), true);
   assert.equal(wardrobeDescriptionRequested("That outfit looks comfortable."), false);
   assert.equal(wardrobeDescriptionRequested("What should we pack for camping?"), false);
   assert.equal(wardrobeChangeIsEstablished("Go get a jumpsuit on or something."), false);
   assert.equal(wardrobeChangeIsEstablished("She returns in her athletic gear."), true);
+});
+
+test("narrative wardrobe completion and current-state descriptions are recognized", () => {
+  assert.equal(
+    inferWardrobeEvent("Now completely naked and glowing with anticipation, he stands on the bed.", "character")?.outfit,
+    "completely nude",
+  );
+  assert.equal(
+    inferWardrobeEvent("Once he's finally settled into the dress, he spins around on the mattress.", "character")?.outfit,
+    "dress",
+  );
+  assert.equal(
+    inferWardrobeDescription("It's this super short, fluffy white dress made of a soft, airy material that feels like a cloud!", "character")?.outfit,
+    "super short, fluffy white dress made of a soft, airy material that feels like a cloud",
+  );
 });
 
 test("extracts completed towel and T-shirt wardrobe changes from actions", () => {
@@ -80,9 +96,63 @@ test("extracts completed towel and T-shirt wardrobe changes from actions", () =>
   );
 });
 
+test("user-applied robes and named action corrections are authoritative", () => {
+  const wrapped = inferWardrobeEvent("[action: we exit the shower, I dry her off and wrap her in a big fluffy white robe]", "user");
+  assert.equal(wrapped?.outfit, "big fluffy white robe");
+  assert.equal(wrapped?.source, "user");
+
+  const corrected = inferWardrobeEvent("[action: naru is wearing a big fluffy white robe]", "user");
+  assert.equal(corrected?.outfit, "big fluffy white robe");
+  assert.equal(corrected?.source, "user");
+});
+
+test("extracts a completed narrative outfit assembled through styling language", () => {
+  const narration = "Once in the bedroom, Nagatoro began rummaging through her clothes. She bypassed her casual wear and opted for a playful, feminine look: a white, off-the-shoulder ribbed knit top, paired with a high-waisted, pale blue pleated tennis skirt. She finished the outfit with a thin black choker around her neck, adding a touch of edge.";
+  const event = inferWardrobeEvent(narration, "character");
+  assert.equal(event?.source, "character");
+  assert.match(event?.outfit || "", /white, off-the-shoulder ribbed knit top/i);
+  assert.match(event?.outfit || "", /pale blue pleated tennis skirt/i);
+  assert.match(event?.outfit || "", /thin black choker/i);
+  assert.doesNotMatch(event?.outfit || "", /playful, feminine look:/i);
+});
+
+test("extracts a coordinated ensemble described as sliding into and pairing garments", () => {
+  const narration = "Once back in the bedroom, Erica bypassed her usual oversized sweaters. She slid into a pair of high-waisted, charcoal grey leggings that hugged her curves and paired them with a soft, cream-colored off-the-shoulder knit sweater. She turned toward Alex with a smile.";
+  const event = inferWardrobeEvent(narration, "character");
+  assert.equal(event?.source, "character");
+  assert.equal(
+    event?.outfit,
+    "high-waisted, charcoal grey leggings, soft, cream-colored off-the-shoulder knit sweater",
+  );
+  assert.doesNotMatch(event?.outfit || "", /hugged her curves|usual oversized/i);
+});
+
+test("a planned ensemble is not committed before the character changes", () => {
+  assert.equal(
+    inferWardrobeEvent("She might slide into black leggings and pair them with a red sweater later."),
+    null,
+  );
+});
+
 test("planned clothing does not become the current outfit before it is worn", () => {
   assert.equal(inferWardrobeEvent("I'll change into my red travel coat before we go."), null);
   assert.equal(inferWardrobeEvent("You can grab one of my oversized T-shirts if you want."), null);
+});
+
+test("explicit garment removal subtracts only known layers from the current outfit", () => {
+  const current = "white graphic T-shirt, short light blue skirt, black pantyhose, walnut brown boots";
+  const event = inferWardrobeEvent("Hana takes off her T-shirt and boots, leaving them beside the couch.", "character");
+  assert.equal(event?.phase, "removed");
+  assert.deepEqual(event?.removedGarments.map((item) => item.toLowerCase()), ["t-shirt", "boots"]);
+  assert.equal(removeWardrobeItems(current, event?.removedGarments), "short light blue skirt, black pantyhose");
+  assert.equal(removeWardrobeItems("black dress", ["dress"]), "completely nude");
+  assert.equal(removeWardrobeItems(current, ["jacket"]), current);
+});
+
+test("planned or merely opened clothing is not treated as removed", () => {
+  assert.equal(inferWardrobeEvent("She might take off her jacket later."), null);
+  assert.equal(inferWardrobeEvent("She unbuttons her jacket but keeps it on."), null);
+  assert.equal(normalizeWardrobePrompt("completely naked"), "completely nude");
 });
 
 test("a generated photo's explicit wardrobe becomes scene continuity only with a visual brief", () => {

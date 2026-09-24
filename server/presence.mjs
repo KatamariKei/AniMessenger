@@ -106,9 +106,18 @@ export function presenceSceneCue(thread, userText) {
     ? { presence: saved }
     : inferPresenceFromHistory(thread?.messages || [], "apart", characterName);
   const cue = inferPresenceCue(userText, inferred.presence, thread?.messages || [], characterName);
+  // Distinguish an explicit statement in this turn from merely carrying the
+  // saved value forward. The response may complete travel that began in the
+  // user's message, so a passive carry-forward must not override the model's
+  // end-of-passage presence state.
+  const explicitCue = inferPresenceCue(userText, "uncertain", thread?.messages || [], characterName);
+  const presenceAuthority = explicitCue.presence === "together" || explicitCue.presence === "apart"
+    ? "deterministic"
+    : undefined;
   return {
     ...(cue.presence === "together" && inferred.location ? { location: inferred.location } : {}),
     ...cue,
+    ...(presenceAuthority ? { presenceAuthority } : {}),
   };
 }
 

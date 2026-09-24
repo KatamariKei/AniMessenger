@@ -1,6 +1,6 @@
 {
   "name": "animessenger",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "license": "MIT",
   "description": "A local-first character messenger with independent character discovery, Ollama chat, and optional ComfyUI images.",
@@ -14,6 +14,7 @@
     "dev:lan": "node scripts/dev.mjs --lan",
     "dev:tray": "node scripts/build-dev-tray.mjs --start",
     "dev:tray:build": "node scripts/build-dev-tray.mjs",
+    "dev:service": "node scripts/tray-service.mjs",
     "build": "tsc -p tsconfig.json && vite build",
     "start": "node server/index.mjs --serve-dist",
     "typecheck": "tsc -p tsconfig.json --noEmit",

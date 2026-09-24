@@ -75,11 +75,29 @@ export const profileGuideSchema = {
     mischaracterizations: stringArraySchema,
     initiativeSeeds: stringArraySchema,
     deepeningPaths: stringArraySchema,
+    characterTensions: stringArraySchema,
   },
   required: [
     "baselineVoice", "emotionalVariations", "signatureAccents", "avoidPatterns", "exampleLines",
     "selfConcept", "competencies", "vulnerabilityMap", "relationshipProgression", "conversationHabits",
-    "mischaracterizations", "initiativeSeeds", "deepeningPaths",
+    "mischaracterizations", "initiativeSeeds", "deepeningPaths", "characterTensions",
+  ],
+};
+
+export const profileRepairSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    summary: stringSchema,
+    traits: stringArraySchema,
+    mannerisms: stringArraySchema,
+    speechStyle: stringSchema,
+    emotionalRules: stringArraySchema,
+    ...profileGuideSchema.properties,
+  },
+  required: [
+    "summary", "traits", "mannerisms", "speechStyle", "emotionalRules",
+    ...profileGuideSchema.required,
   ],
 };
 
@@ -167,6 +185,7 @@ export const characterChatSchema = {
   type: "object",
   additionalProperties: false,
   properties: {
+    narration: nullableStringSchema,
     reply: stringSchema,
     relationshipDelta: { type: "integer", minimum: -2, maximum: 2 },
     scene: sceneSchema,
@@ -180,9 +199,16 @@ export const characterChatSchema = {
     otherShouldRespond: { type: "boolean" },
   },
   required: [
-    "reply", "relationshipDelta", "scene", "shouldSendPhoto", "photoBrief", "photoOutfit", "photoMessage",
+    "narration", "reply", "relationshipDelta", "scene", "shouldSendPhoto", "photoBrief", "photoOutfit", "photoMessage",
     "memoryCandidates", "followUp", "resolvesPendingFollowUp", "otherShouldRespond",
   ],
+};
+
+const { reply: _storyReply, ...storyChatProperties } = characterChatSchema.properties;
+export const storyCharacterChatSchema = {
+  ...characterChatSchema,
+  properties: { ...storyChatProperties, narration: stringSchema },
+  required: characterChatSchema.required.filter((field) => field !== "reply"),
 };
 
 export const proactiveOutreachSchema = {

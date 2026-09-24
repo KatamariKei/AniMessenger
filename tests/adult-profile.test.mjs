@@ -32,3 +32,23 @@ test("profile normalization overrides model or research-derived minor ages", () 
   assert.equal(normalized.name, "Example");
   assert.equal(source.age, 14);
 });
+
+test("adult portrayal does not leave a conflicting present-tense minor age in the visible summary", () => {
+  const normalized = enforceAdultCharacterProfile({
+    age: 18,
+    summary: "A fourteen-year-old girl who explores the Wired. She is usually quiet.",
+    socialIdentity: { gender: "Female" },
+    canon: { history: ["Canon first depicts her as a fourteen-year-old girl."] },
+  });
+  assert.equal(normalized.summary, "An adult woman who explores the Wired. She is usually quiet.");
+  assert.deepEqual(normalized.canon.history, ["Canon first depicts her as a fourteen-year-old girl."]);
+});
+
+test("adult portrayal preserves explicitly historical ages in the summary", () => {
+  const normalized = enforceAdultCharacterProfile({
+    age: 18,
+    summary: "She was a fourteen-year-old girl when the story began. She is an adult now.",
+    socialIdentity: { gender: "Female" },
+  });
+  assert.equal(normalized.summary, "She was a fourteen-year-old girl when the story began. She is an adult now.");
+});

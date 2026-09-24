@@ -5,6 +5,14 @@ function absoluteUrl(base, value) {
   return new URL(value, base.endsWith("/") ? base : base + "/").toString();
 }
 
+function cleanSeries(value = "") {
+  return String(value || "")
+    .replaceAll("_", " ")
+    .replace(/\s*\((?:game|series|franchise)\)\s*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export async function checkAnimaDex(config, timeout = 5000) {
   try {
     const response = await fetch(config.animadexUrl + "/api/characters/facets", { signal: AbortSignal.timeout(timeout) });
@@ -34,12 +42,14 @@ export async function searchCharacters(config, query, page = 1) {
     results: (payload.results || []).map((item) => ({
       id: item.slug,
       name: item.name || String(item.slug).replaceAll("_", " "),
-      series: item.copyright_name || String(item.copyright || "").replaceAll("_", " "),
+      series: cleanSeries(item.copyright_name || item.copyright) || "Series to confirm",
       trigger: item.trigger || item.name,
       tags: Array.isArray(item.tags) ? item.tags : [],
       thumbUrl: absoluteUrl(config.animadexUrl, item.thumb_url),
       imageUrl: absoluteUrl(config.animadexUrl, item.img_url),
       sourceUrl: item.url || "",
+      sourceProvider: "animadex",
+      sourceRefs: item.url ? [{ title: `${item.name || String(item.slug).replaceAll("_", " ")} on AnimaDex`, url: item.url }] : [],
       count: Number(item.count || 0),
     })),
   };

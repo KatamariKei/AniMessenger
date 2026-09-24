@@ -60,6 +60,19 @@ Run:
 
 Then inspect the candidate from a fresh directory before publishing anything.
 
+## 0.5.0 release candidate
+
+- [x] Update the package version, README download name, changelog, and public-source user agents.
+- [x] Document the recommended hardware floor: 12 GB NVIDIA VRAM and 32 GB system memory for the complete local workflow, with honest experimental guidance for 8 GB hardware.
+- [x] Run the expanded public-file audit with no local conversations, generated images, machine paths, or secrets included.
+- [x] Pass TypeScript checking, the complete automated test suite, and the production Vite build.
+- [x] Build and independently audit `AniMessenger-Windows-v0.5.0.zip` with the pinned Node.js runtime and versioned tray executable.
+- [x] Validate packaged character creation on an RTX 3090: Chun-Li completed in 140 seconds including the initial ANIMA load, and Breath of the Wild Zelda completed in 104 seconds with a warm image model; both profiles were solid.
+- [x] Test a packaged update over v0.4.0 on the RTX 3090 PC and confirm private data remains intact.
+- [x] Test a clean v0.5.0 install on the RTX 3090 PC, including online character sources, Ollama, ComfyUI, and tray startup.
+- [x] Complete a focused continuity soak covering explicit room changes, location phrases, persistent outfits, garment removal, Narrative Mode, and image prompts; carry the known vague-location and body-position limitations into the post-release continuity plan.
+- [ ] Review the staged public diff, commit, push, tag `v0.5.0`, and attach the final ZIP to the GitHub release.
+
 ## 0.4.0 release candidate
 
 - [x] Update the package version, README download name, changelog, privacy notice, content notice, catalogue user-agent, and clean-account helper.

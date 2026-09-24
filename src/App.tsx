@@ -49,7 +49,16 @@ const quickReactions = [
   { value: "‼️", label: "Exclamation" },
   { value: "❓", label: "Question" },
 ];
-const MESSAGE_BATCH_SIZE = 120;
+const DESKTOP_MESSAGE_BATCH_SIZE = 120;
+const MOBILE_MESSAGE_BATCH_SIZE = 40;
+
+function isMobileLayout() {
+  return window.innerWidth <= 760;
+}
+
+function messageBatchSize() {
+  return isMobileLayout() ? MOBILE_MESSAGE_BATCH_SIZE : DESKTOP_MESSAGE_BATCH_SIZE;
+}
 
 function characterDisplayName(character: AnimaCharacter) {
   return character.displayName?.trim() || character.name;
@@ -92,6 +101,11 @@ function anticipatedCameoSpeakerId(thread: Thread, guest: Thread | undefined, te
   if ((hostMentioned && guestMentioned) || groupAddress) return lastSpeakerId === hostId ? guestId : hostId;
   if (guestMentioned) return guestId;
   if (hostMentioned) return hostId;
+  const joinedAtMessageId = thread.cameo.activeGuest.joinedAtMessageId;
+  const joinIndex = thread.messages.findIndex((message) => message.id === joinedAtMessageId);
+  const sharedMessages = thread.messages.slice(joinIndex >= 0 ? joinIndex + 1 : 0);
+  const guestHasSpoken = sharedMessages.some((message) => message.from === "character" && message.speakerId === guestId);
+  if (!guestHasSpoken) return guestId;
   if (lastSpeakerId === hostId || lastSpeakerId === guestId) return lastSpeakerId;
   return hostId;
 }
@@ -164,6 +178,12 @@ function cameoReplyDelay(message: Message) {
   return Math.min(4200, Math.max(1800, 1100 + length * 11));
 }
 
+function visibleStoryPassage(message?: Message) {
+  const narration = String(message?.narration || "").trim();
+  const reply = String(message?.text || "").trim();
+  return narration || reply;
+}
+
 function RetryIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -194,14 +214,132 @@ function GuestIcon() {
   );
 }
 
-function Portrait({ character, large = false }: { character: AnimaCharacter; large?: boolean }) {
+function ConversationModeIcon({ mode }: { mode: "chat" | "story" }) {
+  return mode === "story" ? (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3.5 5.5c3.2-.8 5.9-.2 8.5 1.7v12c-2.6-1.9-5.3-2.5-8.5-1.7Z" />
+      <path d="M20.5 5.5c-3.2-.8-5.9-.2-8.5 1.7v12c2.6-1.9 5.3-2.5 8.5-1.7Z" />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 5.5h16v11H9l-5 3Z" />
+      <path d="M8 10h8M8 13h5" />
+    </svg>
+  );
+}
+
+function StoryPassage({ text, animate, onComplete, onProgress }: { text: string; animate: boolean; onComplete: () => void; onProgress: () => void }) {
+  const tokens = useMemo(() => text.split(/(\s+)/).filter(Boolean), [text]);
+  const [visibleTokens, setVisibleTokens] = useState(animate ? 0 : tokens.length);
+  const passageRef = useRef<HTMLParagraphElement>(null);
+  const passageEndRef = useRef<HTMLSpanElement>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const onCompleteRef = useRef(onComplete);
+  const onProgressRef = useRef(onProgress);
+  onCompleteRef.current = onComplete;
+  onProgressRef.current = onProgress;
+
+  useEffect(() => {
+    if (animationFrameRef.current !== null) window.cancelAnimationFrame(animationFrameRef.current);
+    if (!animate) {
+      setVisibleTokens(tokens.length);
+      return;
+    }
+    setVisibleTokens(0);
+    let cursor = 0;
+    let nextRevealAt = performance.now() + 180;
+    const revealFrame = (now: number) => {
+      if (now >= nextRevealAt) {
+        cursor = Math.min(tokens.length, cursor + 1);
+        const revealedToken = tokens[Math.max(0, cursor - 1)] || "";
+        let followingSpace = "";
+        while (cursor < tokens.length && /^\s+$/.test(tokens[cursor])) {
+          followingSpace += tokens[cursor];
+          cursor += 1;
+        }
+        setVisibleTokens(cursor);
+        window.requestAnimationFrame(() => onProgressRef.current());
+        const delay = followingSpace.includes("\n") ? 430 : /[.!?][”"']?$/.test(revealedToken) ? 320 : /[,;:][”"']?$/.test(revealedToken) ? 220 : 135;
+        nextRevealAt = now + delay;
+      }
+      if (cursor < tokens.length) animationFrameRef.current = window.requestAnimationFrame(revealFrame);
+      else {
+        animationFrameRef.current = null;
+        onCompleteRef.current();
+      }
+    };
+    animationFrameRef.current = window.requestAnimationFrame(revealFrame);
+    return () => {
+      if (animationFrameRef.current !== null) window.cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    };
+  }, [animate, tokens]);
+
+  const complete = visibleTokens >= tokens.length;
+  const revealAll = () => {
+    if (complete) return;
+    if (animationFrameRef.current !== null) window.cancelAnimationFrame(animationFrameRef.current);
+    animationFrameRef.current = null;
+    setVisibleTokens(tokens.length);
+    onCompleteRef.current();
+  };
+  return (
+    <p
+      ref={passageRef}
+      className={"story-passage " + (complete ? "is-complete" : "is-writing")}
+      onClick={revealAll}
+      title={complete ? undefined : "Tap to reveal the full passage"}
+      aria-label={text}
+    >
+      {tokens.slice(0, visibleTokens).map((token, index) => (
+        <span
+          aria-hidden="true"
+          className="story-token"
+          key={index}
+        >{token}</span>
+      ))}
+      {!complete && <span ref={passageEndRef} className="story-reveal-edge" aria-hidden="true" />}
+    </p>
+  );
+}
+
+function portraitDisplayUrl(url = "") {
+  if (!url.startsWith("/api/images/view?")) return url;
+  return url + "&preview=webp%3B70";
+}
+
+function Portrait({ character, large = false, defer = false }: { character: AnimaCharacter; large?: boolean; defer?: boolean }) {
   const accent = accentFor(character.id);
   const portraitUrl = character.avatarUrl || character.thumbUrl;
-  const generatedAvatar = Boolean(character.avatarUrl);
-  const image = portraitUrl ? "url(\"" + portraitUrl + "\")" : "linear-gradient(145deg, " + accent + "55, #17121d)";
+  const [failedPortraitUrl, setFailedPortraitUrl] = useState("");
+  const usablePortraitUrl = failedPortraitUrl === portraitUrl ? "" : portraitUrl;
+  const generatedAvatar = Boolean(character.avatarUrl && usablePortraitUrl);
+  const spritePortrait = Boolean(usablePortraitUrl && character.sprite && !generatedAvatar);
+  const portraitRef = useRef<HTMLSpanElement>(null);
+  const [loadPortrait, setLoadPortrait] = useState(!defer);
+  useEffect(() => {
+    if (!usablePortraitUrl || spritePortrait || !defer || typeof IntersectionObserver === "undefined") {
+      setLoadPortrait(true);
+      return;
+    }
+    setLoadPortrait(false);
+    const target = portraitRef.current;
+    if (!target) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      setLoadPortrait(true);
+      observer.disconnect();
+    }, { rootMargin: "160px 0px" });
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [defer, usablePortraitUrl, spritePortrait]);
+  const image = spritePortrait
+    ? "url(\"" + usablePortraitUrl + "\")"
+    : !usablePortraitUrl ? "linear-gradient(145deg, " + accent + "55, #17121d)" : undefined;
   return (
     <span
-      className={"portrait portrait--remote " + (large ? "portrait--large" : "")}
+      ref={portraitRef}
+      className={"portrait portrait--remote " + (large ? "portrait--large " : "") + (usablePortraitUrl && !generatedAvatar && !spritePortrait ? "portrait--source-thumbnail" : "")}
       style={{
         backgroundColor: accent + "24",
         backgroundImage: image,
@@ -211,7 +349,8 @@ function Portrait({ character, large = false }: { character: AnimaCharacter; lar
       role="img"
       aria-label={characterDisplayName(character) + " portrait"}
     >
-      {!portraitUrl && <b>{characterDisplayName(character).slice(0, 1)}</b>}
+      {usablePortraitUrl && !spritePortrait && loadPortrait && <img src={portraitDisplayUrl(usablePortraitUrl)} alt="" aria-hidden="true" loading={defer ? "lazy" : "eager"} decoding="async" fetchPriority={defer ? "low" : "auto"} onError={() => setFailedPortraitUrl(usablePortraitUrl)} />}
+      {!usablePortraitUrl && <b>{characterDisplayName(character).slice(0, 1)}</b>}
     </span>
   );
 }
@@ -1316,8 +1455,52 @@ export function AniMessengerApp() {
   const [typingSpeakerId, setTypingSpeakerId] = useState("");
   const [searching, setSearching] = useState(false);
   const [building, setBuilding] = useState<AnimaCharacter | null>(null);
+  const [buildStage, setBuildStage] = useState<{ id: string; stage: string; completed: number; total: number; startedAt: number; failedStage?: string; error?: string } | null>(null);
+  const pendingBuildThread = threads.find((thread) => thread.id === activeId) ?? threads[0];
+  useEffect(() => {
+    setBuildStage(null);
+    const characterId = building?.id || (!pendingBuildThread?.profile ? pendingBuildThread?.id : "");
+    if (!characterId) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    let unavailableSince = 0;
+    const poll = async () => {
+      try {
+        const progress = await api.profileProgress(characterId);
+        if (cancelled) return;
+        setBuildStage(progress ? { ...progress, id: characterId } : null);
+        if (progress?.stage === "complete") {
+          const result = await api.thread(characterId);
+          if (cancelled) return;
+          if (result.thread.profile) {
+            mergeThread(result.thread);
+            setBuilding((current) => current?.id === characterId ? null : current);
+            setNotice("");
+            return;
+          }
+        }
+        if (progress?.stage === "error") {
+          setBuilding((current) => current?.id === characterId ? null : current);
+          return;
+        }
+        if (progress) unavailableSince = 0;
+        else if (building?.id === characterId && !unavailableSince) unavailableSince = Date.now();
+      } catch {
+        if (!unavailableSince) unavailableSince = Date.now();
+      }
+      if (cancelled) return;
+      if (building?.id === characterId && unavailableSince && Date.now() - unavailableSince > 30000) {
+        setBuilding((current) => current?.id === characterId ? null : current);
+        return;
+      }
+      timer = setTimeout(poll, 1500);
+    };
+    void poll();
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [building?.id, pendingBuildThread?.id, Boolean(pendingBuildThread?.profile)]);
   const [avatarGenerating, setAvatarGenerating] = useState<Record<string, boolean>>({});
   const [showProfile, setShowProfile] = useState(false);
+  const [profileSummaryExpanded, setProfileSummaryExpanded] = useState(false);
   const [showGuestPicker, setShowGuestPicker] = useState(false);
   const [guestSearch, setGuestSearch] = useState("");
   const [cameoUpdating, setCameoUpdating] = useState(false);
@@ -1340,6 +1523,9 @@ export function AniMessengerApp() {
   const [profileTab, setProfileTab] = useState<"profile" | "memories" | "gallery">("profile");
   const [memoryUpdating, setMemoryUpdating] = useState(false);
   const [pinUpdating, setPinUpdating] = useState(false);
+  const [conversationModeUpdating, setConversationModeUpdating] = useState(false);
+  const [animatedStoryMessageId, setAnimatedStoryMessageId] = useState("");
+  const storyRevealWaitersRef = useRef<Map<string, () => void>>(new Map());
   const [firstContactUpdating, setFirstContactUpdating] = useState<"start" | "reroll" | "">("");
   const [openingSceneGeneratingId, setOpeningSceneGeneratingId] = useState("");
   const [fullScreenImage, setFullScreenImage] = useState<LightboxState | null>(null);
@@ -1354,12 +1540,15 @@ export function AniMessengerApp() {
   const [healthChecking, setHealthChecking] = useState(false);
   const [notice, setNotice] = useState("");
   const [relationshipMilestones, setRelationshipMilestones] = useState<RelationshipMilestone[]>([]);
-  const [visibleMessageLimit, setVisibleMessageLimit] = useState(MESSAGE_BATCH_SIZE);
+  const [visibleMessageLimit, setVisibleMessageLimit] = useState(() => messageBatchSize());
   const [loadingThreadId, setLoadingThreadId] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const emojiSearchRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const historyPrependAnchorRef = useRef<{ height: number; top: number } | null>(null);
+  const followLatestMessageRef = useRef(true);
+  const previousScrollThreadRef = useRef("");
   const profileCardRef = useRef<HTMLElement>(null);
   const guestCardRef = useRef<HTMLElement>(null);
   const deleteCardRef = useRef<HTMLElement>(null);
@@ -1457,6 +1646,31 @@ export function AniMessengerApp() {
   }, [emojiSearch]);
 
   useEffect(() => {
+    for (const finish of storyRevealWaitersRef.current.values()) finish();
+    storyRevealWaitersRef.current.clear();
+    setAnimatedStoryMessageId("");
+  }, [activeId]);
+
+  const beginStoryReveal = (messageId: string) => new Promise<void>((resolve) => {
+    let settled = false;
+    const timeout = window.setTimeout(() => finish(), 90_000);
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      storyRevealWaitersRef.current.delete(messageId);
+      resolve();
+    };
+    storyRevealWaitersRef.current.set(messageId, finish);
+    setAnimatedStoryMessageId(messageId);
+  });
+
+  const finishStoryReveal = (messageId: string) => {
+    setAnimatedStoryMessageId((current) => current === messageId ? "" : current);
+    storyRevealWaitersRef.current.get(messageId)?.();
+  };
+
+  useEffect(() => {
     if (!showEmoji) return;
     window.requestAnimationFrame(() => emojiSearchRef.current?.focus());
     const closeEmoji = (event: KeyboardEvent) => {
@@ -1522,10 +1736,11 @@ export function AniMessengerApp() {
         const loadedThreads = threadResult.status === "fulfilled" ? threadResult.value.threads : [];
         const loadedConfig = configResult.status === "fulfilled" ? configResult.value : null;
         const first = loadedThreads[0];
+        const openFirstChat = Boolean(first && !isMobileLayout());
 
         if (threadResult.status === "fulfilled") {
           setThreads(loadedThreads);
-          setActiveId(first?.id ?? "");
+          setActiveId(openFirstChat ? first!.id : "");
         }
         if (loadedConfig) setConfig(loadedConfig);
         if (healthResult.status === "fulfilled") setHealth(healthResult.value);
@@ -1549,7 +1764,7 @@ export function AniMessengerApp() {
         }
         if (!setupComplete && threadResult.status === "fulfilled" && configResult.status === "fulfilled"
           && loadedThreads.length === 0 && !loadedConfig?.chatModel) setShowSetup(true);
-        if (first) {
+        if (first && openFirstChat) {
           setLoadingThreadId(first.id);
           const load = first.unreadCount ? api.markRead(first.id) : api.thread(first.id);
           void load.then((result) => {
@@ -1608,8 +1823,9 @@ export function AniMessengerApp() {
         const restoredThreads = threadResult.value.threads;
         setThreads(restoredThreads);
         const first = restoredThreads[0];
-        setActiveId(first?.id ?? "");
-        if (first) {
+        const openFirstChat = Boolean(first && !isMobileLayout());
+        setActiveId(openFirstChat ? first!.id : "");
+        if (first && openFirstChat) {
           setLoadingThreadId(first.id);
           const load = first.unreadCount ? api.markRead(first.id) : api.thread(first.id);
           void load.then((result) => mergeThread(result.thread))
@@ -1668,6 +1884,21 @@ export function AniMessengerApp() {
     const scroll = scrollRef.current;
     if (!scroll) return;
 
+    const currentThreadId = active?.id || "";
+    const switchedThread = previousScrollThreadRef.current !== currentThreadId;
+    previousScrollThreadRef.current = currentThreadId;
+    if (switchedThread) followLatestMessageRef.current = true;
+
+    const prependAnchor = historyPrependAnchorRef.current;
+    if (prependAnchor) {
+      historyPrependAnchorRef.current = null;
+      scroll.scrollTop = prependAnchor.top + (scroll.scrollHeight - prependAnchor.height);
+      followLatestMessageRef.current = false;
+      return;
+    }
+
+    if (!followLatestMessageRef.current && !switchedThread) return;
+
     const settleAtBottom = () => {
       scroll.scrollTop = Math.max(0, scroll.scrollHeight - scroll.clientHeight);
     };
@@ -1689,6 +1920,18 @@ export function AniMessengerApp() {
       window.clearTimeout(settleTimer);
     };
   }, [active?.id, active?.messages.length, loadingThreadId, typing, visibleMessageLimit]);
+
+  const loadEarlierMessages = () => {
+    const scroll = scrollRef.current;
+    if (scroll) historyPrependAnchorRef.current = { height: scroll.scrollHeight, top: scroll.scrollTop };
+    setVisibleMessageLimit((current) => current + messageBatchSize());
+  };
+
+  const trackMessageScroll = () => {
+    const scroll = scrollRef.current;
+    if (!scroll) return;
+    followLatestMessageRef.current = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight <= 64;
+  };
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -1745,7 +1988,7 @@ export function AniMessengerApp() {
 
   useEffect(() => {
     setReactionTarget(null);
-    setVisibleMessageLimit(MESSAGE_BATCH_SIZE);
+    setVisibleMessageLimit(messageBatchSize());
   }, [active?.id]);
 
   useLayoutEffect(() => {
@@ -1864,8 +2107,25 @@ export function AniMessengerApp() {
     }
   };
 
+  const toggleConversationMode = async () => {
+    if (!active || conversationModeUpdating || typing) return;
+    const nextMode = active.conversationMode === "story" ? "chat" : "story";
+    setReactionTarget(null);
+    setConversationModeUpdating(true);
+    setNotice("");
+    try {
+      const result = await api.setConversationMode(active.id, nextMode);
+      mergeThread(result.thread, true);
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : "The conversation mode could not be changed.");
+    } finally {
+      setConversationModeUpdating(false);
+    }
+  };
+
   const openProfile = () => {
     setProfileTab("profile");
+    setProfileSummaryExpanded(false);
     setShowProfile(true);
   };
 
@@ -2178,6 +2438,7 @@ export function AniMessengerApp() {
     if (fileRef.current) fileRef.current.value = "";
     setBuilding(character);
     setNotice("");
+    let awaitingServerResult = false;
     try {
       const existing = threads.find((thread) => thread.character.id === character.id);
       if (existing?.profile) {
@@ -2200,9 +2461,24 @@ export function AniMessengerApp() {
       setMode("chats");
       setSearch("");
     } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : "The character profile could not be built.");
+      const message = reason instanceof Error ? reason.message : "The character profile could not be built.";
+      awaitingServerResult = /local service is not responding|local service took too long|local service is starting or unavailable/i.test(message);
+      if (awaitingServerResult) {
+        try {
+          const saved = await api.thread(character.id);
+          if (saved.thread.profile) {
+            replaceThread(saved.thread);
+            awaitingServerResult = false;
+            setNotice("");
+            return;
+          }
+        } catch { /* Progress polling will keep checking after a dropped connection. */ }
+      }
+      setNotice(awaitingServerResult
+        ? "The connection was interrupted. Checking whether character preparation is still running…"
+        : message);
     } finally {
-      setBuilding(null);
+      if (!awaitingServerResult) setBuilding(null);
     }
   };
 
@@ -2477,6 +2753,10 @@ export function AniMessengerApp() {
       if (cameoReplies.length > 1) {
         const cameoReplyIds = new Set(cameoReplies.map((reply) => reply.id));
         for (let index = 0; index < cameoReplies.length; index += 1) {
+          const currentReply = cameoReplies[index];
+          const revealFinished = active.conversationMode === "story" && currentReply.narration
+            ? beginStoryReveal(currentReply.id)
+            : null;
           const visibleReplyIds = new Set(cameoReplies.slice(0, index + 1).map((reply) => reply.id));
           const stagedThread = {
             ...response.thread,
@@ -2486,11 +2766,19 @@ export function AniMessengerApp() {
           sound("message-received");
           const nextReply = cameoReplies[index + 1];
           if (nextReply) {
+            if (revealFinished) {
+              setTyping(false);
+              setTypingSpeakerId("");
+              await revealFinished;
+              setTyping(true);
+            }
             setTypingSpeakerId(nextReply.speakerId || active.character.id);
             await new Promise((resolve) => window.setTimeout(resolve, cameoReplyDelay(nextReply)));
           }
         }
       } else {
+        const onlyReply = cameoReplies[0] || response.reply;
+        if (active.conversationMode === "story" && onlyReply?.narration) setAnimatedStoryMessageId(onlyReply.id);
         replaceThread(response.thread);
         if (response.reply?.from === "character" || cameoReplies.length === 1) sound("message-received");
       }
@@ -2752,7 +3040,7 @@ export function AniMessengerApp() {
           </div>
           <label className="search-box">
             <span aria-hidden="true">⌕</span>
-            <input aria-label={mode === "chats" ? "Search active characters" : "Search for a new character"} value={search} onChange={(event) => setSearch(event.target.value)} placeholder={mode === "chats" ? "Search active characters" : "Search for a new character"} />
+            <input aria-label={mode === "chats" ? "Search active characters" : "Search for a new character"} value={search} onChange={(event) => setSearch(event.target.value)} placeholder={mode === "chats" ? "Search active characters" : "Search for a new character"} autoCorrect="off" autoCapitalize="off" spellCheck={false} />
             {search && <button type="button" onClick={() => setSearch("")} aria-label="Clear search">×</button>}
           </label>
           {mode === "discover" && (
@@ -2778,13 +3066,13 @@ export function AniMessengerApp() {
                   onClick={() => mode === "discover" ? void openCharacter(character) : thread && openThread(thread)}
                 >
                   <span className="contact-portrait">
-                    <Portrait character={character} />
+                    <Portrait character={character} defer />
                     {Boolean(thread?.unreadCount) && <i className="unread-dot" aria-label="Unread message" />}
                   </span>
                   <span className="contact-copy">
                     <span className="contact-topline"><strong>{characterDisplayName(character)}</strong><span className="contact-status">{thread?.pinned && <i className="pinned-indicator" aria-label="Pinned chat">★</i>}<time>{mode === "chats" && last ? formatTime(last.time) : ""}</time></span></span>
                     <span className="series-label">{character.series}</span>
-                    <span className="message-preview">{mode === "discover" ? (character.tags.slice(0, 3).join(" · ") || "Research profile on first meeting") : (last?.text ?? "Start a conversation")}</span>
+                    <span className="message-preview">{mode === "discover" ? (character.tags.slice(0, 3).join(" · ") || "Research profile on first meeting") : (thread?.conversationMode === "story" ? visibleStoryPassage(last) : last?.text) || "Start a conversation"}</span>
                   </span>
                   {mode === "discover" && <span className="chat-arrow">↗</span>}
                 </button>
@@ -2837,6 +3125,18 @@ export function AniMessengerApp() {
               </button>
               <button
                 type="button"
+                className={"conversation-mode-control " + (active.conversationMode === "story" ? "is-story" : "is-chat")}
+                onClick={() => void toggleConversationMode()}
+                disabled={!activeReadyForChat || conversationModeUpdating || typing}
+                aria-label={active.conversationMode === "story" ? "Switch to Chat mode" : "Switch to Story mode"}
+                aria-pressed={active.conversationMode === "story"}
+                title={active.conversationMode === "story" ? "Story mode is on · switch to Chat" : "Chat mode is on · switch to Story"}
+              >
+                <ConversationModeIcon mode={active.conversationMode === "story" ? "story" : "chat"} />
+                <small>{conversationModeUpdating ? "…" : active.conversationMode === "story" ? "Story" : "Chat"}</small>
+              </button>
+              <button
+                type="button"
                 className={"guest-control " + (activeGuestThread ? "has-guest" : "")}
                 onClick={() => { setGuestSearch(""); setShowGuestPicker(true); }}
                 disabled={!activeReadyForChat}
@@ -2871,7 +3171,7 @@ export function AniMessengerApp() {
               onRetry={() => void retryConnections()}
               onSetup={() => setShowSetup(true)}
             />
-            <div className="message-scroll" key={active.id} ref={scrollRef}>
+            <div className="message-scroll" key={active.id} ref={scrollRef} onScroll={trackMessageScroll}>
               <div className={"hello-card " + (active.firstContact?.status === "started" ? "hello-card--adventure" : "")}>
                 <Portrait character={active.character} large />
                 <h2>{characterDisplayName(active.character)}</h2>
@@ -2884,11 +3184,11 @@ export function AniMessengerApp() {
                   </div>
                 )}
               </div>
-              {building?.id === active.id && !active.profile && (
+              {!active.profile && (building?.id === active.id || (buildStage?.id === active.id && !["complete", "error"].includes(buildStage.stage))) && (
                 <div className="build-in-chat" role="status" aria-live="polite">
                   <span className="build-letter"><Portrait character={active.character} /></span>
-                  <div><small>Preparing this character</small><strong>Getting to know {characterDisplayName(active.character)}…</strong><p>Ollama is researching their personality, visual identity, history, and a character-appropriate place for your adventure to begin.</p></div>
-                  <div className="build-progress"><i /></div>
+                  <div><small>Preparing this character</small><strong>Getting to know {characterDisplayName(active.character)}…</strong><p>{({ sources: "Finding character references…", evidence: "Checking character facts and source evidence…", profile: "Building personality and appearance…", validation: "Checking the profile against its sources…", opening: "Preparing your opening adventure…", complete: "Ready!", error: "Character preparation stopped. Please retry." } as Record<string, string>)[buildStage?.id === active.id ? buildStage.stage : "sources"]}</p><small>{buildStage?.id === active.id ? `${buildStage.completed} of ${buildStage.total} stages completed · ${Math.max(0, Math.floor((Date.now() - buildStage.startedAt) / 1000))}s elapsed` : "Starting research…"}</small></div>
+                  <progress aria-label="Character creation stages completed" max={5} value={buildStage?.id === active.id ? buildStage.completed : 0} style={{ width: "100%", accentColor: "#42c4b7" }} />
                 </div>
               )}
               {active.profile && active.firstContact?.status === "preview" && (
@@ -2907,13 +3207,16 @@ export function AniMessengerApp() {
                   </div>
                 </section>
               )}
-              {!active.profile && building?.id !== active.id && (
+              {!active.profile && building?.id !== active.id && !(buildStage?.id === active.id && !["complete", "error"].includes(buildStage.stage)) && (
                 <div className="build-in-chat build-recovery" role="alert">
                   <span className="build-letter"><Portrait character={active.character} /></span>
                   <div>
                     <small>Profile setup paused</small>
                     <strong>{characterDisplayName(active.character)} isn’t ready yet.</strong>
                     <p>Nothing is lost. Retry the character research, or remove this unfinished chat and choose another result.</p>
+                    {buildStage?.id === active.id && buildStage.stage === "error" && buildStage.error && (
+                      <p className="build-recovery-error" role="alert">Stopped during {buildStage.failedStage || "setup"}: {buildStage.error}</p>
+                    )}
                   </div>
                   <div className="build-actions">
                     <button type="button" onClick={() => void openCharacter(active.character)}>Retry setup</button>
@@ -2923,15 +3226,33 @@ export function AniMessengerApp() {
               )}
               {loadingThreadId === active.id && active.summary && <div className="history-loading">Loading conversation…</div>}
               {hiddenMessageCount > 0 && (
-                <button type="button" className="load-earlier" onClick={() => setVisibleMessageLimit((current) => current + MESSAGE_BATCH_SIZE)}>
+                <button type="button" className="load-earlier" onClick={loadEarlierMessages}>
                   Load earlier messages <span>{hiddenMessageCount.toLocaleString()} remaining</span>
                 </button>
               )}
-              {visibleMessages.map((message) => (
-                <div key={message.id} className={"message-line message-line--" + (message.from === "system" ? "system" : message.from === "character" ? "character" : "user") + (message.from === "character" && message.speakerId && message.speakerId !== active.character.id ? " message-line--guest" : "") + (["captured_moment", "opening_scene"].includes(message.imageOrigin || "") ? " message-line--captured" : "") + (message.imageOrigin === "opening_scene" ? " message-line--opening-scene" : "")}>
+              {visibleMessages.map((message) => {
+                const isStoryPassage = active.conversationMode === "story" && message.from === "character" && Boolean(message.narration);
+                const storyText = isStoryPassage ? visibleStoryPassage(message) : "";
+                return (
+                <div key={message.id} className={"message-line message-line--" + (message.from === "system" ? "system" : message.from === "character" ? "character" : "user") + (message.from === "character" && message.speakerId && message.speakerId !== active.character.id ? " message-line--guest" : "") + (["captured_moment", "opening_scene"].includes(message.imageOrigin || "") ? " message-line--captured" : "") + (message.imageOrigin === "opening_scene" ? " message-line--opening-scene" : "") + (message.narration ? " has-narration" : "") + (isStoryPassage ? " story-passage-line" : "")}>
                   <div className="message-content">
-                    <div className="message-primary">
-                      {message.from === "character" && !["captured_moment", "opening_scene"].includes(message.imageOrigin || "") && <Portrait character={messageSpeakerCharacter(message, active, threads)} />}
+                    {message.narration && (isStoryPassage
+                      ? <>
+                        {active.cameo?.activeGuest && <small className="message-speaker story-speaker">{characterDisplayName(messageSpeakerCharacter(message, active, threads))}</small>}
+                        <StoryPassage
+                          text={storyText}
+                          animate={animatedStoryMessageId === message.id}
+                          onComplete={() => finishStoryReveal(message.id)}
+                          onProgress={() => {
+                            const scroll = scrollRef.current;
+                            if (!scroll || !followLatestMessageRef.current) return;
+                            scroll.scrollTo({ top: scroll.scrollHeight, behavior: "auto" });
+                          }}
+                        />
+                      </>
+                      : <p className="narration-beat">{message.narration}</p>)}
+                    {(!isStoryPassage || message.image) && <div className="message-primary">
+                      {message.from === "character" && !isStoryPassage && !["captured_moment", "opening_scene"].includes(message.imageOrigin || "") && <Portrait character={messageSpeakerCharacter(message, active, threads)} />}
                       <div className="message-payload">
                         {message.from === "character" && active.cameo?.activeGuest && (
                           <small className="message-speaker">{characterDisplayName(messageSpeakerCharacter(message, active, threads))}</small>
@@ -2956,6 +3277,8 @@ export function AniMessengerApp() {
                             <img
                               key={message.id + "-" + imageReloadVersion}
                               src={resilientImageSrc(message.image, message.id)}
+                              loading="lazy"
+                              decoding="async"
                               alt={message.imageOrigin === "opening_scene" ? "Opening scene with " + characterDisplayName(messageSpeakerCharacter(message, active, threads)) : message.imageOrigin === "captured_moment" ? "Captured moment with " + characterDisplayName(messageSpeakerCharacter(message, active, threads)) : message.generated ? characterDisplayName(messageSpeakerCharacter(message, active, threads)) + " shared a generated scene" : "Shared by you"}
                               onError={() => handleImageLoadError(message.id)}
                               onLoad={() => handleImageLoadSuccess(message.id)}
@@ -2973,14 +3296,14 @@ export function AniMessengerApp() {
                             <span>{retryingImageIds.has(message.id) ? "Generating replacement..." : message.generated ? "Image unavailable · Generate again" : "Shared photo unavailable · Reload"}</span>
                           </button>
                         )}
-                        {message.text && <p className="bubble">{message.text}</p>}
+                        {message.text && !isStoryPassage && <p className="bubble">{message.text}</p>}
                       </div>
-                    </div>
+                    </div>}
                     <div className={"message-meta " + (message.delivery === "failed" ? "is-failed" : "")}>
                       <time>{formatTime(message.time)}</time>
                       {message.delivery === "sending" && <span className="delivery-state">Sending…</span>}
                       {message.delivery === "failed" && <button type="button" className="delivery-retry" onClick={() => retryFailedMessage(message)}>Not sent · Retry</button>}
-                      {message.from === "character" && !["captured_moment", "opening_scene"].includes(message.imageOrigin || "") && (!message.speakerId || message.speakerId === active.character.id) && (
+                      {!isStoryPassage && message.from === "character" && !["captured_moment", "opening_scene"].includes(message.imageOrigin || "") && (!message.speakerId || message.speakerId === active.character.id) && (
                         <span className="reaction-control">
                           {message.reaction ? (
                             <button
@@ -3015,7 +3338,7 @@ export function AniMessengerApp() {
                     </div>
                   </div>
                 </div>
-              ))}
+              );})}
               {(openingSceneGeneratingId === active.id || active.firstContact?.openingImage?.status === "pending") && !active.messages.some((message) => message.imageOrigin === "opening_scene") && (
                 <div className="opening-scene-pending" role="status"><i aria-hidden="true" /><span>Setting the scene…</span></div>
               )}
@@ -3025,13 +3348,15 @@ export function AniMessengerApp() {
               {typing && typingCharacter && (
                 <div className={"message-line message-line--character typing-line " + (typingCharacter.id !== active.character.id ? "message-line--guest" : "")} role="status" aria-label={characterDisplayName(typingCharacter) + " is typing"}>
                   <div className="message-content">
-                    <div className="message-primary">
+                    {active.conversationMode === "story" ? (
+                      <div className="story-writing-status"><span>The next moment is taking shape</span><i /><i /><i /></div>
+                    ) : <div className="message-primary">
                       <Portrait character={typingCharacter} />
                       <div className="message-payload">
                         {active.cameo?.activeGuest && <small className="message-speaker">{characterDisplayName(typingCharacter)}</small>}
                         <p className="bubble"><i /><i /><i /></p>
                       </div>
-                    </div>
+                    </div>}
                   </div>
                 </div>
               )}
@@ -3166,7 +3491,7 @@ export function AniMessengerApp() {
                   <p>Choose a character you already know. Replies stay with whoever has the floor; the other may occasionally add something genuinely relevant.</p>
                   <label className="guest-search">
                     <span aria-hidden="true">⌕</span>
-                    <input type="search" value={guestSearch} onChange={(event) => setGuestSearch(event.target.value)} placeholder="Search your characters" aria-label="Search researched characters" />
+                    <input type="search" value={guestSearch} onChange={(event) => setGuestSearch(event.target.value)} placeholder="Search your characters" aria-label="Search researched characters" autoCorrect="off" autoCapitalize="off" spellCheck={false} />
                   </label>
                   <div className="guest-list">
                     {guestOptions.length ? guestOptions.map((thread) => (
@@ -3227,9 +3552,15 @@ export function AniMessengerApp() {
               </div>
               {profileTab === "profile" ? (
                 <div className="profile-section" id="profile-panel" role="tabpanel" aria-labelledby="profile-tab-profile">
-                  <p>{active.profile.summary}</p>
+                  <section className={"profile-about " + (profileSummaryExpanded ? "is-expanded" : "")}>
+                    <header>
+                      <small>About</small>
+                      {active.profile.summary.length > 180 && <button type="button" aria-expanded={profileSummaryExpanded} onClick={() => setProfileSummaryExpanded((expanded) => !expanded)}>{profileSummaryExpanded ? "Show less" : "Read more"}</button>}
+                    </header>
+                    <p>{active.profile.summary}</p>
+                  </section>
                   <dl>
-                    <div><dt>Voice</dt><dd>{active.profile.persona.speechStyle}</dd></div>
+                    <div><dt>Voice</dt><dd>{active.profile.persona.baselineVoice || active.profile.persona.speechStyle}</dd></div>
                     <div><dt>Now wearing</dt><dd>{active.scene.outfit}</dd></div>
                     <div><dt>Where</dt><dd>{active.scene.location}</dd></div>
                   </dl>
@@ -3278,7 +3609,7 @@ export function AniMessengerApp() {
                             onClick={() => setFullScreenImage({ items: availableItems, index: availableIndex })}
                             aria-label={"Open image " + (index + 1) + " of " + activeGallery.length}
                           >
-                            <img key={item.id + "-" + imageReloadVersion + "-" + (imageRetryVersions[item.id] || 0)} src={resilientImageSrc(item.src, item.id)} alt="" onError={() => handleImageLoadError(item.id)} onLoad={() => handleImageLoadSuccess(item.id)} />
+                            <img key={item.id + "-" + imageReloadVersion + "-" + (imageRetryVersions[item.id] || 0)} src={resilientImageSrc(item.src, item.id)} alt="" loading="lazy" decoding="async" onError={() => handleImageLoadError(item.id)} onLoad={() => handleImageLoadSuccess(item.id)} />
                           </button>
                         )}
                       </div>

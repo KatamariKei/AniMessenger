@@ -111,7 +111,11 @@ export function buildTokenAwareMessages({
   const inputBudget = Math.max(1500, windowTokens - responseReserve - imageReserve - 192);
   const currentTokens = estimateTokens(current?.content) + (current?.images?.length ? 24 : 0);
   const controlsTokens = controls.reduce((total, message) => total + estimateTokens(message?.content) + 6, 0);
-  const systemBudget = Math.max(900, inputBudget - currentTokens - controlsTokens - 420);
+  // Reserve enough room for a contiguous recent exchange. Story passages are
+  // often several hundred tokens; a token sliver caused the newest passage to
+  // be skipped while older, shorter messages were retained out of sequence.
+  const historyReserve = Math.min(3200, Math.max(900, Math.floor(inputBudget * 0.26)));
+  const systemBudget = Math.max(900, inputBudget - currentTokens - controlsTokens - historyReserve);
   const compactedSystem = compactSystemContext(systemContext, systemBudget);
 
   let used = estimateTokens(compactedSystem) + currentTokens + controlsTokens + 24;
@@ -119,7 +123,9 @@ export function buildTokenAwareMessages({
   for (let index = history.length - 1; index >= 0; index -= 1) {
     const message = history[index];
     const cost = estimateTokens(message?.content) + 8;
-    if (used + cost > inputBudget) continue;
+    // History must remain a contiguous suffix. Once a newer item cannot fit,
+    // including any older item would create a false chronology for the model.
+    if (used + cost > inputBudget) break;
     selected.unshift(message);
     used += cost;
   }

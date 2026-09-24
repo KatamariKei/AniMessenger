@@ -16,7 +16,7 @@ test("catalogue health checks all search providers with an identifying user agen
   try {
     assert.equal(await checkCharacterCatalog({ animadexUrl: "https://animadex.net" }), true);
     assert.deepEqual(hosts, new Set(["danbooru.donmai.us", "graphql.anilist.co", "www.wikidata.org", "animadex.net"]));
-    assert.ok(headers.some((value) => String(value["user-agent"] || "").includes("AniMessenger/0.4")));
+    assert.ok(headers.some((value) => String(value["user-agent"] || "").includes("AniMessenger/0.5")));
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -93,6 +93,77 @@ test("series extraction understands a character described as belonging to a game
   assert.ok(merged[0].sourceRefs.some((ref) => ref.url.includes("danbooru")));
 });
 
+test("linked canon work outranks a Danbooru disambiguation label", () => {
+  const candidate = parseDanbooruCharacter(
+    { id: 2170472, name: "catherine_(atlus_character)", category: 4, post_count: 249 },
+    { body: "Namesake character of the [[catherine (game)|Catherine video game]], she attempts to seduce [[Vincent Brooks]]." },
+  );
+  assert.equal(candidate.name, "Catherine");
+  assert.equal(candidate.series, "Catherine");
+  assert.match(candidate.trigger, /catherine_\(atlus_character\)/);
+});
+
+test("AnimaDex participates in normal search and merges with independent evidence", { concurrency: false }, async () => {
+  const originalFetch = globalThis.fetch;
+  const hosts = new Set();
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    hosts.add(url.hostname);
+    if (url.hostname === "danbooru.donmai.us" && url.pathname === "/tags.json") {
+      return new Response(JSON.stringify([{ id: 2170472, name: "catherine_(atlus_character)", category: 4, post_count: 249 }]), { status: 200 });
+    }
+    if (url.hostname === "danbooru.donmai.us" && url.pathname === "/wiki_pages.json") {
+      return new Response(JSON.stringify([{ body: "Namesake character of the [[catherine (game)|Catherine video game]]." }]), { status: 200 });
+    }
+    if (url.hostname === "danbooru.donmai.us") return new Response("[]", { status: 200 });
+    if (url.hostname === "graphql.anilist.co") return new Response(JSON.stringify({ data: { Page: { characters: [] } } }), { status: 200 });
+    if (url.hostname === "www.wikidata.org") return new Response(JSON.stringify({ search: [] }), { status: 200 });
+    return new Response(JSON.stringify({ total: 1, results: [{ slug: "catherine", name: "Catherine", copyright_name: "Catherine (Game)", count: 208, url: "https://animadex.net/characters/catherine" }] }), { status: 200 });
+  };
+  try {
+    const result = await searchCharacterCatalog({ animadexUrl: "https://animadex.net" }, "Catherine");
+    assert.ok(hosts.has("animadex.net"));
+    assert.equal(result.source, "combined");
+    assert.equal(result.results.length, 1);
+    assert.equal(result.results[0].name, "Catherine");
+    assert.equal(result.results[0].series, "Catherine");
+    assert.ok(result.results[0].sourceRefs.some((ref) => ref.url.includes("animadex.net")));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("catalogue search tries reversed character-name order for verified visual evidence", { concurrency: false }, async () => {
+  const originalFetch = globalThis.fetch;
+  const patterns = [];
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    if (url.hostname === "danbooru.donmai.us" && url.pathname === "/tags.json") {
+      const pattern = url.searchParams.get("search[name_matches]");
+      patterns.push(pattern);
+      return new Response(JSON.stringify(pattern === "*yamada_elf*"
+        ? [{ id: 121473, name: "yamada_elf", category: 4, post_count: 615 }]
+        : []), { status: 200 });
+    }
+    if (url.hostname === "danbooru.donmai.us" && url.pathname === "/wiki_pages.json") {
+      return new Response(JSON.stringify([{ body: "A character in the [[Eromanga Sensei]] series." }]), { status: 200 });
+    }
+    if (url.hostname === "danbooru.donmai.us" && url.pathname === "/posts.json") {
+      const post = { tag_string_character: "yamada_elf", tag_string_general: "1girl blonde_hair blue_eyes long_hair" };
+      return new Response(JSON.stringify(Array.from({ length: 5 }, () => post)), { status: 200 });
+    }
+    if (url.hostname === "graphql.anilist.co") return new Response(JSON.stringify({ data: { Page: { characters: [] } } }), { status: 200 });
+    if (url.hostname === "www.wikidata.org") return new Response(JSON.stringify({ search: [] }), { status: 200 });
+    return new Response(JSON.stringify({ total: 0, results: [] }), { status: 200 });
+  };
+  try {
+    const result = await searchCharacterCatalog({ animadexUrl: "https://animadex.net" }, "Elf Yamada");
+    assert.ok(patterns.includes("*yamada_elf*"));
+    assert.ok(result.results[0].tags.includes("blonde hair"));
+    assert.ok(result.results[0].tags.includes("blue eyes"));
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test("costume-variant tags do not create long duplicate character names", () => {
   assert.equal(parseDanbooruCharacter({ id: 1, name: "new_jersey_(special_outfit)_(azur_lane)", category: 4 }, null), null);
   assert.equal(parseDanbooruCharacter({ id: 2, name: "characters:samus_aran", category: 4 }, null), null);
@@ -118,6 +189,68 @@ test("catalogue merging ranks exact names and preserves visual evidence", () => 
   }]], "Lara");
   assert.equal(results[0].name, "Lara Croft");
   assert.deepEqual(results[0].tags, ["brown hair"]);
+});
+
+test("a merged independent result inherits its optional AnimaDex search thumbnail", () => {
+  const results = mergeCatalogResults([[
+    { id: "danbooru", name: "Catherine", series: "Catherine", sourceProvider: "danbooru", tags: ["blonde hair"], count: 249 },
+    { id: "animadex", name: "Catherine", series: "Catherine", sourceProvider: "animadex", tags: [], count: 208, thumbUrl: "https://blobs.animadex.net/Outputs/thumbs/catherine.webp" },
+  ]], "Catherine");
+  assert.equal(results.length, 1);
+  assert.equal(results[0].sourceProvider, "danbooru");
+  assert.equal(results[0].thumbUrl, "https://blobs.animadex.net/Outputs/thumbs/catherine.webp");
+  assert.deepEqual(results[0].tags, ["blonde hair"]);
+});
+
+test("a source-qualified alias merges into the stronger matching-series character", () => {
+  const results = mergeCatalogResults([[
+    { id: "danbooru", name: "Alice", series: "Goddess Of Victory: Nikke", sourceProvider: "danbooru", tags: ["pink eyes"], catalogNotes: ["Detailed canon guide"], count: 1195 },
+    { id: "animadex", name: "Alice (Nikke)", series: "Goddess Of Victory: Nikke", sourceProvider: "animadex", tags: ["pink bodysuit"], count: 663, thumbUrl: "https://blobs.animadex.net/alice.webp" },
+  ]], "Alice");
+  assert.equal(results.length, 1);
+  assert.equal(results[0].name, "Alice");
+  assert.equal(results[0].thumbUrl, "https://blobs.animadex.net/alice.webp");
+  assert.deepEqual(results[0].catalogNotes, ["Detailed canon guide"]);
+  assert.ok(results[0].tags.includes("pink eyes"));
+  assert.ok(results[0].tags.includes("pink bodysuit"));
+});
+
+test("AnimaDex supplements thumbnails and clothing without injecting unsupported anatomy", () => {
+  const results = mergeCatalogResults([[
+    { id: "danbooru", name: "Triss Merigold", series: "The Witcher", sourceProvider: "danbooru", tags: ["red hair", "green eyes"], count: 500 },
+    { id: "animadex", name: "Triss Merigold", series: "The Witcher", sourceProvider: "animadex", tags: ["mole under mouth", "large breasts", "green dress"], count: 400, thumbUrl: "https://example.com/triss.webp" },
+  ]], "Triss");
+  assert.equal(results[0].thumbUrl, "https://example.com/triss.webp");
+  assert.ok(results[0].tags.includes("green dress"));
+  assert.ok(!results[0].tags.includes("mole under mouth"));
+  assert.ok(!results[0].tags.includes("large breasts"));
+});
+
+test("an outfit qualifier is not mistaken for a series alias", () => {
+  const results = mergeCatalogResults([[
+    { id: "base", name: "Alice", series: "Goddess Of Victory: Nikke", sourceProvider: "danbooru", tags: [], count: 1195 },
+    { id: "variant", name: "Alice (Wonderland Bunny)", series: "Goddess Of Victory: Nikke", sourceProvider: "animadex", tags: ["bunny outfit"], count: 300, thumbUrl: "https://blobs.animadex.net/alice-bunny.webp" },
+  ]], "Alice");
+  assert.equal(results.length, 2);
+});
+
+test("Rebecca merges across a Danbooru collision suffix and enclosing Cyberpunk franchise", () => {
+  const visual = parseDanbooruCharacter(
+    { id: 1846970, name: "rebecca_(cyberpunk)", category: 4, post_count: 2524 },
+    { body: "A character from the [[Cyberpunk: Edgerunners 1]] anime, set in the [[Cyberpunk_(series)|]] universe. Rebecca is a petite cyborg." },
+    ["1girl", "green hair", "twintails"],
+  );
+  const results = mergeCatalogResults([[
+    visual,
+    { id: "anilist", name: "Rebecca", series: "Cyberpunk: Edgerunners", sourceProvider: "anilist", tags: [], catalogNotes: ["Canonical personality guide"], count: 5385 },
+    { id: "animadex", name: "Rebecca (Cyberpunk)", series: "Cyberpunk", sourceProvider: "animadex", tags: ["pink jacket"], count: 1709, thumbUrl: "https://blobs.animadex.net/rebecca.webp" },
+  ]], "Rebecca");
+  assert.equal(results.length, 1);
+  assert.equal(results[0].name, "Rebecca");
+  assert.equal(results[0].series, "Cyberpunk: Edgerunners");
+  assert.equal(results[0].thumbUrl, "https://blobs.animadex.net/rebecca.webp");
+  assert.ok(results[0].catalogNotes.includes("Canonical personality guide"));
+  assert.ok(results[0].tags.includes("green hair"));
 });
 
 test("catalogue merging recognizes reversed Japanese and Western name order", () => {
@@ -158,6 +291,16 @@ test("English and romanized series aliases merge biography and visual evidence",
   assert.equal(results.length, 2);
   assert.equal(results[0].series, "The Apothecary Diaries");
   assert.deepEqual(results[0].tags, ["green hair", "blue eyes"]);
+});
+
+test("a leading The does not split otherwise identical character series", () => {
+  const results = mergeCatalogResults([[
+    { id: "primary", name: "Maomao", series: "The Apothecary Diaries", sourceProvider: "anilist", tags: ["green hair"], count: 2000 },
+    { id: "wikidata", name: "Maomao", series: "Apothecary Diaries", sourceProvider: "wikidata", tags: [], catalogNotes: ["Canonical Wikidata description"], count: 0 },
+  ]], "Maomao");
+  assert.equal(results.length, 1);
+  assert.equal(results[0].series, "The Apothecary Diaries");
+  assert.ok(results[0].catalogNotes.includes("Canonical Wikidata description"));
 });
 
 test("an unknown-series same-name record does not collapse unrelated characters", () => {

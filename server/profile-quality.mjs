@@ -1,7 +1,18 @@
 export const CHARACTER_PROFILE_VERSION = 4;
 
 const nonTextPerformance = /\b(?:voice|pitch|breath(?:ing)?|eyes?|physically|body language|gesture|facial expression|retreats? physically)\b/i;
-const baselineGimmick = /\b(?:gaming|gamer|internet|technical) (?:slang|jargon|metaphors?)\b|\bheavy on\b/i;
+const textPerformance = /\b(?:wording|phrasing|sentences?|punctuation|direct(?:ness)?|vocabulary|diction|rhythm|repl(?:y|ies)|text(?:ing)?|messages?|tone|formal|informal|terse|brief|clipped|verbose|pace|pacing)\b/i;
+// Reject instructions that affirmatively make a gimmick part of the ordinary
+// voice. Merely naming one in a negative instruction ("avoids technical
+// jargon") is healthy guidance and must not fail profile creation.
+const baselineGimmick = /\b(?:uses?|includes?|relies? on|leans? (?:on|into)|sprinkles?|features?|with|using|through|via|heavy on|full of|peppered with)\b[^.;]{0,50}\b(?:gaming|gamer|internet|technical) (?:slang|jargon|metaphors?)\b/ig;
+export function hasAffirmativeBaselineGimmick(value) {
+  for (const match of String(value || "").matchAll(baselineGimmick)) {
+    const beforeGimmick = match[0].replace(/\b(?:gaming|gamer|internet|technical) (?:slang|jargon|metaphors?)\b.*$/i, "");
+    if (!/\b(?:no|not|never|without|avoid\w*|little|rarely|sparingly|minimal|less|instead of|rather than)\b/i.test(beforeGimmick)) return true;
+  }
+  return false;
+}
 const overperformance = /\b(?:extreme use|excessive use|constantly|always|every (?:message|reply)|perpetually)\b/i;
 const conspicuousStyle = /\b(?:hp|mana|stats?|buffs?|debuffs?|levels?|status (?:effect|ailment)|cooldowns?|regen(?:eration)?|npc|quests?|boss(?:es)?|battle|combat|dungeons?|high-difficulty|dialogue tree|cpu|buffer|packets?|firewall|protocol|system error|logs?|terminal|digital footprint|watchlist|encrypt\w*|optim(?:ize|izing|ized|ization)|shutdown|hardware|software|debug\w*|hack(?:er|ing|ed)?)\b|\b[A-Za-z]-[A-Za-z]|[\u{1F300}-\u{1FAFF}]/iu;
 const passiveConversation = /\b(?:(?:only|rarely|never|primarily)\b[^.;]{0,80}\b(?:provid|initiat|speak|respond|detail|information|topic)\w*|(?:provid|initiat|speak|respond|detail|information|topic)\w*\b[^.;]{0,80}\b(?:only|rarely|never|primarily)\b|provides? only\b[^.;]{0,80}\b(?:essential|necessary|minimum)\b|without initiating|dismissive silence|low-effort responses?|lack warmth even when|ends? (?:the )?conversation quickly)\b/i;
@@ -35,6 +46,15 @@ function strings(value) {
   return [];
 }
 
+export function stabilizeBaselineVoice(persona = {}) {
+  const baseline = String(persona.baselineVoice || "").trim();
+  if (!hasAffirmativeBaselineGimmick(baseline)) return baseline;
+  const traits = strings(persona.traits).slice(0, 3);
+  const anchor = traits.length ? " Draw on these established traits: " + traits.join("; ") + "." : "";
+  return "In ordinary messages, use clear, conversational sentences." + anchor
+    + " Let opinions, choices, and character-specific details carry the voice; signature slang and metaphors remain occasional.";
+}
+
 function normalizedConversationHabits(value) {
   return strings(value).map((item) => {
     if (/\banswer\w*[_ ]?questions?\b/i.test(item) && /\b(?:otherwise|instead)\b[^.;]{0,60}\b(?:deflect|silence|question)\w*/i.test(item)) {
@@ -48,6 +68,12 @@ function normalizedConversationHabits(value) {
     }
     if (/\bdismissive silence\b|\blow-effort responses?\b|\bends? (?:the )?conversation quickly\b/i.test(item)) {
       return "May be terse or guarded, but chooses a specific answer, boundary, question, decision, or topic change instead of collapsing the exchange into silence.";
+    }
+    // Keep normalization and validation in lockstep. Local models can express
+    // the same conversational dead end in many ways (for example, "speaks
+    // only when necessary") that do not mention a specific schema key.
+    if (passiveConversation.test(item)) {
+      return "Engages selectively, but when choosing to respond contributes a concrete answer, reason, observation, opinion, question, or purposeful change of topic.";
     }
     return item;
   });
@@ -85,12 +111,11 @@ export function profileQualityIssues(profile) {
   const initiativeSeeds = strings(persona.initiativeSeeds);
   const deepeningPaths = strings(persona.deepeningPaths);
   if (baseline.length < 30) issues.push("a concrete plain-conversation baselineVoice");
-  if (nonTextPerformance.test(baseline)) issues.push("a baselineVoice written for text messages rather than vocal pitch, breathing, gestures, eyes, or physical acting");
-  if (baselineGimmick.test(baseline)) issues.push("a genuinely plain baselineVoice that does not depend on gaming, internet, technical slang, jargon, or metaphors");
+  if (nonTextPerformance.test(baseline) && !textPerformance.test(baseline)) issues.push("a baselineVoice written for text messages rather than vocal pitch, breathing, gestures, eyes, or physical acting");
+  if (hasAffirmativeBaselineGimmick(baseline)) issues.push("a genuinely plain baselineVoice that does not depend on gaming, internet, technical slang, jargon, or metaphors");
   if (variations.length < 4) issues.push("at least four emotionalVariations");
-  if (variations.some((item) => nonTextPerformance.test(item))) issues.push("emotionalVariations that describe changes in texting rather than physical acting");
+  if (variations.some((item) => nonTextPerformance.test(item) && !textPerformance.test(item))) issues.push("emotionalVariations that describe changes in texting rather than physical acting");
   if (variations.some((item) => overperformance.test(item))) issues.push("emotionalVariations without instructions for extreme, excessive, constant, or perpetual performance");
-  if (strings(persona.signatureAccents).length < 1) issues.push("at least one optional signatureAccent");
   if (strings(persona.avoidPatterns).length < 3) issues.push("at least three character-specific avoidPatterns");
   if (examples.length < 5) issues.push("at least five varied exampleLines");
   if (examples.filter((line) => !conspicuousStyle.test(line)).length < 3) issues.push("at least three genuinely plain exampleLines without signature slang, gaming or technical metaphors, stutters, or emoji");
@@ -106,6 +131,50 @@ export function profileQualityIssues(profile) {
   if (deepeningPaths.length < 2) issues.push("at least two deepeningPaths for specific disclosures, questions, hopes, tensions, or shared plans");
   if (deepeningPaths.some((item) => passiveDeepening.test(item))) issues.push("deepeningPaths that create a usable disclosure, question, tension, callback, or plan rather than silence alone");
   return issues;
+}
+
+export function profileCoreQualityIssues(profile) {
+  const persona = profile?.persona || {};
+  const issues = [];
+  const summary = String(profile?.summary || "").trim();
+  const summarySentences = summary.match(/[^.!?]+[.!?]+|[^.!?]+$/g)?.filter((sentence) => sentence.trim()) || [];
+  const summaryWords = summary.match(/[\p{L}\p{N}'’]+/gu) || [];
+  const speechStyle = String(persona.speechStyle || "").trim();
+  if (summary.length < 80 || summarySentences.length < 2 || summaryWords.length < 30 || /\bfrom the .{0,80} series\b|\bknown for (?:his|her|their) .{0,45}(?:presence|personality|abilities)\b/i.test(summary)) {
+    issues.push("a specific two- or three-sentence character summary covering role, temperament, and supported relationships or context");
+  }
+  if (strings(persona.traits).length < 3) issues.push("at least three specific, sometimes contrasting personality traits");
+  if (strings(persona.mannerisms).length < 2) issues.push("at least two recognizable conversational or behavioral mannerisms");
+  if (speechStyle.length < 40 || /^speak naturally (?:and plainly )?in character\.?$/i.test(speechStyle)) {
+    issues.push("a distinctive speechStyle describing diction, directness, humor, formality, and characteristic sentence rhythm");
+  }
+  if (strings(persona.emotionalRules).length < 2) issues.push("at least two character-specific emotionalRules");
+  return issues;
+}
+
+export function hasUsableCoreProfile(profile) {
+  const summary = String(profile?.summary || "").trim();
+  const speechStyle = String(profile?.persona?.speechStyle || "").trim();
+  return summary.length >= 40
+    && strings(profile?.persona?.traits).length >= 1
+    && speechStyle.length >= 30
+    && !/^speak naturally (?:and plainly )?in character\.?$/i.test(speechStyle);
+}
+
+export function preserveUsableCoreProfile(candidate, prior) {
+  const next = {
+    ...prior, ...candidate,
+    persona: { ...(prior?.persona || {}), ...(candidate?.persona || {}) },
+    canon: { ...(prior?.canon || {}), ...(candidate?.canon || {}) },
+    visual: { ...(prior?.visual || {}), ...(candidate?.visual || {}) },
+  };
+  if (String(next.summary || "").trim().length < 40) next.summary = prior?.summary;
+  if (!strings(next.persona.traits).length) next.persona.traits = prior?.persona?.traits;
+  const speech = String(next.persona.speechStyle || "").trim();
+  if (speech.length < 30 || /^speak naturally (?:and plainly )?in character\.?$/i.test(speech)) {
+    next.persona.speechStyle = prior?.persona?.speechStyle;
+  }
+  return next;
 }
 
 export function profilePerformanceGuide(persona = {}) {
@@ -130,6 +199,7 @@ export function profilePerformanceGuide(persona = {}) {
     mischaracterizations: strings(persona.mischaracterizations),
     initiativeSeeds: normalizedInitiativeSeeds(persona.initiativeSeeds),
     deepeningPaths: normalizedDeepeningPaths(persona.deepeningPaths),
+    characterTensions: strings(persona.characterTensions),
   };
 }
 

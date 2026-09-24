@@ -14,6 +14,15 @@ test("arrival and shared physical actions establish co-presence", () => {
   assert.equal(inferPresenceCue("[action: I pull her into a hug.]", "apart").presence, "together");
 });
 
+test("scene cues distinguish explicit presence evidence from a carried saved state", () => {
+  const apartThread = { character: { name: "Erica" }, scene: { presence: "apart" }, messages: [] };
+  assert.deepEqual(presenceSceneCue(apartThread, "I wonder what she's doing."), { presence: "apart" });
+  assert.deepEqual(presenceSceneCue(apartThread, "DING DONG! I'm here!"), {
+    presence: "together",
+    presenceAuthority: "deterministic",
+  });
+});
+
 test("travel and departures establish physical separation", () => {
   assert.equal(inferPresenceCue("I'm on my way. See you soon!", "together").presence, "apart");
   assert.equal(inferPresenceCue("[action: I head home.] I'll text you later.", "together").presence, "apart");
@@ -69,6 +78,7 @@ test("legacy threads infer their latest presence from conversation history", () 
   assert.deepEqual(presenceSceneCue(thread, "I really want to kiss you."), {
     presence: "together",
     location: "Sadayo's home",
+    presenceAuthority: "deterministic",
   });
   assert.equal(inferPresenceFromHistory(thread.messages, "apart", "Sadayo").presence, "together");
 });

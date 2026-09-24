@@ -26,6 +26,24 @@ test("context builder preserves the newest exchanges and omits old history withi
   assert.ok(result.diagnostic.estimatedInputTokens <= result.diagnostic.contextWindow);
 });
 
+test("context builder never fills around an omitted newer passage with older fragments", () => {
+  const result = buildTokenAwareMessages({
+    systemContext: "Current scene is the beach.\n" + "rule ".repeat(1000),
+    history: [
+      { role: "assistant", content: "old-restaurant-fragment" },
+      { role: "user", content: "new-beach-action " + "detail ".repeat(1600) },
+    ],
+    controls: [{ role: "system", content: "The beach is authoritative." }],
+    current: { role: "user", content: "latest request" },
+    contextWindow: 4096,
+    responseReserve: 1600,
+  });
+  const transcript = result.messages.map((message) => message.content).join("\n");
+  assert.doesNotMatch(transcript, /old-restaurant-fragment/);
+  assert.doesNotMatch(transcript, /new-beach-action/);
+  assert.match(transcript, /The beach is authoritative/);
+});
+
 test("profile compaction drops examples before core identity and response rules", () => {
   const source = [
     "You are Misato.",
