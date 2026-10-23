@@ -1,0 +1,12 @@
+[
+  { "threshold": 0, "label": "New acquaintance", "color": "#77727b" },
+  { "threshold": 20, "label": "Familiar", "color": "#f0d94f" },
+  { "threshold": 30, "label": "Friend", "color": "#f0d94f" },
+  { "threshold": 40, "label": "Close friend", "color": "#ff9a3d" },
+  { "threshold": 50, "label": "Trusted friend", "color": "#ff9a3d" },
+  { "threshold": 60, "label": "Best friend", "color": "#ff9a3d" },
+  { "threshold": 70, "label": "Confidant", "color": "#ff6657" },
+  { "threshold": 80, "label": "Trusted confidant", "color": "#ff6657" },
+  { "threshold": 90, "label": "Deep bond", "color": "#f4f1ea" },
+  { "threshold": 100, "label": "Total bond", "color": "#f4f1ea" }
+]

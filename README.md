@@ -28,7 +28,7 @@ AniMessenger is available under the [MIT License](LICENSE). See the [changelog](
 
 ### [Download the latest Windows release](https://github.com/KatamariKei/AniMessenger/releases/latest)
 
-1. Download and extract `AniMessenger-Windows-v0.5.0.zip`.
+1. Download and extract `AniMessenger-Windows-v0.6.0.zip`.
 2. Run `Install-AniMessenger.cmd` from the extracted folder.
 3. Use the AniMessenger tray icon to open, start, stop, or check for updates.
 
@@ -47,6 +47,8 @@ The installer is not yet code-signed, so Windows may show a reputation warning. 
 CPU-only systems and GPUs with 8 GB of VRAM may still run AniMessenger with a smaller Ollama model, especially for chat-only use, but the complete character-creation and image workflow is experimental on that hardware and may be dramatically slower or run out of memory. Laptop GPUs may also perform below desktop cards with the same product name. The 12 GB tier is a recommended target rather than a guarantee for every model, context size, or ComfyUI workflow.
 
 Building from source additionally requires Git, Node.js 22.13 or newer, and pnpm 11. Packaged Windows users do not need those developer tools.
+
+**Choppy or sluggish scrolling?** Check that graphics/hardware acceleration is enabled in your browser, especially if character or user dossier panels feel chunky while chat scrolls normally. Restart the browser after changing it. See [browser scrolling troubleshooting](docs/WINDOWS-INSTALLER.md#choppy-or-sluggish-browser-scrolling) for Chrome and Firefox steps; this applies to both packaged and source-clone installs.
 
 The **Gemma 4 family is recommended for the best AniMessenger experience**. The suggested starting model is `gemma4:12b`; it can handle chat, profile building, and attached-photo reactions, so a first-time user only needs one Ollama model. Other compatible Ollama models remain supported and can be selected in Settings.
 

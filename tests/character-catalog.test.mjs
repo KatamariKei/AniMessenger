@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { checkCharacterCatalog, mergeCatalogResults, parseAniListCharacter, parseDanbooruCharacter, parseWikidataCharacter, searchCharacterCatalog, summarizeDanbooruEvidence } from "../server/character-catalog.mjs";
+import { catalogSearchVariants, checkCharacterCatalog, mergeCatalogResults, parseAniListCharacter, parseDanbooruCharacter, parseWikidataCharacter, searchCharacterCatalog, summarizeDanbooruEvidence } from "../server/character-catalog.mjs";
 
 test("catalogue health checks all search providers with an identifying user agent", { concurrency: false }, async () => {
   const originalFetch = globalThis.fetch;
@@ -16,7 +16,7 @@ test("catalogue health checks all search providers with an identifying user agen
   try {
     assert.equal(await checkCharacterCatalog({ animadexUrl: "https://animadex.net" }), true);
     assert.deepEqual(hosts, new Set(["danbooru.donmai.us", "graphql.anilist.co", "www.wikidata.org", "animadex.net"]));
-    assert.ok(headers.some((value) => String(value["user-agent"] || "").includes("AniMessenger/0.5")));
+    assert.ok(headers.some((value) => String(value["user-agent"] || "").includes("AniMessenger/0.6")));
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -177,6 +177,14 @@ test("AniList and Wikidata provide normalized source-neutral candidates", () => 
   assert.match(wiki.series, /Tomb Raider/i);
   const cyberpunk = parseWikidataCharacter({ id: "Q456", label: "Judy Alvarez", description: "fictional character in the video game Cyberpunk 2077" });
   assert.equal(cyberpunk.series, "Cyberpunk 2077");
+});
+
+test("Japanese macrons expand to image-model and booru romanization", () => {
+  assert.deepEqual(catalogSearchVariants("Ryūko Matoi").slice(0, 2), ["Ryuuko Matoi", "Ryuko Matoi"]);
+  const ani = parseAniListCharacter({ id: 83797, name: { full: "Ryūko Matoi" }, media: { nodes: [{ title: { english: "Kill la Kill" } }] } });
+  const wiki = parseWikidataCharacter({ id: "Q1", label: "Ryūko Matoi", description: "fictional character from the Kill la Kill anime" });
+  assert.equal(ani.trigger, "ryuuko_matoi, kill_la_kill");
+  assert.equal(wiki.trigger, "ryuuko_matoi");
 });
 
 test("catalogue merging ranks exact names and preserves visual evidence", () => {

@@ -1,7 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { buildImagePrompt, CHARACTER_PHOTO_NEGATIVE, mergePromptTags, visualExceptionNegative } from "./identity.mjs";
+import { imageEyeState } from "./image-eyes.mjs";
 import { effectiveVisual } from "./visual-overrides.mjs";
+import { prepareSnapshotBrief } from "./moment-capture.mjs";
 
 export async function checkComfy(config) {
   try {
@@ -267,7 +269,14 @@ export function syncUiWorkflow(uiWorkflow, mapping, values) {
   return uiWorkflow;
 }
 
+export function imageGenerationSeed(seed) {
+  if (seed === undefined) return Math.floor(Math.random() * 2147483647);
+  if (!Number.isInteger(seed) || seed < 0 || seed > 2147483647) throw new Error("The image comparison seed must be an integer from 0 to 2147483647.");
+  return seed;
+}
+
 export async function queueCharacterImage(config, thread, brief = "", overrides = {}) {
+  if (overrides.sceneAwareFraming !== false) brief = prepareSnapshotBrief(thread, brief);
   const workflow = structuredClone(await readJson(config.comfyWorkflowFile, "workflow"));
   const mapping = await readJson(config.comfyMappingFile, "workflow mapping");
   const mappingIssues = validateWorkflowMapping(workflow, mapping);
@@ -281,11 +290,16 @@ export async function queueCharacterImage(config, thread, brief = "", overrides 
   const usesDefaultWardrobe = !sceneOutfit
     || sceneOutfit === "default outfit"
     || sceneOutfit === visual.defaultWardrobe;
-  const scenePrompt = buildImagePrompt(thread.profile, thread.character, thread.scene, brief, { userName: config.userName });
+  const scenePrompt = buildImagePrompt(thread.profile, thread.character, thread.scene, brief, {
+    userName: config.userName,
+    // Composition is art direction, not permission to trim character identity.
+    // Dedicated profile portraits opt into their existing off-frame filtering.
+    preserveCharacterTraits: overrides.preserveCharacterTraits !== false,
+  });
   const positive = overrides.positivePrompt || [config.globalPositivePrompt, scenePrompt].map((part) => String(part || "").trim()).filter(Boolean).join("\n\n");
-  const continuityNegative = mergePromptTags("duplicate person", CHARACTER_PHOTO_NEGATIVE, visualExceptionNegative(thread.profile));
+  const continuityNegative = mergePromptTags("duplicate person", CHARACTER_PHOTO_NEGATIVE, visualExceptionNegative(thread.profile), imageEyeState(thread.scene, brief) === "closed" ? "open eyes, visible irises, eye contact" : "");
   const negative = overrides.negativePrompt || mergePromptTags(config.globalNegativePrompt, continuityNegative, overrides.negative);
-  const seed = Math.floor(Math.random() * 2147483647);
+  const seed = imageGenerationSeed(overrides.seed);
   const width = overrides.width || settings.width;
   const height = overrides.height || settings.height;
   const filenamePrefix = characterImageOutputPrefix(thread);
@@ -389,14 +403,28 @@ function historyError(history, promptId) {
   return null;
 }
 
-export async function generationStatus(config, promptId) {
+export async function generationStatus(config, promptId, { detectMissing = false } = {}) {
   const response = await fetch(config.comfyUrl + "/history/" + encodeURIComponent(promptId), { signal: AbortSignal.timeout(10000) });
   if (!response.ok) throw new Error("ComfyUI history is unavailable.");
   const history = await response.json();
   const error = historyError(history, promptId);
   if (error) return { status: "error", error };
   const image = firstImage(history, promptId);
-  if (!image) return { status: "pending" };
+  if (!image) {
+    if (detectMissing) {
+      const queueResponse = await fetch(config.comfyUrl + "/queue", { signal: AbortSignal.timeout(10000) });
+      if (!queueResponse.ok) throw new Error("ComfyUI queue is unavailable.");
+      const queue = await queueResponse.json();
+      if (!Array.isArray(queue.queue_running) || !Array.isArray(queue.queue_pending)) throw new Error("ComfyUI queue is invalid.");
+      if (![...queue.queue_running, ...queue.queue_pending].some(item => item[1] === promptId)) {
+        // The job can finish between the first history read and the queue read.
+        const latest = await generationStatus(config, promptId);
+        if (latest.status !== "pending") return latest;
+        return { status: "error", error: "ComfyUI no longer has this artwork job. Retry artwork to create a new one." };
+      }
+    }
+    return { status: "pending" };
+  }
   const params = new URLSearchParams({
     filename: image.filename,
     subfolder: image.subfolder || "",

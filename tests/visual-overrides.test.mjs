@@ -1,6 +1,23 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyVisualOverrides, effectiveVisual, preserveVisualOverrides } from "../server/visual-overrides.mjs";
+import { applyVisualOverrides, assertVisualEditOwner, effectiveVisual, preserveVisualOverrides } from "../server/visual-overrides.mjs";
+import { readFileSync } from "node:fs";
+
+test("visual edit ownership rejects another character's draft and legacy unbound drafts", () => {
+  assert.doesNotThrow(() => assertVisualEditOwner("erica", "erica"));
+  assert.throws(() => assertVisualEditOwner("erica", "hana"), /different character/);
+  assert.throws(() => assertVisualEditOwner("erica", undefined), /different character/);
+});
+
+test("appearance editors remount per character and send the original draft owner", () => {
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const server = readFileSync(new URL("../server/index.mjs", import.meta.url), "utf8");
+  assert.match(app, /VisualIdentityEditor key=\{active.id\}/);
+  assert.match(app, /draftCharacterId = useRef\(thread.id\).current/);
+  assert.match(app, /draft.displayName, draftCharacterId/);
+  const route = server.slice(server.indexOf('url.pathname === "/api/characters/visual-overrides"'));
+  assert.ok(route.indexOf("assertVisualEditOwner(body.characterId, body.draftCharacterId)") < route.indexOf("saveProfile("));
+});
 
 const profile = {
   id: "misty",

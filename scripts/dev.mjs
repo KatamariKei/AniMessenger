@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { claimDevPid, portIsOccupied } from "./dev-instance.mjs";
 
 const root = process.cwd();
 const vite = path.join(root, "node_modules", "vite", "bin", "vite.js");
@@ -11,7 +12,11 @@ const viteHost = lanMode ? "0.0.0.0" : "127.0.0.1";
 const runtimeDirectory = path.join(root, "runtime");
 const pidFile = path.join(runtimeDirectory, "dev.pid");
 fs.mkdirSync(runtimeDirectory, { recursive: true });
-fs.writeFileSync(pidFile, String(process.pid), "utf8");
+if ((await Promise.all([portIsOccupied(5173), portIsOccupied(Number(process.env.PORT || 5174))])).some(Boolean)) {
+  console.error("AniMessenger's service or web port is already occupied. No second instance was started and existing tracking was left untouched.");
+  process.exit(1);
+}
+const releasePid = claimDevPid(pidFile);
 const children = [
   spawn(process.execPath, [...(watchMode ? ["--watch"] : []), "server/index.mjs"], {
     cwd: root,
@@ -32,9 +37,7 @@ function stop(signal = "SIGTERM") {
 }
 
 function removePidFile() {
-  try {
-    if (fs.readFileSync(pidFile, "utf8").trim() === String(process.pid)) fs.rmSync(pidFile, { force: true });
-  } catch {}
+  releasePid();
 }
 
 process.on("SIGINT", () => { removePidFile(); stop("SIGINT"); });

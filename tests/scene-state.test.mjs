@@ -2,6 +2,39 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { mergeScene, normalizeSceneState, previewSceneForUserTurn, reduceSceneTurn, sceneContinuityCheckpoint } from "../server/scene-state.mjs";
 
+test("a cooler interaction cannot overwrite the saved location", () => {
+  const deck = {
+    location: "rental-house deck",
+    environment: "A wooden rental-house deck overlooking the shoreline with a railing and bright afternoon sky.",
+    activity: "relaxing together",
+    outfit: "yellow waitress uniform",
+    expression: "content",
+    lighting: "afternoon sunlight",
+    presence: "together",
+  };
+  const next = reduceSceneTurn(deck, {
+    characterText: "They reached the cooler and poured themselves fresh drinks.",
+    modelScene: {
+      location: "the cooler and poured themselves fresh drinks",
+      environment: deck.environment,
+      activity: "sharing fresh drinks",
+      presence: "together",
+    },
+  });
+  assert.equal(next.location, "rental-house deck");
+  assert.equal(next.environment, deck.environment);
+});
+
+test("normalization quarantines a malformed legacy object location", () => {
+  const normalized = normalizeSceneState({
+    location: "the cooler and poured themselves fresh drinks",
+    environment: "A wooden rental-house deck overlooking the shoreline with a railing.",
+    activity: "sharing drinks",
+  });
+  assert.equal(normalized.location, "somewhere familiar");
+  assert.match(normalized.environment, /rental-house deck/i);
+});
+
 const kitchen = {
   location: "Kitchen",
   environment: "A warm kitchen with counters, cabinets, cookware, and a refrigerator.",
@@ -22,6 +55,32 @@ test("arrival commentary never becomes the place name or character activity", ()
   assert.equal(next.activity, "walking along the sand");
   assert.match(next.environment, /shoreline.*sand.*horizon/i);
   assert.doesNotMatch(next.environment, /she was right|private/i);
+});
+
+test("a beach plan for tomorrow cannot replace the current location", () => {
+  const apartment = {
+    ...kitchen,
+    location: "Erica's apartment",
+    environment: "A warm apartment living room with a sofa, low table, and evening light.",
+    activity: "talking about tomorrow's plans",
+    revision: 8,
+  };
+  const next = reduceSceneTurn(apartment, {
+    userText: "We should go to the beach tomorrow.",
+    characterText: "That sounds fun. I'll make sure I'm ready for the beach tomorrow.",
+    modelScene: {
+      location: "outside for the beach",
+      environment: "An open shoreline with sand and ocean water.",
+      activity: "planning a beach trip",
+      lighting: "sunny daylight",
+    },
+  });
+
+  assert.equal(next.location, apartment.location);
+  assert.equal(next.environment, apartment.environment);
+  assert.equal(next.activity, apartment.activity);
+  assert.equal(next.lighting, apartment.lighting);
+  assert.equal(next.revision, apartment.revision);
 });
 
 test("racing to the other side preserves the enclosing indoor pool and its surroundings", () => {
@@ -242,6 +301,16 @@ test("an explicit user wardrobe action overrides a stale model outfit", () => {
   assert.equal(next.outfitEvidence.source, "user");
 });
 
+test("a named completed wardrobe change overrides a nude scene", () => {
+  const next = reduceSceneTurn({ ...kitchen, outfit: "completely nude" }, {
+    characterName: "Erica Anderson",
+    userText: "Erica put on her waitress uniform.",
+    characterText: "She smooths the apron and gets ready for her shift.",
+    modelScene: { outfit: "completely nude", activity: "getting ready for work" },
+  });
+  assert.equal(next.outfit, "waitress uniform");
+});
+
 test("a character getting dressed and joining the user commits both shared location and outfit", () => {
   const shower = {
     ...kitchen,
@@ -263,6 +332,33 @@ test("a character getting dressed and joining the user commits both shared locat
   assert.equal(next.outfit, "yellow waitress uniform");
   assert.equal(next.outfitEvidence.source, "user");
   assert.equal(next.revision, 9);
+});
+
+test("a character's narrated travel outfit replaces stale nudity", () => {
+  const next = reduceSceneTurn({ ...kitchen, outfit: "black lace bra, bottomless" }, {
+    characterName: "Erica Anderson",
+    userText: "I head downstairs and start the coffee.",
+    characterText: "A few minutes later, she padded downstairs. She was dressed for travel in something comfortable and easy—a pair of high-waisted denim shorts and a simple, soft white tank top that hugged her curves, her hair still tousled from sleep.",
+    modelScene: { outfit: "black lace bra, bottomless", activity: "joining the user for coffee" },
+  });
+  assert.equal(next.outfit, "high-waisted denim shorts and a simple, soft white tank top that hugged her curves");
+  assert.equal(next.outfitEvidence.source, "character");
+});
+
+test("Erica's dinner outfit reveal replaces stale beach nudity", () => {
+  const userText = "I throw on some tight dark gray trunks, a white linen short sleeve shirt, and brown leather sandals. There. All done. Show me what you decided to wear to dinner, Erica.";
+  const characterText = "She returned to the living area with a confident swirl. She had chosen a lightweight, sheer white crochet cover-up dress that clung loosely to her curves and left very little to the imagination, paired with a set of simple gold hoop earrings and strappy gold sandals.";
+  const next = reduceSceneTurn({ ...kitchen, outfit: "completely nude" }, {
+    characterName: "Erica Anderson",
+    userText,
+    characterText,
+    modelScene: { outfit: "completely nude", activity: "getting ready for dinner" },
+    allowWardrobeDescription: true,
+  });
+  assert.match(next.outfit, /sheer white crochet cover-up dress/i);
+  assert.match(next.outfit, /gold hoop earrings/i);
+  assert.match(next.outfit, /gold sandals/i);
+  assert.equal(next.outfitEvidence.source, "character");
 });
 
 test("a completed response arrival can replace passively carried apart presence", () => {

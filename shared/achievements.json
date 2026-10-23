@@ -1,0 +1,7 @@
+[
+  { "id": "shared-laughter", "version": 1, "title": "Shared laughter", "target": 5, "points": 10, "criteria": "Make this character genuinely laugh on five distinct exchanges, through something you said or did." },
+  { "id": "new-horizons", "version": 1, "title": "New horizons", "target": 10, "points": 10, "criteria": "Complete visits to ten distinct destinations together. Plans and different rooms in the same destination do not count." },
+  { "id": "time-well-spent", "version": 1, "title": "Time well spent", "target": 3, "points": 10, "criteria": "Enjoy three different activities together. Shared moments count naturally; plans and repeated mentions do not." },
+  { "id": "heartfelt", "version": 1, "title": "Heartfelt", "target": 1, "points": 10, "criteria": "Express sincere, meaningful affection, appreciation, friendship, or trust. Romance is not required." },
+  { "id": "getting-to-know-you", "version": 1, "title": "Getting to know you", "target": 3, "points": 10, "criteria": "Unlock three discoveries with this character. Discoveries confirmed from earlier conversations count too." }
+]

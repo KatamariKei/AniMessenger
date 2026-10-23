@@ -19,6 +19,8 @@ test("the Windows package pins and verifies a private x64 Node runtime", () => {
   assert.match(packager, /ZipFile.*CreateFromDirectory/s);
   assert.match(packager, /const payload = path\.join\(output, "support"\)/);
   assert.match(read("installer/Install-AniMessenger.cmd"), /support\\Install-AniMessenger\.ps1/);
+  assert.match(packager, /\["dist", "server", "shared", "workflows"\]/);
+  assert.match(read("installer/Install-AniMessenger.ps1"), /@\("dist", "server", "shared", "workflows", "runtime", "scripts"\)/);
 });
 
 test("the native tray companion owns installed start, open, stop, and update actions", () => {

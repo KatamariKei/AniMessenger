@@ -2,9 +2,64 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { fandomWikiCandidates, researchCharacter, selectBaselineQuoteText, selectFranchiseWikiTitle, selectWikiEvidenceText } from "../server/research.mjs";
 
+test("catalogue Series qualifiers do not become part of wiki hostnames", () => {
+  assert.deepEqual(fandomWikiCandidates({ series: "Cyberpunk (Series)" }), [{ host: "cyberpunk.fandom.com", pageName: "" }]);
+  assert.deepEqual(fandomWikiCandidates({ series: "Example (Series)" }), [{ host: "example.fandom.com", pageName: "" }]);
+});
+
+test("Persona installments and Megami Tensei family titles share the verified franchise wiki", () => {
+  for (const series of ["Persona", "Persona 3", "Persona 3 Reload", "Persona 4 Golden", "Persona 5 Royal", "Persona5", "Shin Megami Tensei V", "Megami Tensei", "Tokyo Mirage Sessions #FE"]) {
+    assert.equal(fandomWikiCandidates({ name: "Takeba Yukari", series })[0].host, "megamitensei.fandom.com", series);
+  }
+  assert.notEqual(fandomWikiCandidates({ series: "Personality Puzzle" })[0].host, "megamitensei.fandom.com");
+});
+
+test("Vocaloid and Piapro catalogue labels use the shared Vocaloid wiki", () => {
+  for (const name of ["Hatsune Miku", "Megurine Luka"]) {
+    for (const series of ["Vocaloid", "VOCALOID", "Piapro", "Piapro Studio", "Piapro Studio (Series)"]) {
+      assert.equal(fandomWikiCandidates({ name, series })[0].host, "vocaloid.fandom.com");
+    }
+  }
+});
+
+test("Fate titles and TYPE-MOON labels share the TYPE-MOON wiki", () => {
+  for (const series of ["Fate", "Fate (Series)", "Fate/stay night", "Fate/Grand Order", "Fate Zero", "TYPE-MOON"]) {
+    assert.equal(fandomWikiCandidates({ name: "Medusa (Rider) (Fate)", series })[0].host, "typemoon.fandom.com");
+  }
+});
+
+test("named installments use shared franchise routes and parent catalogue aliases before guesses", () => {
+  for (const series of ["Atelier Ryza", "Atelier Ryza 1", "Atelier Sophie", "Atelier Resleriana"]) {
+    assert.equal(fandomWikiCandidates({ series })[0].host, "atelier.fandom.com");
+  }
+  assert.equal(fandomWikiCandidates({ series: "Example Saga: New Horizons", seriesAliases: ["Example Saga"] })[0].host, "examplesaga.fandom.com");
+  assert.equal(fandomWikiCandidates({ series: "Example Saga New Horizons", seriesAliases: ["Example Saga"] })[0].host, "examplesaga.fandom.com");
+  assert.equal(fandomWikiCandidates({ series: "Atelier Ryza", sourceRefs: [{ url: "https://reference.fandom.com/wiki/Reisalin_Stout" }] })[0].host, "reference.fandom.com");
+  assert.ok(fandomWikiCandidates({ series: "Unknown Long Franchise Title" }).every(item => item.host !== "unknown.fandom.com"));
+});
+
 function response(payload) {
   return { ok: true, json: async () => payload };
 }
+
+test("Fate catalogue qualifiers retain Rider while dropping the redundant franchise suffix", async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  globalThis.fetch = async url => {
+    const value = String(url);
+    if (value.includes("typemoon.fandom.com")) {
+      requested.push(new URL(value).searchParams.get("page"));
+      return response({ parse: { title: "Medusa (Rider)", wikitext: { "*": "Medusa is the Rider-class Servant in Fate/stay night. She has long purple hair." } } });
+    }
+    if (value.includes("wikipedia")) return response({ query: { pages: {} } });
+    return response({ data: { Character: null } });
+  };
+  try {
+    const result = await researchCharacter({ name: "Medusa (Rider) (Fate)", series: "Fate" });
+    assert.deepEqual(requested, ["Medusa (Rider)"]);
+    assert.equal(result.evidence.passages[0].title, "Medusa (Rider)");
+  } finally { globalThis.fetch = originalFetch; }
+});
 
 test("franchise wiki search resolves capitalization and reordered-name misses", () => {
   assert.equal(selectFranchiseWikiTitle("Yennefer Of Vengerberg", [

@@ -105,6 +105,8 @@ test("a remote character's current activity can establish a newly reported locat
 
 test("plans and casual place mentions do not change the current location", () => {
   assert.equal(locationChangeIsEstablished("Arcade", "C&C Training Gym", "Maybe I'll head to the gym later and do some training."), false);
+  assert.equal(locationChangeIsEstablished("Erica's apartment", "outside for the beach", "We should go to the beach tomorrow. That sounds like fun."), false);
+  assert.equal(locationChangeIsEstablished("Erica's apartment", "the beach", "We're going to the beach tomorrow."), false);
   assert.equal(locationChangeIsEstablished("Leisure Wing", "Ice Rink", "Air hockey is basically hockey inside an arcade."), false);
 });
 
@@ -193,6 +195,7 @@ test("arrival wardrobe commentary cannot become part of a location label", () =>
 test("does not invent a location from ordinary conversation or future plans", () => {
   assert.equal(inferExplicitLocation("We're in trouble if we burn the parfait."), "");
   assert.equal(inferExplicitLocation("We'll go into the kitchen later."), "");
+  assert.equal(inferExplicitLocation("We're going to the beach tomorrow."), "");
   assert.equal(inferExplicitLocation("Her gaze followed him as he moved to settle his bill."), "");
   assert.equal(locationChangeIsEstablished("The Stray Sheep", "settle his bill", "Her gaze followed him as he moved to settle his bill."), false);
 });

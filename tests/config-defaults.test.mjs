@@ -22,7 +22,7 @@ test("sound feedback starts restrained and its saved volume stays in range", () 
   assert.equal(defaultConfig.bondSound, "celebration");
   assert.equal(normalizeConfigPaths({ soundVolume: 4 }).soundVolume, 1);
   assert.equal(normalizeConfigPaths({ soundVolume: -2 }).soundVolume, 0);
-  assert.equal(normalizeConfigPaths({ bondSound: "heartbeat" }).bondSound, "heartbeat");
+  assert.equal(normalizeConfigPaths({ bondSound: "heartbeat" }).bondSound, "celebration");
   assert.equal(normalizeConfigPaths({ bondSound: "unknown" }).bondSound, "celebration");
 });
 

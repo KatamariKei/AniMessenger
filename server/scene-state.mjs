@@ -15,6 +15,9 @@ import {
   stabilizeEnvironment,
 } from "./environment.mjs";
 import { inferWardrobeDescription, inferWardrobeEvent, normalizeWardrobePrompt, removeWardrobeItems } from "./wardrobe.mjs";
+import { classifyPlaceCandidate, recordSceneShadowEvaluation } from "./scene-events-v2.mjs";
+import { applyFinalScene } from "./final-scene.mjs";
+import { recordFinalSceneEvaluation } from "./scene-evaluation.mjs";
 
 const presenceValues = new Set(["apart", "together", "uncertain"]);
 const ownerValues = new Set(["shared", "character", "user", "unknown"]);
@@ -25,7 +28,9 @@ function value(input, fallback = "") {
 
 export function normalizeSceneState(scene = {}) {
   const rawLocation = value(scene.location, "somewhere familiar");
-  const location = cleanLocationLabel(rawLocation);
+  const cleanedLocation = cleanLocationLabel(rawLocation);
+  const classifiedLocation = classifyPlaceCandidate(cleanedLocation, cleanedLocation);
+  const location = classifiedLocation.valid ? classifiedLocation.label : "somewhere familiar";
   const rawEnvironment = value(scene.environment);
   const environmentRepeatsDiscardedLocationClause = rawLocation.toLowerCase() !== location.toLowerCase()
     && rawEnvironment.toLowerCase().includes(rawLocation.toLowerCase());
@@ -67,7 +72,7 @@ export function sceneContinuityCheckpoint(scene = {}) {
   const current = normalizeSceneState(scene);
   return [
     "IMMEDIATE SCENE CHECKPOINT (authoritative immediately before the latest user turn):",
-    `location=${current.location}; environment=${current.environment || "not yet established"}; activity=${current.activity}; outfit=${current.outfit}; lighting=${current.lighting}; presence=${current.presence}.`,
+    `location=${current.location}; environment=${current.environment || "not yet established"}; activity=${current.activity}; posture=${current.posture || "unknown"}; outfit=${current.outfit}; lighting=${current.lighting}; presence=${current.presence}.`,
     "Any earlier history at another location or describing an earlier activity is completed past context. Do not make earlier food, props, surroundings, actions, or unfinished business present again unless the latest user turn explicitly returns to them.",
   ].join(" ");
 }
@@ -135,6 +140,9 @@ export function mergeScene(existing, update = {}, evidence = "") {
 
 function eventForMainScene(event, presence) {
   if (!event) return null;
+  const place = classifyPlaceCandidate(event.location, event.evidence);
+  if (!place.valid) return null;
+  event = { ...event, location: place.label };
   if (event.actor === "shared") return { ...event, owner: "shared" };
   if (event.actor === "character") return { ...event, owner: presence === "together" ? "shared" : "character" };
   return null;
@@ -142,6 +150,12 @@ function eventForMainScene(event, presence) {
 
 export function reduceSceneTurn(existing, options = {}) {
   const current = normalizeSceneState(existing);
+  if (options.sceneEvidence && typeof options.sceneEvidence === "object") {
+    const result = applyFinalScene(current, options);
+    if (options.recordSceneEvaluation) void recordFinalSceneEvaluation(result.decisions);
+    return normalizeSceneState(result.scene);
+  }
+  if (options.recordSceneEvaluation) void recordFinalSceneEvaluation([{ field: "contract", status: "rejected", reason: "missing_final_scene_contract_legacy_fallback" }]);
   const userText = value(options.userText);
   const characterText = value(options.characterText);
   const evidence = [userText, characterText].filter(Boolean).join(" ");
@@ -165,8 +179,9 @@ export function reduceSceneTurn(existing, options = {}) {
   const characterEvent = inferActionLocationEvent(characterText, "character") || inferLocationEvent(characterText, "character");
   const userDeparture = userEvent ? null : inferDepartureEvent(userText, current.location, "user");
   const characterDeparture = characterEvent ? null : inferDepartureEvent(characterText, current.location, "character");
-  const userWardrobeEvent = inferWardrobeEvent(userText, "user");
-  const characterWardrobeEvent = inferWardrobeEvent(characterText, "character");
+  const characterName = value(options.characterName);
+  const userWardrobeEvent = inferWardrobeEvent(userText, "user", characterName);
+  const characterWardrobeEvent = inferWardrobeEvent(characterText, "character", characterName);
   const userWardrobeDescription = inferWardrobeDescription(userText, "user");
   const characterWardrobeDescription = options.allowWardrobeDescription
     ? inferWardrobeDescription(characterText, "character")
@@ -177,12 +192,9 @@ export function reduceSceneTurn(existing, options = {}) {
   const deterministicEvent = value(deterministicPatch.location)
     ? { type: "location_change", phase: "arrived", kind: "deterministic", location: deterministicPatch.location, actor: nextPresence === "together" ? "shared" : "character", evidence: userText }
     : null;
-  const selectedEvent = eventForMainScene(userEvent, nextPresence)
-    || eventForMainScene(userDeparture, nextPresence)
-    || eventForMainScene(presenceEvent, nextPresence)
-    || eventForMainScene(deterministicEvent, nextPresence)
-    || eventForMainScene(characterEvent, nextPresence)
-    || eventForMainScene(characterDeparture, nextPresence);
+  const selectedEvent = [userEvent, userDeparture, presenceEvent, deterministicEvent, characterEvent, characterDeparture]
+    .map((event) => eventForMainScene(event, nextPresence))
+    .find(Boolean) || null;
 
   const explicitEnvironment = inferEnvironmentCue(userText) || inferEnvironmentCue(characterText);
   const transitionActivity = selectedEvent
@@ -252,12 +264,17 @@ export function reduceSceneTurn(existing, options = {}) {
       revision: current.revision + 1,
     };
   }
+  // Scene V2 currently observes decisions only. It records aggregate reason
+  // codes and disagreement counts without saving dialogue, locations, or
+  // model output, so existing threads remain untouched during evaluation.
+  try { recordSceneShadowEvaluation(current, options, next); } catch { /* Shadow evaluation can never affect chat. */ }
   return next;
 }
 
 export function previewSceneForUserTurn(existing, userText, options = {}) {
   return reduceSceneTurn(existing, {
     userText,
+    characterName: options.characterName,
     presencePatch: options.presencePatch,
     deterministicPatch: options.deterministicPatch,
   });

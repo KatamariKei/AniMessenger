@@ -22,8 +22,8 @@ test("character replies can independently establish a missed visual payoff", () 
 test("a model photo brief gets a concise current-state visual direction", () => {
   const brief = keyVisualPhotoBrief("standing in a room", "an immediate outfit change", true, "[action: She changes into a red sequin dress]");
   assert.match(brief, /standing in a room/);
-  assert.match(brief, /completed current outfit/i);
-  assert.match(brief, /actively sharing/);
+  assert.match(brief, /clothing silhouette and garment details clearly visible/i);
+  assert.doesNotMatch(brief, /completed current outfit|actively sharing/);
   assert.doesNotMatch(brief, /KEY VISUAL|LATEST VISUAL|red sequin dress|\[action:/i);
 });
 

@@ -14,3 +14,9 @@ test("the mobile app cannot inherit an iOS browser's restored outer page offset"
   assert.match(app, /document\.addEventListener\("visibilitychange", handleVisibility\)/);
   assert.match(app, /window\.scrollTo\(\{ left: 0, top: 0, behavior: "auto" \}\)/);
 });
+
+test("the mobile app follows the visual viewport when an iOS keyboard pans it", () => {
+  assert.match(app, /viewport\?\.offsetTop/);
+  assert.match(app, /viewport\?\.offsetLeft/);
+  assert.match(css, /transform:\s*translate3d\(var\(--mobile-viewport-offset-left, 0px\), var\(--mobile-viewport-offset-top, 0px\), 0\)/);
+});

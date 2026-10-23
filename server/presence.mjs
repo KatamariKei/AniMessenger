@@ -36,18 +36,27 @@ function explicitTogether(text) {
 function explicitApart(text) {
   const value = clean(text);
   if (!value) return false;
+  // Travel by "we" is not evidence that the participants separated. Likewise,
+  // a proposed solo departure is not an already completed departure.
+  const soloDeparture = value.split(/[.!?;\n]+/).some(clause =>
+    !/\b(?:how about|what if|maybe|should|could|would|can|shall|let's|let us|if)\b/.test(clause)
+    && (/\bi(?:'m| am)?\s+(?:heading home|going home|head home|go home|walk away|drive away)\b/.test(clause)
+      || /\bi(?:'m| am)?\s+(?:leaving|leave|left)(?:\s+(?:you|her|him|them|the (?:house|apartment|home|place|building|venue|party)))?(?:\s*\]|$)/.test(clause.trim())));
+  if (soloDeparture) return true;
   return [
-    /\b(?:i(?:'m| am)|we(?:'re| are)) on (?:my|our|the) way\b/,
-    /\b(?:i(?:'m| am)|we(?:'re| are)) (?:heading|driving|walking) (?:over|there|to your|to the)\b/,
-    /\b(?:i(?:'ll| will)|we(?:'ll| will)) (?:be there|come over|head over|see you) (?:soon|later|tonight|tomorrow|in a bit)\b/,
-    /\bwhen (?:i|we) (?:get|arrive) there\b/,
-    /\b(?:i(?:'m| am)|we(?:'re| are)) (?:leaving|heading home|going home)\b/,
-    /\b(?:i |we )?(?:head home|go home|walk away|drive away)\b/,
-    /\b(?:i|we)\s+(?:leave|left)(?:\s+(?:you|her|him|them|the (?:house|apartment|home|place|building|venue|party)))?(?:[.!?;:]|$)/,
+    /\bi(?:'m| am) on (?:my|the) way\b/,
+    /\bi(?:'m| am) (?:heading|driving|walking) (?:over|there|to your|to the)\b/,
+    /\bi(?:'ll| will) (?:be there|come over|head over|see you) (?:soon|later|tonight|tomorrow|in a bit)\b/,
+    /\bwhen i (?:get|arrive) there\b/,
+    /\bwe (?:split up|part ways|go our separate ways)\b/,
     /\b(?:goodbye|see you later|talk to you later|i(?:'ll| will) text you)\b/,
     /\b(?:why don['’]t |when |once )?(?:you|she|he|they)(?:'ll|'re| will| are| is)? (?:come|coming|head|heading) over\b/,
     /\b(?:text|texts|texted|message|messages|messaged|call|calls|called) me back\b/,
   ].some((pattern) => pattern.test(value));
+}
+
+function sharedTravel(text) {
+  return /\b(?:we|let's|let us)\s+(?:(?:are|'re|should|could|can|shall|both|all|now)\s+)*(?:head(?:ing)?|go(?:ing)?|walk(?:ing)?|driv(?:e|ing)|leave|leaving|return(?:ing)?)\b/.test(clean(text));
 }
 
 function arrivalLocation(text, recentMessages, characterName) {
@@ -112,6 +121,7 @@ export function presenceSceneCue(thread, userText) {
   // end-of-passage presence state.
   const explicitCue = inferPresenceCue(userText, "uncertain", thread?.messages || [], characterName);
   const presenceAuthority = explicitCue.presence === "together" || explicitCue.presence === "apart"
+    || (inferred.presence === "together" && sharedTravel(userText))
     ? "deterministic"
     : undefined;
   return {

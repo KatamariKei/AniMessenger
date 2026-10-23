@@ -1,4 +1,6 @@
 import { cleanLocationLabel, cleanSceneActivity, environmentForLocation } from "./environment.mjs";
+import { buildImageSceneSnapshot } from "./image-scene-snapshot.mjs";
+import { imageEyeState, withoutVisibleEyeDetails } from "./image-eyes.mjs";
 import { imageFraming, normalizeWardrobePrompt, replaceWardrobePlaceholders, stabilizeWardrobePrompt, wardrobeForFraming } from "./wardrobe.mjs";
 
 const clothingWords = [
@@ -149,7 +151,7 @@ export function reconcileCatalogueHairstyle(profile, tags = [], dossier = null) 
 // A wiki's broad everyday-clothes phrase can be factual yet too vague for a
 // recognizable visual default. Prefer a named garment only when both the
 // catalogue and independent character evidence support that garment.
-export function reconcileCatalogueWardrobe(profile, tags = [], research = null) {
+export function reconcileCatalogueWardrobe(profile, tags = [], research = null, options = {}) {
   if (!profile?.visual) return profile;
   let current = String(profile.visual.defaultWardrobe || "").trim();
   const wearableCurrent = carriedEquipment.test(current) ? wardrobeWithoutCarriedEquipment(current) : current;
@@ -164,12 +166,29 @@ export function reconcileCatalogueWardrobe(profile, tags = [], research = null) 
       || "casual clothes";
     current = profile.visual.defaultWardrobe;
   }
-  if (!/^(?:(?:a|the|her)\s+)?(?:(?:matching|chinese|simple|usual|everyday)\s+)*(?:blouse and pants|top and pants|chinese clothes)\.?$/i.test(current)) return profile;
+  // A repair model can accidentally borrow a color from an unrelated visual
+  // tag (for example red hair becoming a red skirt). Keep garment colors only
+  // when a source passage or a catalogue clothing tag supports that exact
+  // color/garment pairing. Removing an ungrounded adjective is safer than
+  // replacing it with another guessed color.
   const clothingTags = splitVisualTags(tags).wardrobe.map((tag) => tag.toLowerCase().replaceAll("_", " "));
-  if (!clothingTags.some((tag) => /^(?:qipao|cheongsam|china dress)$/.test(tag))) return profile;
   const evidence = (research?.evidence?.passages || [])
     .filter((passage) => ["franchise_wiki", "wikipedia", "anilist"].includes(passage.provider))
     .map((passage) => String(passage.text || "")).join("\n");
+  if (options.strictColors) {
+    const colorGarment = /\b((?:dark|light)\s+(?:blue|green|red|purple|brown|gray|grey)|navy(?:\s+blue)?|black|white|red|blue|green|purple|pink|yellow|orange|brown|gray|grey)\s+(?:short[- ]sleeved\s+|long[- ]sleeved\s+|pleated\s+|sailor\s+)?(shirt|blouse|top|skirt|shorts|pants|trousers|jacket|coat|blazer|dress|uniform|serafuku|suspenders|tie|bow|gloves|stockings|thighhighs|boots|shoes)\b/gi;
+    current = current.replace(colorGarment, (phrase, color, garment) => {
+      const escapedColor = String(color).replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+      const escapedGarment = String(garment).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const support = new RegExp("\\b" + escapedColor + "\\b[^.\\n]{0,45}\\b" + escapedGarment + "\\b", "i");
+      if (support.test(evidence) || clothingTags.some((tag) => support.test(tag))) return phrase;
+      return phrase.replace(new RegExp("^" + escapedColor + "\\s+", "i"), "");
+    });
+    profile.visual.defaultWardrobe = current.replace(/\s{2,}/g, " ").trim();
+    current = profile.visual.defaultWardrobe;
+  }
+  if (!/^(?:(?:a|the|her)\s+)?(?:(?:matching|chinese|simple|usual|everyday)\s+)*(?:blouse and pants|top and pants|chinese clothes)\.?$/i.test(current)) return profile;
+  if (!clothingTags.some((tag) => /^(?:qipao|cheongsam|china dress)$/.test(tag))) return profile;
   if (!/\b(?:cheongsam|qipao)\b/i.test(evidence)) return profile;
   const color = clothingTags.map((tag) => tag.match(/^(red|blue|purple|pink|green|black|white|yellow)\s+(?:qipao|cheongsam|dress)$/)?.[1]).find(Boolean);
   const sleeveless = /\bsleeveless\b[^\n.]{0,80}\b(?:cheongsam|qipao)\b/i.test(evidence);
@@ -379,13 +398,29 @@ function lowercasePhraseLead(value) {
   return /^[A-Z][a-z]/.test(clean) ? clean.charAt(0).toLowerCase() + clean.slice(1) : clean;
 }
 
+export function visibleEnvironmentDescription(value = "") {
+  // Strip only nonvisual sensory modifiers; preserve visible objects and
+  // materials. Never rewrite stored scene state or the character definition.
+  return String(value)
+    .replace(/\bfilled with (?:the )?(?:sound and scent|scent and sound|sound|scent|smell|aroma) of [^,;.]+/gi, "")
+    .replace(/\b(?:accompanied by|with) (?:the )?(?:sound|scent|smell|aroma) of [^,;.]+/gi, "")
+    .replace(/\b(?:and )?(?:the )?(?:sound|scent|smell|aroma) of [^,;.]+/gi, "")
+    .replace(/,\s*,/g, ", ").replace(/\s+([,;.])/g, "$1")
+    .replace(/[,;\s]+$/g, "").replace(/\s+/g, " ").trim();
+}
+
 function sceneDescription(character, scene = {}, brief = "", outfit = "", options = {}) {
   const name = promptTag(character?.displayName || character?.name) || "The character";
   const description = [];
   let composition = naturalClause(brief, options)
+    .replace(/\bcapturing the current moment\b/gi, "")
+    .replace(/\bthe character's current action is the visual focus[^;.]*/gi, "")
+    .replace(/\bnatural interaction with the immediate surroundings[^;.]*/gi, "")
+    .replace(/\bshow the completed current (?:outfit naturally|visual change)\b/gi, "")
+    .replace(/\bthe character is actively sharing this current visual with the viewer\b/gi, "")
     .replace(/\b(?:current[- ]moment candid scene|natural observer viewpoint|solo focus)\b/gi, "")
-    .replace(/,\s*,/g, ", ")
-    .replace(/^\s*,\s*|\s*,\s*$/g, "")
+    .replace(/([,;])\s*[,;]+/g, "$1 ")
+    .replace(/^\s*[,;]\s*|\s*[,;]\s*$/g, "")
     .trim();
   composition = removeNaturalPhrase(composition, outfit ? "wearing " + outfit : "");
   if (/^a candid third-person (?:image|composition)$/i.test(composition)) {
@@ -398,6 +433,8 @@ function sceneDescription(character, scene = {}, brief = "", outfit = "", option
   // models weight early natural-language concepts heavily; leading with a
   // settled action such as "seated at a patio table" prevents an earlier
   // arrival or doorway from dominating the composition.
+  const posture = ["standing", "seated", "lying", "kneeling", "crouching"].includes(scene?.posture) ? scene.posture : "";
+  if (posture && !includesClause(composition, posture)) description.push(sentence(`${name} is ${posture}`));
   let activity = naturalClause(cleanSceneActivity(scene?.activity), options);
   activity = lowercasePhraseLead(activity);
   activity = activity.replace(/^passionate\s+(?=(?:embrac|kiss|hold|touch))/i, "passionately ");
@@ -423,7 +460,11 @@ function sceneDescription(character, scene = {}, brief = "", outfit = "", option
     description.push(sentence(positioned));
   }
 
-  const rawEnvironment = naturalClause(scene?.environment, options);
+  // Possessive place labels are not dialogue. Keep grounded room detail in
+  // "inside my apartment, in the kitchen..." without accepting first-person
+  // actions, thoughts, or plans elsewhere in the environment description.
+  const rawEnvironment = visibleEnvironmentDescription(naturalClause(scene?.environment, options))
+    .replace(/\b(?:my|our)\s+(apartment|home|house|bedroom|living room|kitchen|office)\b/gi, "the $1");
   const internalContinuity = /\b(?:no|without)\b[^.]*\b(?:remnants?|traces?)\b[^.]*\b(?:previous|prior|old)\s+(?:location|place|scene)\b/i;
   const genericScaffolding = /^the visible surroundings of\b.*\bsetting-appropriate\b/i;
   const echoMatch = /^the (?:setting|location|scene) is (?:in )?(.+?)[.!]?$/i.exec(rawEnvironment);
@@ -450,12 +491,15 @@ function sceneDescription(character, scene = {}, brief = "", outfit = "", option
 }
 
 export function buildImagePrompt(profile, character, scene, brief = "", options = {}) {
+  const snapshot = buildImageSceneSnapshot(scene, brief);
+  const safeScene = snapshot.scene;
+  const eyes = imageEyeState(safeScene, snapshot.brief);
   const visual = effectiveVisual(profile);
   const identity = list(visual.identity);
   const signature = list(visual.signature);
-  const preliminaryBrief = normalizeCharacterPhotoBrief(brief, character, options);
+  const preliminaryBrief = normalizeCharacterPhotoBrief(snapshot.brief, character, options);
   const fullOutfit = stabilizeWardrobePrompt(
-    scene?.outfit && scene.outfit !== "default outfit" ? scene.outfit : visual.defaultWardrobe,
+    safeScene?.outfit && safeScene.outfit !== "default outfit" ? safeScene.outfit : visual.defaultWardrobe,
     {
       ...visual,
       wardrobePreferences: list(profile?.visual?.wardrobePreferences),
@@ -466,19 +510,27 @@ export function buildImagePrompt(profile, character, scene, brief = "", options 
     character?.id || character?.name,
   );
   const normalizedBrief = replaceWardrobePlaceholders(preliminaryBrief, fullOutfit);
-  const framedIdentity = visualTraitsForFraming(identity, normalizedBrief);
-  const framedSignature = visualTraitsForFraming(signature, normalizedBrief);
+  const characterTraits = (tags) => options.preserveCharacterTraits
+    ? tags
+    : visualTraitsForFraming(tags, normalizedBrief);
+  const framedIdentity = characterTraits(identity).map(tag => eyes === "closed" ? withoutVisibleEyeDetails(tag) : tag);
+  const framedSignature = characterTraits(signature).map(tag => eyes === "closed" ? withoutVisibleEyeDetails(tag) : tag);
   const outfit = wardrobeForFraming(fullOutfit, normalizedBrief);
   const subject = subjectCountTag(profile, identity);
   const characterTags = [
     subject,
     "adult",
     character.trigger || character.name,
+    ...(eyes === "closed" ? ["(closed eyes:1.2), eyelids fully closed"] : eyes === "open" ? ["open eyes"] : []),
     ...framedIdentity.filter((tag) => !subjectCountTags.has(String(tag).trim().toLowerCase())),
     ...framedSignature,
     outfit,
   ];
-  const naturalScene = sceneDescription(character, scene, normalizedBrief, fullOutfit, options);
+  const naturalScene = sceneDescription(character, {
+    ...safeScene,
+    ...(eyes === "closed" ? { expression: withoutVisibleEyeDetails(safeScene.expression) } : {}),
+    ...(eyes === "open" ? { activity: String(safeScene.activity || "").replace(/\b(?:asleep|sleeping)\b/gi, "awake"), expression: String(safeScene.expression || "").replace(/\b(?:closed|shut) eyes|eyes (?:closed|shut)\b/gi, "eyes open") } : {}),
+  }, eyes === "closed" ? withoutVisibleEyeDetails(normalizedBrief) : normalizedBrief, fullOutfit, options);
   const continuity = [
     "solo focus",
     "anime illustration",
@@ -504,7 +556,12 @@ export function visualExceptionNegative(profile) {
 }
 
 export function inferSceneCue(text = "") {
-  const value = String(text).toLowerCase();
+  const futurePlan = /\b(?:will|would|might|maybe|later|tomorrow|plan(?:ning)? to|want(?:ing)? to|going to|should (?:go|head)|could (?:go|head))\b/;
+  const value = String(text).toLowerCase()
+    .split(/(?:\.{2,}|[.!?;]|\s+but\s+|\s+while\s+)/i)
+    .map((clause) => clause.trim())
+    .filter((clause) => clause && !futurePlan.test(clause))
+    .join(". ");
   const schoolTransition = /\b(?:at|to|inside|outside|around) (?:the )?(?:school|classroom|campus)\b/.test(value)
     || /\b(?:go|going|head|heading|come|coming|meet|arrive|return|back)(?:\s+\w+){0,4}\s+(?:school|classroom|campus)\b/.test(value)
     || /\b(?:school|class) uniform\b/.test(value);

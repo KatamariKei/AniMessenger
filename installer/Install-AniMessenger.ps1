@@ -103,7 +103,7 @@ if ((Test-Path -LiteralPath $staging) -or (Test-Path -LiteralPath $backup)) { th
 
 try {
   New-Item -ItemType Directory -Force -Path $staging | Out-Null
-  foreach ($folder in @("dist", "server", "workflows", "runtime", "scripts")) {
+  foreach ($folder in @("dist", "server", "shared", "workflows", "runtime", "scripts")) {
     $source = Join-Path $SourceRoot $folder
     if (-not (Test-Path -LiteralPath $source)) { throw "The AniMessenger package is missing $folder." }
     Copy-Item -LiteralPath $source -Destination $staging -Recurse -Force

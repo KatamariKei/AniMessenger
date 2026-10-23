@@ -31,7 +31,7 @@ export function removeCurrentPhotoClaim(value) {
 
 export function pendingOutfitReveal(reply = "") {
   const value = String(reply).replace(/[’]/g, "'");
-  const preparation = /\b(?:give me (?:a |an |some |a few )?(?:moment|minute|second)s? to change|(?:getting ready|going|about|need|want) to (?:change|get dressed|try on)|(?:i'll|i will|let me) (?:go )?(?:change|get dressed)|(?:goes|heads|leaves|steps|slips)\b[^.!?\]]{0,60}\bto change)\b/ig;
+  const preparation = /\b(?:give me (?:a |an |some |a few )?(?:moment|minute|second)s? to change|(?:getting ready|going|about|need|want) to (?:change|get dressed|try on)|(?:i'll|i will|let me) (?:go )?(?:change|get dressed)|(?:goes|heads|leaves|steps|slips)\b[^.!?\]]{0,60}\bto change|(?:div(?:es|ing)|disappear(?:s|ed|ing)?|head(?:s|ed|ing)?|step(?:s|ped|ping)?|go(?:es|ing)?|went|enter(?:s|ed|ing)?)\b[^.!?\]]{0,65}\b(?:fitting|changing|dressing) room\b[^.!?\]]{0,65}\b(?:change|changing|try|prepare|reveal))\b/ig;
   const matches = [...value.matchAll(preparation)];
   if (!matches.length) return false;
   const after = value.slice(matches.at(-1).index + matches.at(-1)[0].length);
@@ -39,8 +39,8 @@ export function pendingOutfitReveal(reply = "") {
   return !/\b(?:now (?:wearing|dressed)|(?:comes?|came|steps?|stepped|returns?|returned) (?:back |out )?(?:from|wearing|in|into)|changed into|finished (?:changing|dressing)|here(?:'s| is) my (?:new )?outfit)\b/i.test(after);
 }
 
-export function shouldQueueCharacterPhoto({ hasUserImage = false, explicitRequest = false, modelRequested = false, visualEvent = null, reply = "" } = {}) {
+export function shouldQueueCharacterPhoto({ hasUserImage = false, explicitRequest = false, modelRequested = false, visualEvent = null, verifiedOutfitChanged = false, reply = "" } = {}) {
   const claimedTransfer = claimsCurrentPhotoTransfer(reply);
   if (!claimedTransfer && pendingOutfitReveal(reply)) return false;
-  return claimedTransfer || (!hasUserImage && Boolean(explicitRequest || modelRequested || visualEvent));
+  return claimedTransfer || (!hasUserImage && Boolean(explicitRequest || modelRequested || visualEvent || verifiedOutfitChanged));
 }

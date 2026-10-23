@@ -1,3 +1,10 @@
+import tiers from "../shared/relationship-tiers.json" with { type: "json" };
+
+export function relationshipTier(value) {
+  const score = Math.max(0, Math.min(100, Number(value) || 0));
+  return tiers.findLast(tier => score >= tier.threshold);
+}
+
 export function relationshipStage(value) {
   const score = Math.max(0, Math.min(100, Number(value) || 0));
   if (score >= 91) return "deeply close";
@@ -28,8 +35,8 @@ export function relationshipGuidance(value) {
   return [...shared, "RELATIONSHIP STAGE: " + stage + ". " + stages[stage]].join("\n");
 }
 
-export function applyRelationshipDelta(value, proposedDelta, storedMomentum = 0) {
-  const score = Math.max(0, Math.min(100, Number(value) || 0));
+export function applyRelationshipDelta(value, proposedDelta, storedMomentum = 0, maximum = 100) {
+  const score = Math.max(0, Math.min(maximum, Number(value) || 0));
   const proposed = Math.max(-2, Math.min(2, Math.trunc(Number(proposedDelta) || 0)));
   let momentum = Math.max(0, Math.min(2, Math.trunc(Number(storedMomentum) || 0)));
   let applied = proposed;
@@ -62,12 +69,72 @@ export function applyRelationshipDelta(value, proposedDelta, storedMomentum = 0)
     momentum = 0;
   }
 
-  const relationship = Math.max(0, Math.min(100, score + applied));
-  if (relationship >= 100) momentum = 0;
+  const relationship = Math.max(0, Math.min(maximum, score + applied));
+  if (relationship >= maximum) momentum = 0;
 
   return {
     appliedDelta: applied,
     relationship,
     relationshipMomentum: momentum,
   };
+}
+
+export function normalizeRelationshipProgress(thread = {}) {
+  const score = Math.max(0, Math.min(200, Number(thread.bondScore ?? thread.relationship ?? 8) || 0));
+  const peak = Math.max(score, Math.min(200, Number(thread.progressionPeak ?? score) || 0));
+  const milestones = Array.isArray(thread.relationshipMilestones) ? thread.relationshipMilestones.slice(-10) : [];
+  return {
+    bondScore: score,
+    progressionPeak: peak,
+    progressionRevision: Math.max(0, Number(thread.progressionRevision) || 0),
+    discoveryAwardIds: [...new Set(Array.isArray(thread.discoveryAwardIds) ? thread.discoveryAwardIds.filter(id => typeof id === "string") : [])],
+    relationship: Math.min(100, score),
+    relationshipTier: score >= 200 ? "Soulbound" : relationshipTier(score).label,
+    soulboundEarned: Boolean(thread.soulboundEarned || milestones.some(event => event.kind === "soulbound")),
+    relationshipMomentum: Math.max(0, Math.min(2, Number(thread.relationshipMomentum) || 0)),
+    relationshipMilestones: milestones,
+    progressionTurnIds: Array.isArray(thread.progressionTurnIds) ? thread.progressionTurnIds.slice(-100) : [],
+  };
+}
+
+export function progressRelationship(thread, delta, sourceMessageId, now = new Date()) {
+  const current = normalizeRelationshipProgress(thread);
+  if (!sourceMessageId || current.progressionTurnIds.includes(sourceMessageId)) return current;
+  const result = applyRelationshipDelta(current.bondScore, delta, current.relationshipMomentum, 200);
+  const score = result.relationship;
+  const events = [...tiers.filter(tier => tier.threshold > current.progressionPeak && tier.threshold <= score),
+    ...(current.progressionPeak < 200 && score >= 200 ? [{ threshold: 200, label: "Soulbound" }] : [])]
+    .map(tier => ({ id: `${thread.id}:bond:${tier.threshold}`, kind: tier.threshold === 200 ? "soulbound" : "relationship_tier", label: tier.label, sourceMessageId, earnedAt: now.toISOString() }));
+  return normalizeRelationshipProgress({
+    ...current,
+    bondScore: score,
+    progressionPeak: Math.max(current.progressionPeak, score),
+    progressionRevision: current.progressionRevision + 1,
+    relationshipMomentum: result.relationshipMomentum,
+    relationshipMilestones: [...current.relationshipMilestones, ...events],
+    progressionTurnIds: [...current.progressionTurnIds, sourceMessageId],
+  });
+}
+
+export function discoveryBondBonus(thread, discoveryIds, now = new Date()) {
+  const current = normalizeRelationshipProgress(thread);
+  const newIds = [...new Set(discoveryIds)].filter(id => typeof id === "string" && !current.discoveryAwardIds.includes(id));
+  if (!newIds.length) return current;
+  const score = Math.min(200, current.bondScore + newIds.length * 5);
+  const events = [...tiers.filter(tier => tier.threshold > current.progressionPeak && tier.threshold <= score),
+    ...(current.progressionPeak < 200 && score >= 200 ? [{ threshold: 200, label: "Soulbound" }] : [])]
+    .map(tier => ({ id: `${thread.id}:bond:${tier.threshold}`, kind: tier.threshold === 200 ? "soulbound" : "relationship_tier", label: tier.label, earnedAt: now.toISOString() }));
+  return normalizeRelationshipProgress({ ...current, bondScore: score, progressionPeak: Math.max(current.progressionPeak, score),
+    progressionRevision: current.progressionRevision + 1, discoveryAwardIds: [...current.discoveryAwardIds, ...newIds],
+    relationshipMilestones: [...current.relationshipMilestones, ...events] });
+}
+
+// Apply to every JSON response, including nested guest and full-thread payloads.
+export function progressionResponseReplacer(key, value) {
+  return ["bondScore", "progressionPeak", "progressionTurnIds", "discoveryAwardIds", "achievementShadow"].includes(key) ? undefined : value;
+}
+
+export function preserveNewerRelationshipProgress(current, incoming) {
+  return Number(current?.progressionRevision || 0) > Number(incoming?.progressionRevision || 0)
+    ? normalizeRelationshipProgress(current) : {};
 }

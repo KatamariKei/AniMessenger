@@ -1,3 +1,5 @@
+export type DiscoveryUnlock = { id: string; discoveryId: string; title: string; bondReward: number };
+
 export type AnimaCharacter = {
   id: string;
   name: string;
@@ -75,11 +77,12 @@ export type SceneState = {
   /** Persistent visible surroundings, separate from the short location label. */
   environment?: string;
   activity: string;
+  posture?: "standing" | "seated" | "lying" | "kneeling" | "crouching" | "unknown";
   outfit: string;
   expression: string;
   lighting: string;
   presence?: "apart" | "together" | "uncertain";
-  /** Monotonically increases whenever an authoritative location transition commits. */
+  /** Monotonically increases whenever an authoritative scene change commits. */
   revision?: number;
   locationOwner?: "shared" | "character" | "user" | "unknown";
   sharedLocation?: string;
@@ -159,6 +162,36 @@ export type CharacterMemory = {
   createdAt: string;
   updatedAt: string;
   sourceMessageIds: string[];
+  eventAt?: string;
+  userEdited?: boolean;
+  archived?: boolean;
+  previousVersions?: { text: string; kind: CharacterMemory["kind"]; sourceMessageIds: string[]; eventAt?: string; updatedAt?: string }[];
+};
+
+export type MemoryHealth = {
+  total: number; active: number; archived: number; capacityTarget: number; readOnly: true; truncated: boolean;
+  counts: { similar: number; possible_resolution: number; low_priority: number };
+  flags: { type: "similar" | "possible_resolution" | "low_priority"; memoryIds: string[]; texts: string[]; reason: string; evidence?: { messageId: string; quote: string } }[];
+  metrics: { startedAt: string | null; reviews: number; added: number; updated: number; resolved: number; removed: number; recentCreated: number };
+};
+
+export type ForgottenCharacterMemory = Pick<CharacterMemory, "kind" | "sourceMessageIds"> & {
+  fingerprint: string;
+  tokenHashes: string[];
+  forgottenAt: string;
+};
+
+export type CharacterJourney = {
+  mode: "preview" | "active";
+  accountPoints: number;
+  characterPoints: number;
+  achievements: { id: string; title: string; criteria: string; points: number; target: number; progress: number; earned: boolean; earnedAt: string | null }[];
+  milestones: { id: string; label: string; earnedAt: string | null; color: string }[];
+  discoveries?: { status: "unprepared" | "queued" | "preparing" | "ready" | "limited" | "failed"; discoveryEnabled: boolean; canResearchMore?: boolean;
+    history?: { status: "unchecked" | "queued" | "checking" | "complete" | "failed" | "interrupted"; checkedBatches: number; totalBatches: number; confirmed: number; completedAt?: string };
+    leadAvailability?: { prepared: number; newAvailable: number; locked: number; nextTrust: number | null };
+    leads?: { id: string; clue: string; active: boolean }[];
+    revealed?: { id: string; title: string; truth: string; earlier: boolean; bondReward: number; artwork?: { status: "queued" | "preparing" | "generating" | "complete" | "error"; imageUrl?: string } }[] };
 };
 
 export type Thread = {
@@ -168,8 +201,20 @@ export type Thread = {
   firstContact?: FirstContactScenario;
   messages: Message[];
   memories?: CharacterMemory[];
+  forgottenMemories?: ForgottenCharacterMemory[];
   memoryBackfilledAt?: string;
+  memoryCheckpoint?: {
+    lastReviewedMessageId?: string;
+    lastReviewedAt?: string;
+    lastAttemptAt?: string;
+    lastError?: string;
+  };
+  memoryRevision?: number;
   relationship: number;
+  relationshipTier?: string;
+  soulboundEarned?: boolean;
+  progressionRevision?: number;
+  relationshipMilestones?: { id: string; kind: "relationship_tier" | "soulbound"; label: string; sourceMessageId: string; earnedAt: string }[];
   relationshipMomentum?: number;
   unreadCount?: number;
   pinned?: boolean;
@@ -202,6 +247,12 @@ export type Thread = {
 
 export type AppConfig = {
   userName?: string;
+  userPronouns?: string;
+  userAbout?: string;
+  userAppearance?: string;
+  userAvatarUrl?: string;
+  userPortraitPrompt?: string;
+  userProfileShared?: boolean;
   ollamaUrl: string;
   chatModel: string;
   profileModel: string;
@@ -223,7 +274,7 @@ export type AppConfig = {
   proactiveDeliveryEnd: string;
   soundEnabled: boolean;
   soundVolume: number;
-  bondSound: "celebration" | "heartbeat";
+  bondSound: "celebration";
   accentTheme: "signal";
 };
 
@@ -352,6 +403,9 @@ async function request<T>(url: string, options?: RequestInit, timeoutMs = 30000)
 }
 
 export const api = {
+  achievementUnlocks: (id: string) => request<{ unlocks: { id: string; title: string; points: number }[] }>(`/api/threads/${encodeURIComponent(id)}/achievements/unlocks`),
+  acknowledgeAchievement: (id: string, awardId: string) => request(`/api/threads/${encodeURIComponent(id)}/achievements/unlocks`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: [awardId] }) }),
+  tallyAchievements: () => request<{ points: number; earnedCount: number; achievements: { title: string; characterName: string; points: number; earnedAt: string }[] }>("/api/achievements/tally", { method: "POST" }),
   health: () => request<{ ok: boolean; ollama: boolean; comfy: boolean; animadex: boolean }>("/api/health"),
   runtime: () => request<{ standalone: boolean; mode: "installed" | "development" | "unmanaged"; canShutdown: boolean }>("/api/runtime"),
   shutdown: () => request<{ ok: boolean }>("/api/runtime/shutdown", { method: "POST" }),
@@ -405,6 +459,22 @@ export const api = {
   cancelImageInstall: (jobId: string) => request<ImageInstallJob>(`/api/image-assets/install/${encodeURIComponent(jobId)}`, { method: "POST" }),
   threads: () => request<{ threads: Thread[] }>("/api/threads"),
   thread: (characterId: string) => request<{ thread: Thread }>(`/api/threads/${encodeURIComponent(characterId)}`),
+  journey: (characterId: string) => request<CharacterJourney>(`/api/threads/${encodeURIComponent(characterId)}/journey`),
+  userPortrait: (prompt: string) => request<{ promptId: string }>("/api/user/portrait", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt }) }),
+  userPortraitStatus: (promptId: string) => request<{ status: "pending" | "complete" | "error"; imageUrl?: string; error?: string }>(`/api/user/portrait/${encodeURIComponent(promptId)}`),
+  userPortraitAppearance: (imageUrl: string) => request<{ description: string }>("/api/user/portrait/appearance", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ imageUrl }) }),
+  discoveryArtwork: (characterId: string, discoveryId: string, regenerate = false) => request(`/api/threads/${encodeURIComponent(characterId)}/discoveries/${encodeURIComponent(discoveryId)}/artwork`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ regenerate }) }),
+  prepareDiscoveries: (characterId: string, enrich = false, automatic = false) => request<NonNullable<CharacterJourney["discoveries"]>>(`/api/threads/${encodeURIComponent(characterId)}/discoveries/prepare`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ enrich, automatic }),
+  }),
+  checkDiscoveryHistory: (characterId: string) => request<NonNullable<NonNullable<CharacterJourney["discoveries"]>["history"]>>(`/api/threads/${encodeURIComponent(characterId)}/discoveries/history`, { method: "POST" }),
+  discoveryUnlocks: (characterId: string) => request<{ unlocks: DiscoveryUnlock[] }>(`/api/threads/${encodeURIComponent(characterId)}/discoveries/unlocks`),
+  acknowledgeDiscoveryUnlock: (characterId: string, id: string) => request<{ unlocks: DiscoveryUnlock[] }>(`/api/threads/${encodeURIComponent(characterId)}/discoveries/unlocks`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: [id] }),
+  }),
+  discoveryLeads: (characterId: string, leadId?: string) => request<Pick<NonNullable<CharacterJourney["discoveries"]>, "leads" | "revealed" | "leadAvailability">>(`/api/threads/${encodeURIComponent(characterId)}/discoveries/leads`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ leadId }),
+  }),
   proactiveCheck: (activeCharacterId?: string) => request<{ thread?: Thread; imageJob?: { promptId: string } }>("/api/proactive/check", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -442,7 +512,19 @@ export const api = {
   forgetMemory: (characterId: string, memoryId: string) => request<{ thread: Thread }>(`/api/threads/${encodeURIComponent(characterId)}/memories/${encodeURIComponent(memoryId)}`, {
     method: "DELETE",
   }),
-  backfillMemories: (characterId: string) => request<{ thread: Thread; added: number }>(`/api/threads/${encodeURIComponent(characterId)}/memories/backfill`, {
+  addMemory: (characterId: string, memory: Pick<CharacterMemory, "text" | "kind" | "importance"> & { eventAt?: string | null }) => request<{ thread: Thread }>(`/api/threads/${encodeURIComponent(characterId)}/memories`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(memory),
+  }),
+  editMemory: (characterId: string, memoryId: string, memory: Pick<CharacterMemory, "text" | "kind" | "importance"> & { eventAt?: string | null }) => request<{ thread: Thread }>(`/api/threads/${encodeURIComponent(characterId)}/memories/${encodeURIComponent(memoryId)}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(memory),
+  }),
+  memoryScanStatus: (characterId: string) => request<{ job: MemoryScanJob | null }>(`/api/threads/${encodeURIComponent(characterId)}/memories/backfill`),
+  memoryHealth: (characterId: string) => request<{ health: MemoryHealth }>(`/api/threads/${encodeURIComponent(characterId)}/memories/health`),
+  backfillMemories: (characterId: string) => request<{ job: MemoryScanJob }>(`/api/threads/${encodeURIComponent(characterId)}/memories/backfill`, {
     method: "POST",
   }),
   search: (query: string) => request<{ results: AnimaCharacter[]; total: number }>(`/api/characters/search?q=${encodeURIComponent(query)}`),
@@ -454,7 +536,7 @@ export const api = {
   deleteThread: (characterId: string) => request<{ deleted: boolean; id: string }>(`/api/threads/${encodeURIComponent(characterId)}`, {
     method: "DELETE",
   }),
-  profileProgress: (id: string) => request<{ stage: string; completed: number; total: number; startedAt: number; failedStage?: string; error?: string } | null>(`/api/characters/profile-progress?id=${encodeURIComponent(id)}`),
+  profileProgress: (id: string) => request<{ stage: string; completed: number; total: number; startedAt: number; stageStartedAt?: number; stageDurations?: Record<string, number>; modelCalls?: Array<{ label: string; totalMs: number; loadMs: number; promptTokens: number; promptMs: number; outputTokens: number; generationMs: number }>; elapsedMs?: number; failedStage?: string; error?: string } | null>(`/api/characters/profile-progress?id=${encodeURIComponent(id)}`),
   buildProfile: (character: AnimaCharacter, force = false) => request<{ profile: CharacterProfile; thread: Thread; avatarJob?: { promptId: string } }>("/api/characters/profile", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -469,10 +551,10 @@ export const api = {
   generateFirstContactImage: (characterId: string) => request<{ thread: Thread; imageJob?: { promptId: string }; imageWarning?: string }>(`/api/threads/${encodeURIComponent(characterId)}/first-contact/image`, {
     method: "POST",
   }, 60000),
-  saveVisualOverrides: (characterId: string, overrides: { identity: string[]; signature: string[]; hiddenSignature?: string[]; exceptions: string[]; defaultWardrobe?: string } | null, currentOutfit?: string, displayName?: string) => request<{ profile: CharacterProfile; thread?: Thread }>("/api/characters/visual-overrides", {
+  saveVisualOverrides: (characterId: string, overrides: { identity: string[]; signature: string[]; hiddenSignature?: string[]; exceptions: string[]; defaultWardrobe?: string } | null, currentOutfit?: string, displayName?: string, draftCharacterId = characterId) => request<{ profile: CharacterProfile; thread?: Thread }>("/api/characters/visual-overrides", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ characterId, reset: overrides === null, overrides, currentOutfit, displayName }),
+    body: JSON.stringify({ characterId, draftCharacterId, reset: overrides === null, overrides, currentOutfit, displayName }),
   }),
   chat: (characterId: string, text: string, image?: string, clientMessageId?: string, focusSpeakerId?: string) => request<{ thread: Thread; reply?: Message; replies?: Message[]; relatedThreads?: Thread[]; imageJob?: { promptId: string }; imageJobs?: Array<{ promptId: string }>; imageWarning?: string; replyWarning?: string; cancelled?: boolean }>("/api/chat", {
     method: "POST",
@@ -500,4 +582,10 @@ export const api = {
     body: JSON.stringify({ characterId }),
   }),
   imageStatus: (promptId: string) => request<{ status: "pending" | "complete" | "error"; imageUrl?: string; error?: string; thread?: Thread }>(`/api/images/status/${encodeURIComponent(promptId)}`),
+};
+
+export type MemoryScanJob = {
+  id: string; characterId: string; status: "queued" | "running" | "complete" | "error";
+  completed: number; total: number; failed: number; added: number;
+  startedAt: string; finishedAt?: string; error?: string;
 };

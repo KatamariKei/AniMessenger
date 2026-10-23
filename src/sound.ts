@@ -1,4 +1,4 @@
-export type SoundCue = "message-sent" | "message-received" | "camera" | "photo-received" | "bond-celebration" | "bond-heartbeat";
+export type SoundCue = "message-sent" | "message-received" | "camera" | "photo-received" | "bond-celebration" | "discovery-unlock";
 
 type SoundPreferences = { enabled: boolean; volume: number };
 
@@ -113,14 +113,22 @@ export function playSound(cue: SoundCue, preferences: SoundPreferences, options:
       tone(ctx, master, at + 0.22, 0.3, 1046.5, 0.2, "sine", 1174.66);
       tone(ctx, master, at + 0.245, 0.24, 1318.51, 0.09, "triangle", 1396.91);
       break;
-      case "bond-heartbeat":
-      tone(ctx, master, at, 0.13, 112, 0.54, "sine", 58);
-      tone(ctx, master, at, 0.085, 224, 0.13, "sine", 116);
-      tone(ctx, master, at + 0.17, 0.17, 94, 0.48, "sine", 52);
-      tone(ctx, master, at + 0.17, 0.11, 188, 0.1, "sine", 104);
-      break;
+      case "discovery-unlock": {
+        // Warm four-note G–B–D–G fanfare in the existing sine/triangle palette.
+        const pitches = [392, 493.88, 587.33, 783.99];
+        for (const [offset, duration, frequency, gain] of [
+          [0, 0.24, pitches[0], 0.27],
+          [0.24, 0.13, pitches[1], 0.24],
+          [0.37, 0.15, pitches[2], 0.25],
+          [0.52, 0.85, pitches[3], 0.29],
+        ]) {
+          tone(ctx, master, at + offset, duration, frequency, gain);
+          tone(ctx, master, at + offset, duration * 0.75, frequency * 2, gain * 0.16, "triangle");
+        }
+        break;
+      }
     }
-    window.setTimeout(() => master.disconnect(), 900);
+    window.setTimeout(() => master.disconnect(), cue === "discovery-unlock" ? 1500 : 900);
   };
   if (ctx.state !== "running") void ctx.resume().then(render).catch(() => undefined);
   else render();

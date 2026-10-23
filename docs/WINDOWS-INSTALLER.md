@@ -31,6 +31,15 @@ Download the Windows ZIP from the repository's [latest GitHub release](https://g
 
 The package is not yet code-signed, so Windows may show a reputation warning. Only install archives downloaded from the official AniMessenger repository.
 
+## Choppy or sluggish browser scrolling
+
+If scrolling feels chunky, particularly inside character or user dossiers, check your browser's graphics/hardware acceleration setting. With acceleration disabled, the browser may render the interface in software even when a powerful GPU is installed. This setting is separate from Ollama and ComfyUI GPU use, and reinstalling AniMessenger does not change it. These checks apply to both packaged and source-clone installations.
+
+- **Chrome:** open `chrome://settings/system`, enable **Use graphics acceleration when available**, then select **Relaunch**.
+- **Firefox:** open Settings and find **Performance** (under General or Tabs and browsing, depending on the version). If necessary, uncheck **Use recommended performance settings** to reveal **Use hardware acceleration when available**, enable it, then fully quit and restart Firefox. See [Mozilla's performance settings guide](https://support.mozilla.org/en-US/kb/performance-settings).
+
+Save unfinished edits before restarting your browser. If acceleration is already enabled but scrolling remains slow, check `chrome://gpu` in Chrome or `about:support` in Firefox and include the graphics information when reporting the issue. Do not force experimental GPU flags or bypass driver safety blocks. If enabling acceleration causes crashes or visual corruption, revert the setting and investigate browser/graphics-driver compatibility instead.
+
 ## Tray companion
 
 The tray icon is the installed app's control center:

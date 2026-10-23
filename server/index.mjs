@@ -3,34 +3,57 @@ import http from "node:http";
 import path from "node:path";
 import { checkCharacterCatalog, enrichCharacterCatalog, searchCharacterCatalog } from "./character-catalog.mjs";
 import { checkComfy, diagnoseComfy, fetchComfyImage, generationStatus, listComfyDiffusionModels, queueCharacterImage } from "./comfy.mjs";
+import { profilePortraitRequest } from "./portrait-style.mjs";
+import { describeUserPortrait } from "./ollama.mjs";
+import { normalizeUserProfile } from "./user-profile.mjs";
 import { recoverClientTurn } from "./chat-recovery.mjs";
 import { appHomeDir, dataDir, readConfig, rootDir, writeConfig } from "./config.mjs";
 import { applyDisplayName } from "./display-name.mjs";
+import { createMemoryScanJobs } from "./memory-scan-jobs.mjs";
+import { auditMemoryHealth } from "./memory-health.mjs";
 import { appendCameoMessage, cameoInterjectionEligible, cameoPromptContext, GUEST_CAMEO_VERSION, normalizeCameoState, resumeCameoSession, routeCameoSpeakers, summarizeCameoEncounter, threadForCameoSpeaker } from "./guest-cameo.mjs";
 import { inferOutfitCorrection, inferSceneCue, portraitExpression, portraitWardrobe } from "./identity.mjs";
 import { loadImageJobEntries, saveImageJobEntries } from "./image-job-store.mjs";
 import { findRetryableImageMessage, replaceRetriedImage, retryPromptOverrides } from "./image-retry.mjs";
-import { buildCharacterProfile, chatAsCharacter, checkOllama, enforceAdultCharacterProfile, extractHistoricalMemories, generateFirstContactScenario, generateProactiveOutreach, generateReactionFollowup, listOllamaModelOptions } from "./ollama.mjs";
+import { buildCharacterProfile, chatAsCharacter, checkOllama, enforceAdultCharacterProfile, extractHistoricalMemories, extractIncrementalMemories, generateFirstContactScenario, generateProactiveOutreach, generateReactionFollowup, incrementalMemoryWindow, listOllamaModelOptions } from "./ollama.mjs";
 import { diagnoseOllamaGpu } from "./ollama-diagnostics.mjs";
 import { cancelOllamaModelInstall, ollamaModelInstallStatus, recommendedOllamaDownloads, startOllamaModelInstall } from "./ollama-installer.mjs";
-import { forgetMemory, mergeMemories } from "./memory.mjs";
+import { addManualMemory, allowForgottenMemory, editMemory, explicitMemoryCandidates, forgetMemory, mergeMemories, rememberForgottenMemory } from "./memory.mjs";
 import { advancePhotoCadence, postponePhotoCadence, resetPhotoCadence } from "./photo-cadence.mjs";
 import { claimsCurrentPhotoTransfer, removeCurrentPhotoClaim, shouldQueueCharacterPhoto } from "./photo-claim.mjs";
 import { isExplicitPhotoRequest } from "./photo-request.mjs";
 import { canProactivelyReachOut, globalProactiveNextAt, normalizeProactiveState, proactiveCandidateScore, recordProactiveAttempt, scheduleNextProactive, shouldAttachProactiveImage, updatePendingFollowUp } from "./proactive.mjs";
 import { presenceSceneCue } from "./presence.mjs";
 import { appendReactionResponse, applyMessageReaction, canTriggerReactionResponse, shouldRespondToReaction } from "./reactions.mjs";
-import { applyRelationshipDelta } from "./relationship.mjs";
+import { progressRelationship, normalizeRelationshipProgress, progressionResponseReplacer } from "./relationship.mjs";
+import { evaluateAchievementShadow, normalizeAchievementShadow } from "./achievements.mjs";
+import { achievementReviewBatch } from "./achievement-review.mjs";
+import { ACHIEVEMENT_AWARDS_ENABLED, createAchievementLedger, pendingAchievementUnlocks, publicAchievementAccount, publicCharacterJourney, verifiedAchievementProgress } from "./achievement-ledger.mjs";
 import { researchCharacter } from "./research.mjs";
-import { createThread, deleteThread, listThreads, listThreadSummaries, loadProfile, loadThread, readLocalAsset, saveProfile, saveThread, saveUpload } from "./store.mjs";
-import { applyVisualOverrides, effectiveVisual, preserveVisualOverrides } from "./visual-overrides.mjs";
+import { discoveryResearchNeedsRefresh, loadResearchCache, saveResearchCache } from "./research-cache.mjs";
+import { awardDiscoveryBonuses, consolidateThreadMemories, createThread, deleteThread, listThreads, listThreadSummaries, loadProfile, loadThread, mergeThreadHistoricalMemories, mergeThreadMemoryCheckpoint, recordThreadMemoryCheckpointError, readLocalAsset, saveProfile, saveThread, saveUpload } from "./store.mjs";
+import { applyVisualOverrides, assertVisualEditOwner, effectiveVisual, preserveVisualOverrides } from "./visual-overrides.mjs";
 import { cancelImagePackInstall, detectComfyModelsDirectories, imagePackInstallStatus, imagePackStatus, prepareComfyOutputDirectory, readImageAssetManifest, startImagePackInstall } from "./image-installer.mjs";
 import { isWardrobePlaceholder, normalizeWardrobePrompt, photoOutfitUpdate, stabilizeWardrobePrompt, wardrobeChangeIsEstablished, wardrobeDescriptionRequested } from "./wardrobe.mjs";
 import { capturedMomentBrief } from "./moment-capture.mjs";
-import { keyVisualPhotoBrief, visualEventOpportunity } from "./visual-event.mjs";
+import { keyVisualPhotoBrief, visualEventOpportunity, verifiedOutfitChange } from "./visual-event.mjs";
 import { mergeScene, previewSceneForUserTurn, reduceSceneTurn } from "./scene-state.mjs";
+import { sceneShadowMetrics } from "./scene-events-v2.mjs";
+import { finalSceneMetrics } from "./scene-evaluation.mjs";
 import { activateFirstContact, firstContactCanChange, firstContactPreviewMatches, insertOpeningSceneMessage, openingSceneBrief, openingSceneJobMatches, rejectedOpeningHistory } from "./first-contact.mjs";
 import { narrativeTurnText, normalizeConversationMode } from "./narrative-mode.mjs";
+import { dossierPassages } from "./character-dossier.mjs";
+import { generateCharacterRevelations, refineCharacterDiscoveryClues, generateDiscoveryArtworkPrompt, reviewAchievementCandidates, reviewHistoricalDiscoveries } from "./ollama.mjs";
+import { isDiscoveryClue } from "./discovery-clues.mjs";
+import { unlockedDiscovery, discoveryArtworkSnapshot, discoveryArtworkSize } from "./discovery-artwork.mjs";
+import { publicDiscoveryHistory, revelationHistoryWindows } from "./revelation-history.mjs";
+import { availableDiscoveryLeads, discoveryChatContext, pendingDiscoveryUnlocks, publicDiscoveries } from "./revelation-live.mjs";
+import { createRevelationStore, publicRevelationPreparation, revelationIdentity } from "./revelations.mjs";
+import { researchCharacterDiscoveries, discoveryEvidencePassages } from "./revelation-research.mjs";
+import { fillDiscoverySlots } from "./discovery-retry.mjs";
+import { reviewFocusedDiscoveries } from "./discovery-review.mjs";
+import { createAutomaticDiscoveryPreparation } from "./discovery-preparation.mjs";
+import { userPortraitRequest } from "./user-profile.mjs";
 
 const port = Number(process.env.PORT || 5174);
 const host = process.env.HOST || "127.0.0.1";
@@ -42,6 +65,242 @@ const imageJobs = new Map(await loadImageJobEntries());
 const imageCompletionJobs = new Map();
 const imageRecoveryCheckedAt = new Map();
 const reactionResponseJobs = new Set();
+const memoryCheckpointJobs = new Map();
+const activeMemoryCheckpoints = new Set();
+const achievementLedger = createAchievementLedger();
+const revelationStore = createRevelationStore();
+function confirmedAchievementDiscoveries(state, thread) {
+  const definitions = new Set((state?.definitions || []).map(item => item.id));
+  return [...new Set((state?.historyReviews?.[thread.id]?.discoveries || []).map(item => item.discoveryId))].filter(id => definitions.has(id));
+}
+async function awardThreadAchievements(thread, options = {}) {
+  const state = await revelationStore.load(thread.character);
+  return achievementLedger.awardVerified(thread, { ...options, discoveryIds: confirmedAchievementDiscoveries(state, thread) });
+}
+async function reconcileAchievementTally(threads) {
+  return achievementLedger.reconcileVerified(threads, async thread => confirmedAchievementDiscoveries(await revelationStore.load(thread.character), thread));
+}
+const revelationJobs = new Map();
+let revelationPreparationRunning = false;
+let foregroundRequests = 0;
+const focusedDiscoveryQueue = new Map();
+let focusedDiscoveryRunning = false;
+let focusedDiscoveryTimer;
+function scheduleFocusedDiscoveryReview(config, id) {
+  focusedDiscoveryQueue.set(id, config);
+  if (!focusedDiscoveryTimer) focusedDiscoveryTimer = setTimeout(runFocusedDiscoveryReviews, 0);
+}
+async function runFocusedDiscoveryReviews() {
+  focusedDiscoveryTimer = null;
+  if (focusedDiscoveryRunning || !focusedDiscoveryQueue.size) return;
+  if (foregroundRequests || activeMemoryCheckpoints.size || memoryScanJobs.running || revelationPreparationRunning) {
+    focusedDiscoveryTimer = setTimeout(runFocusedDiscoveryReviews, 500); return;
+  }
+  focusedDiscoveryRunning = true;
+  const [id, config] = focusedDiscoveryQueue.entries().next().value;
+  focusedDiscoveryQueue.delete(id);
+  try {
+    const thread = await loadThread(id);
+    if (!thread?.profile) return;
+    const state = await revelationStore.load(thread.character);
+    const result = await reviewFocusedDiscoveries(config, state, thread, reviewHistoricalDiscoveries);
+    if (!result) return;
+    await revelationStore.save(thread.character, { historyReview: { ...result.historyReview, discoveries: result.matches } }, { historyThreadId: id });
+    await awardDiscoveryBonuses(id, result.matches.map(item => item.discoveryId));
+    await awardThreadAchievements(await loadThread(id));
+    if (config.comfyWorkflowFile && config.comfyMappingFile) for (const match of result.matches) await queueDiscoveryArt(thread, match.discoveryId);
+  } catch (error) {
+    console.warn("Focused discovery review paused for " + id + ":", error instanceof Error ? error.message : String(error));
+  } finally {
+    focusedDiscoveryRunning = false;
+    if (focusedDiscoveryQueue.size && !focusedDiscoveryTimer) focusedDiscoveryTimer = setTimeout(runFocusedDiscoveryReviews, 0);
+  }
+}
+const memoryScanJobs = createMemoryScanJobs({
+  directory: path.join(dataDir, "memory-scans"),
+  ready: () => !foregroundRequests && !focusedDiscoveryRunning && !focusedDiscoveryQueue.size && !activeMemoryCheckpoints.size && !revelationPreparationRunning && !discoveryArtRunning
+    && ![...imageJobs.values()].some(job => !job.appended && Date.now() - Date.parse(job.updatedAt || "") < 300000),
+  run: async (id, progress, job) => {
+    const thread = await loadThread(id);
+    if (!thread?.profile) throw new Error("That character profile is not ready yet.");
+    let added = job.added || 0;
+    await extractHistoricalMemories(await readConfig(), thread, {
+      completedBatchIds: job.completedBatchIds || [],
+      beforeBatch: () => memoryScanJobs.waitUntilReady(),
+      referenceThread: () => loadThread(id),
+      onBatch: async candidates => {
+        const result = await mergeThreadHistoricalMemories(id, candidates);
+        added += result.added;
+        await progress({ added });
+        return result.thread;
+      },
+      onProgress: progress,
+    });
+    await mergeThreadHistoricalMemories(id, [], true);
+    return { added };
+  },
+});
+
+function queuedRevelationStatus(character, state) {
+  const interrupted = ["queued", "preparing"].includes(state?.status) && !revelationJobs.has(revelationIdentity(character));
+  return publicRevelationPreparation(interrupted ? { status: "failed" } : state);
+}
+
+const prepareDiscoveriesAutomatically = createAutomaticDiscoveryPreparation({
+  identity: revelationIdentity, store: revelationStore, jobs: revelationJobs,
+  schedule: () => scheduleRevelationPreparation(),
+});
+
+function scheduleRevelationPreparation(delayMs = 1500) {
+  if (revelationPreparationRunning || !revelationJobs.size) return;
+  revelationPreparationRunning = true;
+  const timer = setTimeout(async () => {
+    let job;
+    let deferred = false;
+    let keepJob = false;
+    try {
+      const imagePending = [...imageJobs.values()].some(item => !item.appended && Date.now() - Date.parse(item.updatedAt || "") < 300_000);
+      if (foregroundRequests || focusedDiscoveryRunning || focusedDiscoveryQueue.size || memoryCheckpointJobs.size || memoryScanJobs.running || imagePending) { deferred = true; return; }
+      const [key, pending] = revelationJobs.entries().next().value;
+      job = { key, ...pending };
+      const thread = await loadThread(job.threadId);
+      if (!thread?.profile || revelationIdentity(thread.character) !== key) return;
+      const previous = await revelationStore.load(thread.character);
+      const existing = previous?.definitions || [];
+      if (job.kind === "clues") {
+        const targets = existing.filter(item => !isDiscoveryClue(item.clue));
+        const updates = await refineCharacterDiscoveryClues(await readConfig(), thread.character, targets);
+        if (updates.length) await revelationStore.save(thread.character, {}, { clueUpdates: updates });
+        return;
+      }
+      if (job.kind === "history") {
+        const checkedBatches = job.cursor || 0;
+        const window = job.windows[checkedBatches];
+        const already = new Set(previous?.historyReviews?.[thread.id]?.discoveries?.map(item => item.discoveryId) || []);
+        const unresolved = existing.filter(item => !already.has(item.id));
+        const matches = window && unresolved.length ? await reviewHistoricalDiscoveries(await readConfig(), thread.character, unresolved, window) : [];
+        const nextCursor = window ? checkedBatches + 1 : checkedBatches;
+        const complete = nextCursor >= job.windows.length || already.size + matches.length >= existing.length;
+        await revelationStore.save(thread.character, { historyReview: { status: complete ? "complete" : "checking",
+          checkedBatches: nextCursor, totalBatches: job.windows.length, discoveries: matches, updatedAt: new Date().toISOString() } }, { historyThreadId: thread.id });
+        await awardThreadAchievements(thread);
+        if (!complete) { revelationJobs.set(key, { ...pending, cursor: nextCursor }); keepJob = true; }
+        return;
+      }
+      if (existing.length >= 3) return;
+      await revelationStore.save(thread.character, { status: "preparing" }, { enrich: true });
+      const config = await readConfig();
+      const character = await enrichCharacterCatalog(config, thread.character).catch(() => thread.character);
+      const cachedResearch = await loadResearchCache(character);
+      const research = cachedResearch && !discoveryResearchNeedsRefresh(cachedResearch, character) ? cachedResearch
+        : await saveResearchCache(character, await researchCharacter(character, config.researchEnabled !== false));
+      const focused = config.researchEnabled !== false ? await researchCharacterDiscoveries(character, research) : research;
+      const passages = discoveryEvidencePassages(focused);
+      const { definitions, attempts } = await fillDiscoverySlots(
+        (approved, options) => generateCharacterRevelations(config, thread.character, thread.profile, passages, approved, options), existing);
+      await revelationStore.save(thread.character, { status: existing.length || definitions.length ? "ready" : "limited", definitions,
+        discoveryResearch: { ...focused.discoveryResearch, attempts, target: 3,
+          prepared: Math.min(3, existing.length + definitions.length),
+          outcome: existing.length + definitions.length >= 3 ? "complete" : "partial" } }, { enrich: true });
+    } catch {
+      // Never log source passages, private truth definitions, or model response text.
+      if (job?.kind === "history") await revelationStore.save(job.character, { historyReview: { status: "failed" } }, { historyThreadId: job.threadId }).catch(() => {});
+      else if (job && job.kind !== "clues") await revelationStore.save(job.character, { status: "failed" }, { enrich: true }).catch(() => {});
+    } finally {
+      if (job && !keepJob) revelationJobs.delete(job.key);
+      revelationPreparationRunning = false;
+      scheduleRevelationPreparation(deferred ? 15_000 : 1500);
+    }
+  }, delayMs);
+  timer.unref?.();
+}
+
+const discoveryArtQueue = new Map();
+let discoveryArtRunning = false;
+let discoveryArtTimer;
+function scheduleDiscoveryArt() {
+  if (discoveryArtRunning || discoveryArtTimer || !discoveryArtQueue.size) return;
+  discoveryArtTimer = setTimeout(async () => {
+    discoveryArtTimer = null;
+    if (foregroundRequests || focusedDiscoveryRunning || focusedDiscoveryQueue.size || memoryCheckpointJobs.size || memoryScanJobs.running || revelationPreparationRunning || [...imageJobs.values()].some(job => !job.appended && Date.now() - Date.parse(job.updatedAt || "") < 300000)) { scheduleDiscoveryArt(); return; }
+    const [key, job] = discoveryArtQueue.entries().next().value;
+    discoveryArtQueue.delete(key); discoveryArtRunning = true;
+    let thread;
+    try {
+      thread = await loadThread(job.threadId);
+      const state = thread && await revelationStore.load(thread.character);
+      const discovery = unlockedDiscovery(state, job.threadId, job.discoveryId);
+      if (!discovery || !thread.profile) return;
+      const config = await readConfig();
+      await revelationStore.save(thread.character, { historyReview: { artwork: { [job.discoveryId]: { status: "preparing" } } } }, { historyThreadId: thread.id });
+      const draft = await generateDiscoveryArtworkPrompt(config, thread, discovery);
+      const snapshot = discoveryArtworkSnapshot(thread, draft);
+      const image = await queueCharacterImage(config, snapshot.thread, snapshot.brief, { ...discoveryArtworkSize, sceneAwareFraming: false, negative: "nudity, nude, topless, sexual activity, cropped head, face out of view" });
+      await rememberImageJob(image.promptId, { kind: "discovery_artwork", characterId: thread.id, discoveryId: job.discoveryId, appended: false });
+      await revelationStore.save(thread.character, { historyReview: { artwork: { [job.discoveryId]: { status: "generating", promptId: image.promptId } } } }, { historyThreadId: thread.id });
+    } catch {
+      if (thread) await revelationStore.save(thread.character, { historyReview: { artwork: { [job.discoveryId]: { status: "error" } } } }, { historyThreadId: thread.id }).catch(() => {});
+    } finally { discoveryArtRunning = false; scheduleDiscoveryArt(); }
+  }, 4000);
+  discoveryArtTimer.unref?.();
+}
+
+async function queueDiscoveryArt(thread, discoveryId, regenerate = false) {
+  const state = await revelationStore.load(thread.character);
+  if (!unlockedDiscovery(state, thread.id, discoveryId)) throw new Error("Artwork is only available for unlocked discoveries.");
+  const existing = state.historyReviews?.[thread.id]?.artwork?.[discoveryId];
+  if (existing && !regenerate && existing.status !== "error") return;
+  if (["queued", "preparing", "generating"].includes(existing?.status)) return;
+  await revelationStore.save(thread.character, { historyReview: { artwork: { [discoveryId]: { status: "queued", promptId: null } } } }, { historyThreadId: thread.id });
+  discoveryArtQueue.set(`${thread.id}:${discoveryId}`, { threadId: thread.id, discoveryId });
+  scheduleDiscoveryArt();
+}
+
+function scheduleMemoryCheckpoint(config, characterId, options = {}) {
+  if (!characterId) return;
+  const pending = memoryCheckpointJobs.get(characterId);
+  if (pending) clearTimeout(pending);
+  const delayMs = options.imagePending ? 90_000 : 12_000;
+  const timer = setTimeout(async () => {
+    try {
+      if (memoryScanJobs.running || focusedDiscoveryRunning || focusedDiscoveryQueue.size) { scheduleMemoryCheckpoint(config, characterId, options); return; }
+      activeMemoryCheckpoints.add(characterId);
+      for (let pass = 0; pass < 3; pass += 1) {
+        const thread = await loadThread(characterId);
+        if (!thread?.profile) break;
+        const window = incrementalMemoryWindow(thread.messages, thread.memoryCheckpoint);
+        if (!window) break;
+        const reviewBatch = achievementReviewBatch(thread);
+        const discoveryState = await revelationStore.load(thread.character).catch(() => null);
+        const known = new Set(discoveryState?.historyReviews?.[thread.id]?.discoveries?.map(item => item.discoveryId) || []);
+        const discoveryDefinitions = (discoveryState?.definitions || []).filter(item => !known.has(item.id));
+        const ids = new Set(window.messages.map(item => item.id));
+        const discoveryExchanges = revelationHistoryWindows({ ...thread, messages: thread.messages.filter(item => ids.has(item.id)) }).flat();
+        const extracted = await extractIncrementalMemories(config, thread, window, { achievementReviewBatch: reviewBatch, discoveryDefinitions, discoveryExchanges });
+        let nextDiscoveryState = discoveryState;
+        if (extracted.discoveryMatches.length) nextDiscoveryState = await revelationStore.save(thread.character, { historyReview: {
+          discoveries: extracted.discoveryMatches, lastLiveReviewAt: new Date().toISOString() } }, { historyThreadId: thread.id });
+        if (config.comfyWorkflowFile && config.comfyMappingFile) for (const match of extracted.discoveryMatches) await queueDiscoveryArt(thread, match.discoveryId);
+        // Evidence is committed first; retry-safe thread awards can recover if a later write fails.
+        await awardDiscoveryBonuses(thread.id, (nextDiscoveryState?.historyReviews?.[thread.id]?.discoveries || [])
+          .filter(item => item.origin === "live_chat").map(item => item.discoveryId));
+        const reviewedThread = await mergeThreadMemoryCheckpoint(characterId, extracted.memories, {
+          lastReviewedMessageId: window.lastReviewedMessageId,
+        }, reviewBatch.length ? { batch: reviewBatch, decisions: extracted.achievementReviews } : null);
+        if (ACHIEVEMENT_AWARDS_ENABLED && reviewedThread) await awardThreadAchievements(reviewedThread);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn("Memory checkpoint paused for " + characterId + ":", message);
+      await recordThreadMemoryCheckpointError(characterId, message).catch(() => {});
+    } finally {
+      activeMemoryCheckpoints.delete(characterId);
+      if (memoryCheckpointJobs.get(characterId) === timer) memoryCheckpointJobs.delete(characterId);
+    }
+  }, delayMs);
+  timer.unref?.();
+  memoryCheckpointJobs.set(characterId, timer);
+}
 
 async function rememberImageJob(promptId, job) {
   imageJobs.set(promptId, { ...job, updatedAt: new Date().toISOString() });
@@ -72,7 +331,7 @@ function sendJson(response, status, value) {
     "access-control-allow-headers": "content-type",
     "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
   });
-  response.end(JSON.stringify(value));
+  response.end(JSON.stringify(value, progressionResponseReplacer));
 }
 
 function sendBuffer(response, status, body, type) {
@@ -132,18 +391,41 @@ function stabilizeSceneWardrobe(scene, profile, character) {
 
 const creationProgress = new Map();
 const creationStages = ["sources", "evidence", "profile", "validation", "opening", "complete"];
-function reportCreation(id, stage, error = "") {
+function reportCreation(id, stage, error = "", details = {}) {
   const previous = creationProgress.get(id);
-  creationProgress.set(id, {
+  const now = Date.now();
+  const stageDurations = { ...(previous?.stageDurations || {}) };
+  const modelCalls = [
+    ...(previous?.modelCalls || []),
+    ...(details?.modelCall ? [details.modelCall] : []),
+  ];
+  if (previous?.stage && previous.stage !== stage && !["complete", "error"].includes(previous.stage)) {
+    stageDurations[previous.stage] = Math.max(0, now - Number(previous.stageStartedAt || previous.startedAt || now));
+  }
+  const next = {
     stage,
     completed: stage === "error" ? previous?.completed || 0 : Math.max(0, creationStages.indexOf(stage)),
     total: 5,
-    startedAt: previous?.startedAt || Date.now(),
+    startedAt: previous?.startedAt || now,
+    stageStartedAt: previous?.stage === stage ? previous.stageStartedAt || previous.startedAt || now : now,
+    stageDurations,
+    modelCalls,
+    elapsedMs: Math.max(0, now - Number(previous?.startedAt || now)),
     ...(stage === "error" ? {
       failedStage: previous?.stage || "sources",
       error: String(error || "Character preparation stopped unexpectedly."),
     } : {}),
-  });
+  };
+  creationProgress.set(id, next);
+  if (["complete", "error"].includes(stage)) {
+    console.info("Character creation timing:", {
+      characterId: id,
+      status: stage,
+      totalMs: next.elapsedMs,
+      stages: next.stageDurations,
+      ...(stage === "error" ? { failedStage: next.failedStage } : {}),
+    });
+  }
 }
 
 async function ensureProfile(config, character, force = false, onProgress = () => {}) {
@@ -156,35 +438,25 @@ async function ensureProfile(config, character, force = false, onProgress = () =
   }
   onProgress("sources");
   const enrichedCharacter = await enrichCharacterCatalog(config, character).catch(() => character);
-  const research = await researchCharacter(enrichedCharacter, config.researchEnabled);
+  const research = config.researchEnabled === false
+    ? await researchCharacter(enrichedCharacter, false)
+    : (await loadResearchCache(enrichedCharacter))
+      || await saveResearchCache(enrichedCharacter, await researchCharacter(enrichedCharacter, true));
   const rebuilt = await buildCharacterProfile(config, enrichedCharacter, research, onProgress);
   return saveProfile(preserveVisualOverrides(rebuilt, cached));
 }
 
 async function queueAvatarJob(config, thread) {
-  const portraitThread = {
-    ...thread,
-    scene: {
-      location: "simple neutral charcoal-gray studio background, dark gray but not black",
-      environment: "plain neutral charcoal-gray background with subtle tonal depth",
-      activity: "posing naturally for a profile picture",
-      outfit: portraitWardrobe(effectiveVisual(thread.profile).defaultWardrobe),
-      expression: portraitExpression(thread.profile.persona),
-      lighting: "soft flattering portrait lighting",
-    },
-  };
+  const portrait = profilePortraitRequest(thread, {
+    outfit: portraitWardrobe(effectiveVisual(thread.profile).defaultWardrobe),
+    expression: portraitExpression(thread.profile.persona),
+    negativePrompt: config.globalNegativePrompt,
+  });
   const job = await queueCharacterImage(
     config,
-    portraitThread,
-    "square profile picture, close-up character portrait, head and shoulders portrait, face focus, eye-level view, centered face, looking toward viewer, face fully visible, character fills the frame, clean social messaging avatar composition, plain neutral charcoal-gray background, subtle tonal depth, no white backdrop",
-    {
-      width: 1024,
-      height: 1024,
-      // Portrait composition is established by the positive prompt. A large
-      // portrait-only negative list reduced detail and made results brittle.
-      // Keep profile portraits aligned with the user's tested global negative.
-      negativePrompt: config.globalNegativePrompt,
-    },
+    portrait.thread,
+    portrait.brief,
+    portrait.overrides,
   );
   await rememberImageJob(job.promptId, {
     kind: "avatar",
@@ -216,6 +488,17 @@ async function completeImageJobUnlocked(config, promptId, status) {
   // owning thread instead of returning a bare completion that looks like a new
   // gallery image to the client.
   if (job.appended) return thread;
+  if (job.kind === "discovery_artwork" && ["complete", "error"].includes(status.status)) {
+    const state = await revelationStore.load(thread.character);
+    const artwork = state?.historyReviews?.[thread.id]?.artwork?.[job.discoveryId];
+    if (artwork?.status !== "generating" || artwork.promptId !== promptId) {
+      await rememberImageJob(promptId, { ...job, appended: true, discarded: true });
+      return thread;
+    }
+    await revelationStore.save(thread.character, { historyReview: { artwork: { [job.discoveryId]: { status: status.status === "complete" ? "complete" : "error", ...(status.imageUrl ? { imageUrl: status.imageUrl } : {}) } } } }, { historyThreadId: thread.id });
+    await rememberImageJob(promptId, { ...job, appended: true });
+    return thread;
+  }
   if (job.kind === "opening_scene" && !openingSceneJobMatches(thread, job)) {
     await rememberImageJob(promptId, { ...job, appended: true, discarded: true });
     return thread;
@@ -281,6 +564,9 @@ async function completeImageJobUnlocked(config, promptId, status) {
       },
     });
     await rememberImageJob(promptId, { ...job, appended: true });
+    await prepareDiscoveriesAutomatically(saved).catch(() => {
+      console.warn("Automatic discovery preparation could not be queued; the opening image is saved.");
+    });
     return saved;
   }
   const saved = await saveThread({
@@ -312,13 +598,16 @@ async function recoverCompletedImageJobs() {
     for (const [promptId, job] of pending) {
       imageRecoveryCheckedAt.set(promptId, Date.now());
       try {
-        const status = await generationStatus(config, promptId);
-        if (status.status === "complete" || (status.status === "error" && ["proactive", "opening_scene"].includes(job.kind))) {
+        const status = await generationStatus(config, promptId, { detectMissing: job.kind === "discovery_artwork" });
+        if (status.status === "complete" || (status.status === "error" && ["proactive", "opening_scene", "discovery_artwork"].includes(job.kind))) {
           await completeImageJob(config, promptId, status);
           imageRecoveryCheckedAt.delete(promptId);
         }
       } catch {
         // ComfyUI may be offline or still starting. The durable job remains for the next pass.
+        if (job.kind === "discovery_artwork" && now - Date.parse(job.updatedAt || "") >= 120000) {
+          await completeImageJob(config, promptId, { status: "error", error: "ComfyUI could not be reached. Retry artwork when it is available." }).catch(() => {});
+        }
       }
     }
   } finally {
@@ -391,6 +680,7 @@ async function checkProactiveOutreach(config, activeCharacterId) {
       const nextScene = stabilizeSceneWardrobe(candidate.scene?.presence === "together"
         ? candidate.scene
         : reduceSceneTurn(candidate.scene, {
+          characterName: candidate.profile?.name || candidate.character?.name,
           characterText: outreach.text,
           modelScene: outreachScenePatch,
           presencePatch: presenceSceneCue(candidate, ""),
@@ -398,7 +688,12 @@ async function checkProactiveOutreach(config, activeCharacterId) {
         }), candidate.profile, candidate.character);
       if (withImage && config.comfyWorkflowFile && config.comfyMappingFile) {
         try {
-          const job = await queueCharacterImage(config, { ...candidate, scene: nextScene }, outreach.photoBrief || "a candid visual update");
+          // Shared-scene outreach cannot depict an offscreen move or outfit
+          // change that its free-form photo brief merely invented.
+          const photoBrief = candidate.scene?.presence === "together"
+            ? capturedMomentBrief({ ...candidate, scene: nextScene })
+            : outreach.photoBrief || "a candid visual update";
+          const job = await queueCharacterImage(config, { ...candidate, scene: nextScene }, photoBrief);
           const saved = await saveThread({
             ...candidate,
             scene: nextScene,
@@ -410,7 +705,7 @@ async function checkProactiveOutreach(config, activeCharacterId) {
             characterId: candidate.id,
             appended: false,
             caption: outreach.text,
-            imageContext: outreach.photoBrief,
+            imageContext: photoBrief,
             proactiveIntent: outreach.intent,
             proactiveTopicKey: outreach.topicKey,
             markUnread,
@@ -448,6 +743,24 @@ async function checkProactiveOutreach(config, activeCharacterId) {
 }
 
 async function handleApi(request, response, url) {
+  const achievementUnlockMatch = /^\/api\/threads\/([^/]+)\/achievements\/unlocks$/.exec(url.pathname);
+  if (["GET", "POST"].includes(request.method) && achievementUnlockMatch) {
+    const thread = await loadThread(decodeURIComponent(achievementUnlockMatch[1]));
+    if (!thread?.character?.id) throw new Error("That conversation no longer exists.");
+    let ledger = await achievementLedger.read();
+    if (request.method === "POST") {
+      const body = await jsonBody(request);
+      const ids = Array.isArray(body.ids) ? body.ids.filter(id => typeof id === "string").slice(0, 5) : [];
+      ledger = await achievementLedger.acknowledge(thread.character.id, ids);
+    }
+    sendJson(response, 200, { unlocks: pendingAchievementUnlocks(ledger, thread.character.id) });
+    return true;
+  }
+  if (request.method === "POST" && url.pathname === "/api/achievements/tally") {
+    const ledger = await reconcileAchievementTally(await listThreads());
+    sendJson(response, 200, publicAchievementAccount(ledger));
+    return true;
+  }
   const config = await readConfig();
 
   if (request.method === "OPTIONS") {
@@ -482,6 +795,10 @@ async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/health") {
     const [ollama, comfy, animadex] = await Promise.all([checkOllama(config), checkComfy(config), checkCharacterCatalog(config)]);
     sendJson(response, 200, { ok: true, ollama, comfy, animadex });
+    return true;
+  }
+  if (request.method === "GET" && url.pathname === "/api/scene-shadow") {
+    sendJson(response, 200, { version: 2, mode: "final_scene_with_legacy_shadow", ...sceneShadowMetrics(), finalScene: await finalSceneMetrics() });
     return true;
   }
   if (request.method === "POST" && url.pathname === "/api/comfy/diagnostics") {
@@ -610,6 +927,168 @@ async function handleApi(request, response, url) {
     return true;
   }
   const getThreadMatch = /^\/api\/threads\/([^/]+)$/.exec(url.pathname);
+  const journeyMatch = /^\/api\/threads\/([^/]+)\/journey$/.exec(url.pathname);
+  const artworkMatch = /^\/api\/threads\/([^/]+)\/discoveries\/([^/]+)\/artwork$/.exec(url.pathname);
+  if (request.method === "POST" && artworkMatch) {
+    const thread = await loadThread(decodeURIComponent(artworkMatch[1]));
+    if (!thread?.profile) throw new Error("That character is not ready.");
+    if (!config.comfyWorkflowFile || !config.comfyMappingFile) throw new Error("Complete Image setup in Settings first.");
+    const body = await jsonBody(request);
+    await queueDiscoveryArt(thread, decodeURIComponent(artworkMatch[2]), Boolean(body.regenerate));
+    sendJson(response, 200, { queued: true }); return true;
+  }
+  if (request.method === "GET" && journeyMatch) {
+    const thread = await loadThread(decodeURIComponent(journeyMatch[1]));
+    if (!thread) throw new Error("That conversation no longer exists.");
+    const state = await revelationStore.load(thread.character);
+    for (const [discoveryId, art] of Object.entries(state?.historyReviews?.[thread.id]?.artwork || {})) {
+      if (["queued", "preparing"].includes(art.status) && !discoveryArtRunning) discoveryArtQueue.set(`${thread.id}:${discoveryId}`, { threadId: thread.id, discoveryId });
+    }
+    scheduleDiscoveryArt();
+    sendJson(response, 200, { ...publicCharacterJourney(thread, await achievementLedger.read(), ACHIEVEMENT_AWARDS_ENABLED, confirmedAchievementDiscoveries(state, thread)),
+      discoveries: { ...queuedRevelationStatus(thread.character, state), discoveryEnabled: Boolean(state?.definitions?.length), ...publicDiscoveries(state, thread), history: publicDiscoveryHistory(state, thread.id,
+        revelationJobs.get(revelationIdentity(thread.character))?.kind === "history") } });
+    return true;
+  }
+  const destinationRecheckMatch = /^\/api\/threads\/([^/]+)\/achievements\/recheck-destinations$/.exec(url.pathname);
+  const laughterRecheckMatch = /^\/api\/threads\/([^/]+)\/achievements\/recheck-laughter$/.exec(url.pathname);
+  if (request.method === "POST" && laughterRecheckMatch) {
+    const id = decodeURIComponent(laughterRecheckMatch[1]);
+    const { reconsiderThreadLaughter } = await import("./store.mjs");
+    const thread = await reconsiderThreadLaughter(id);
+    if (!thread?.profile) throw new Error("That conversation is not ready for achievement review.");
+    // Review at most one batch in this request, independently from memory
+    // extraction. Repeated requests resume from saved review receipts.
+    const batch = achievementReviewBatch(thread).filter(item => item.signal.id === "shared-laughter");
+    const reviewed = batch.length ? await mergeThreadMemoryCheckpoint(id, [], {}, { batch,
+      decisions: await reviewAchievementCandidates(await readConfig(), batch) }) : thread;
+    if (reviewed) await awardThreadAchievements(reviewed);
+    sendJson(response, 200, { reviewedCandidates: batch.length,
+      verifiedLaughter: verifiedAchievementProgress(reviewed)["shared-laughter"],
+      pending: achievementReviewBatch(reviewed).length, rewardsEnabled: ACHIEVEMENT_AWARDS_ENABLED });
+    return true;
+  }
+  if (request.method === "POST" && destinationRecheckMatch) {
+    const id = decodeURIComponent(destinationRecheckMatch[1]);
+    const { reconsiderThreadDestinations } = await import("./store.mjs");
+    let thread = await reconsiderThreadDestinations(id);
+    if (!thread) throw new Error("That conversation no longer exists.");
+    const batch = achievementReviewBatch(thread).filter(item => item.signal.id === "new-horizons");
+    if (batch.length) thread = await mergeThreadMemoryCheckpoint(id, [], {}, { batch, decisions: await reviewAchievementCandidates(await readConfig(), batch) });
+    if (thread) await awardThreadAchievements(thread);
+    sendJson(response, 200, { reviewedCandidates: batch.length, verifiedDestinations: thread ? verifiedAchievementProgress(thread)["new-horizons"] : 0, rewardsEnabled: ACHIEVEMENT_AWARDS_ENABLED });
+    return true;
+  }
+  const recentDiscoveriesMatch = /^\/api\/threads\/([^/]+)\/discoveries\/recheck-recent$/.exec(url.pathname);
+  if (request.method === "POST" && recentDiscoveriesMatch) {
+    const body = await jsonBody(request);
+    const thread = await loadThread(decodeURIComponent(recentDiscoveriesMatch[1]));
+    if (!thread?.profile) throw new Error("That conversation is not ready for discovery review.");
+    const state = await revelationStore.load(thread.character);
+    const confirmed = new Set(state?.historyReviews?.[thread.id]?.discoveries?.map(item => item.discoveryId) || []);
+    const definitions = (state?.definitions || []).filter(item => !confirmed.has(item.id));
+    const exchanges = body.userMessageId
+      ? revelationHistoryWindows(thread).flat().filter(item => item.userId === body.userMessageId)
+      : revelationHistoryWindows({ ...thread, messages: thread.messages.slice(-40) }).flat();
+    if (body.userMessageId && !exchanges.length) throw new Error("That user exchange is not available for discovery review.");
+    const matches = (definitions.length && exchanges.length
+      ? await reviewHistoricalDiscoveries(await readConfig(), thread.character, definitions, exchanges, { live: true }) : [])
+      .map(item => ({ ...item, origin: "live_chat" }));
+    if (matches.length) {
+      await revelationStore.save(thread.character, { historyReview: { discoveries: matches, lastLiveReviewAt: new Date().toISOString() } }, { historyThreadId: thread.id });
+      await awardDiscoveryBonuses(thread.id, matches.map(item => item.discoveryId));
+      await awardThreadAchievements(await loadThread(thread.id));
+      const config = await readConfig();
+      if (config.comfyWorkflowFile && config.comfyMappingFile) for (const match of matches) await queueDiscoveryArt(thread, match.discoveryId);
+    }
+    sendJson(response, 200, { recognized: matches.length });
+    return true;
+  }
+  const unlocksMatch = /^\/api\/threads\/([^/]+)\/discoveries\/unlocks$/.exec(url.pathname);
+  if (unlocksMatch && ["GET", "POST"].includes(request.method)) {
+    const thread = await loadThread(decodeURIComponent(unlocksMatch[1]));
+    if (!thread) throw new Error("That conversation no longer exists.");
+    let state = await revelationStore.load(thread.character);
+    const pending = pendingDiscoveryUnlocks(state, thread);
+    if (request.method === "POST") {
+      const body = await jsonBody(request);
+      const ids = new Set(Array.isArray(body.ids) ? body.ids.filter(id => typeof id === "string").slice(0, 3) : []);
+      const acknowledgedUnlockIds = pending.filter(item => ids.has(item.id)).map(item => item.id);
+      if (acknowledgedUnlockIds.length) state = await revelationStore.save(thread.character, { historyReview: { acknowledgedUnlockIds } }, { historyThreadId: thread.id });
+    }
+    sendJson(response, 200, { unlocks: pendingDiscoveryUnlocks(state, thread) });
+    return true;
+  }
+  const leadsMatch = /^\/api\/threads\/([^/]+)\/discoveries\/leads$/.exec(url.pathname);
+  if (request.method === "POST" && leadsMatch) {
+    const body = await jsonBody(request);
+    const thread = await loadThread(decodeURIComponent(leadsMatch[1]));
+    if (!thread?.profile) throw new Error("Finish this character's profile first.");
+    const state = await revelationStore.load(thread.character);
+    const available = availableDiscoveryLeads(state, thread);
+    if (!state?.definitions?.length) throw new Error("Prepare discoveries before looking for leads.");
+    if (body.leadId && !available.includes(body.leadId)) throw new Error("That lead is not currently available.");
+    const next = await revelationStore.save(thread.character, { historyReview: { encounteredLeadIds: available,
+      ...(body.leadId ? { activeLeadId: body.leadId } : {}) } }, { historyThreadId: thread.id });
+    sendJson(response, 200, publicDiscoveries(next, thread));
+    return true;
+  }
+  const historyRevelationsMatch = /^\/api\/threads\/([^/]+)\/discoveries\/history$/.exec(url.pathname);
+  if (request.method === "POST" && historyRevelationsMatch) {
+    const thread = await loadThread(decodeURIComponent(historyRevelationsMatch[1]));
+    if (!thread?.profile) throw new Error("Finish this character's profile first.");
+    const key = revelationIdentity(thread.character);
+    const state = await revelationStore.load(thread.character);
+    if (!state?.definitions?.length) throw new Error("Prepare discoveries before checking earlier chat.");
+    if (revelationJobs.has(key)) throw new Error("Discovery work is already running. Let it finish first.");
+    const windows = revelationHistoryWindows(thread);
+    await revelationStore.save(thread.character, { historyReview: { status: windows.length ? "queued" : "complete",
+      checkedBatches: 0, totalBatches: windows.length } }, { historyThreadId: thread.id });
+    if (windows.length) {
+      revelationJobs.set(key, { kind: "history", threadId: thread.id, character: thread.character, windows, cursor: 0 });
+      scheduleRevelationPreparation();
+    }
+    sendJson(response, 202, { status: windows.length ? "queued" : "complete", checkedBatches: 0, totalBatches: windows.length,
+      confirmed: state.historyReviews?.[thread.id]?.discoveries?.length || 0 });
+    return true;
+  }
+  const refineCluesMatch = /^\/api\/threads\/([^/]+)\/discoveries\/clues\/refine$/.exec(url.pathname);
+  if (request.method === "POST" && refineCluesMatch) {
+    const thread = await loadThread(decodeURIComponent(refineCluesMatch[1]));
+    if (!thread?.profile) throw new Error("Finish this character's profile first.");
+    const key = revelationIdentity(thread.character);
+    const state = await revelationStore.load(thread.character);
+    const count = (state?.definitions || []).filter(item => !isDiscoveryClue(item.clue)).length;
+    if (count && !revelationJobs.has(key)) {
+      revelationJobs.set(key, { kind: "clues", threadId: thread.id, character: thread.character });
+      scheduleRevelationPreparation();
+    }
+    sendJson(response, 202, { queued: count > 0, cluesToRefine: count });
+    return true;
+  }
+  const prepareRevelationsMatch = /^\/api\/threads\/([^/]+)\/discoveries\/prepare$/.exec(url.pathname);
+  if (request.method === "POST" && prepareRevelationsMatch) {
+    const body = await jsonBody(request);
+    const thread = await loadThread(decodeURIComponent(prepareRevelationsMatch[1]));
+    if (!thread?.profile) throw new Error("Finish this character's profile before preparing discoveries.");
+    if (body.automatic === true) {
+      await prepareDiscoveriesAutomatically(thread, { journeyVisit: true });
+      sendJson(response, 200, queuedRevelationStatus(thread.character, await revelationStore.load(thread.character)));
+      return true;
+    }
+    const key = revelationIdentity(thread.character);
+    const state = await revelationStore.load(thread.character);
+    const enrich = body.enrich === true && (state?.definitions?.length || 0) < 3;
+    if ((state?.status === "ready" && !enrich) || revelationJobs.has(key)) {
+      sendJson(response, 200, queuedRevelationStatus(thread.character, state));
+      return true;
+    }
+    await revelationStore.save(thread.character, { status: "queued" }, { enrich: true });
+    revelationJobs.set(key, { threadId: thread.id, character: thread.character });
+    scheduleRevelationPreparation();
+    sendJson(response, 202, { status: "queued", discoveryEnabled: false, canResearchMore: true });
+    return true;
+  }
   if (request.method === "GET" && getThreadMatch) {
     const id = decodeURIComponent(getThreadMatch[1]);
     const thread = await loadThread(id);
@@ -710,6 +1189,7 @@ async function handleApi(request, response, url) {
     let job;
     try {
       job = await queueCharacterImage(config, thread, imageContext, {
+        sceneAwareFraming: false,
         negative: "selfie, phone in hand, handheld camera, taking a photo, first-person POV, user visible, viewer visible, scenery-only image, distant tiny character, extreme high angle, extreme low angle",
       });
     } catch (error) {
@@ -808,7 +1288,7 @@ async function handleApi(request, response, url) {
     const saved = await saveThread({
       ...thread,
       messages: [...thread.messages, left],
-      memories: mergeMemories(thread.memories, [{ kind: "shared_event", text: summary, importance: 3 }], left.id),
+      memories: mergeMemories(thread.memories, [{ kind: "shared_event", text: summary, importance: 3 }], left.id, new Date(), { forgottenMemories: thread.forgottenMemories }),
       cameo: { ...cameo, activeGuest: null, encounters },
     });
     let relatedThread;
@@ -817,7 +1297,7 @@ async function handleApi(request, response, url) {
       if (guestThread) {
         relatedThread = await saveThread({
           ...guestThread,
-          memories: mergeMemories(guestThread.memories, [{ kind: "shared_event", text: summary, importance: 3 }], left.id),
+          memories: mergeMemories(guestThread.memories, [{ kind: "shared_event", text: summary, importance: 3 }], left.id, new Date(), { forgottenMemories: guestThread.forgottenMemories }),
         });
       }
     } catch (error) {
@@ -904,29 +1384,84 @@ async function handleApi(request, response, url) {
     sendJson(response, 200, { promptId: job.promptId });
     return true;
   }
-  const forgetMemoryMatch = /^\/api\/threads\/([^/]+)\/memories\/([^/]+)$/.exec(url.pathname);
-  if (request.method === "DELETE" && forgetMemoryMatch) {
-    const id = decodeURIComponent(forgetMemoryMatch[1]);
-    const memoryId = decodeURIComponent(forgetMemoryMatch[2]);
+  const memoriesMatch = /^\/api\/threads\/([^/]+)\/memories$/.exec(url.pathname);
+  if (request.method === "POST" && memoriesMatch) {
+    const id = decodeURIComponent(memoriesMatch[1]);
+    const body = await jsonBody(request);
     const thread = await loadThread(id);
     if (!thread) throw new Error("That conversation no longer exists.");
-    sendJson(response, 200, { thread: await saveThread({ ...thread, memories: forgetMemory(thread.memories, memoryId) }) });
+    const text = String(body.text || "").replace(/\s+/g, " ").trim();
+    if (text.length < 8 || text.length > 500) throw new Error("Write a complete memory between 8 and 500 characters.");
+    const memories = addManualMemory(thread.memories, {
+      text,
+      kind: body.kind,
+      importance: body.importance,
+      eventAt: body.eventAt,
+    });
+    const added = memories.find((memory) => !thread.memories?.some((existing) => existing.id === memory.id)) || memories.find((memory) => memory.userEdited && memory.text === text);
+    sendJson(response, 200, { thread: await saveThread({
+      ...thread,
+      memories,
+      forgottenMemories: added ? allowForgottenMemory(thread.forgottenMemories, added) : thread.forgottenMemories,
+      memoryRevision: Number(thread.memoryRevision || 0) + 1,
+    }) });
+    return true;
+  }
+  if (request.method === "GET" && url.pathname === "/api/memories/health") {
+    const threads = await listThreads();
+    sendJson(response, 200, { characters: threads.map(thread => {
+      const { flags, ...health } = auditMemoryHealth(thread);
+      return { characterId: thread.id, name: thread.character.name, ...health };
+    }) });
+    return true;
+  }
+  const memoryMatch = /^\/api\/threads\/([^/]+)\/memories\/([^/]+)$/.exec(url.pathname);
+  if (request.method === "GET" && memoryMatch && memoryMatch[2] === "health") {
+    const thread = await loadThread(decodeURIComponent(memoryMatch[1]));
+    if (!thread) throw new Error("That conversation no longer exists.");
+    sendJson(response, 200, { health: auditMemoryHealth(thread) });
+    return true;
+  }
+  if (request.method === "POST" && memoryMatch && memoryMatch[2] === "consolidate") {
+    const body = await jsonBody(request);
+    sendJson(response, 200, { thread: await consolidateThreadMemories(decodeURIComponent(memoryMatch[1]), body) });
+    return true;
+  }
+  if (request.method === "PATCH" && memoryMatch) {
+    const id = decodeURIComponent(memoryMatch[1]);
+    const memoryId = decodeURIComponent(memoryMatch[2]);
+    const body = await jsonBody(request);
+    const thread = await loadThread(id);
+    if (!thread) throw new Error("That conversation no longer exists.");
+    if (!(thread.memories || []).some((memory) => memory.id === memoryId)) throw new Error("That memory no longer exists.");
+    const memories = editMemory(thread.memories, memoryId, body);
+    sendJson(response, 200, { thread: await saveThread({ ...thread, memories, memoryRevision: Number(thread.memoryRevision || 0) + 1 }) });
+    return true;
+  }
+  if (request.method === "DELETE" && memoryMatch) {
+    const id = decodeURIComponent(memoryMatch[1]);
+    const memoryId = decodeURIComponent(memoryMatch[2]);
+    const thread = await loadThread(id);
+    if (!thread) throw new Error("That conversation no longer exists.");
+    const forgotten = (thread.memories || []).find((memory) => memory.id === memoryId);
+    sendJson(response, 200, { thread: await saveThread({
+      ...thread,
+      memories: forgetMemory(thread.memories, memoryId),
+      forgottenMemories: rememberForgottenMemory(thread.forgottenMemories, forgotten),
+      memoryRevision: Number(thread.memoryRevision || 0) + 1,
+    }) });
     return true;
   }
   const backfillMemoryMatch = /^\/api\/threads\/([^/]+)\/memories\/backfill$/.exec(url.pathname);
+  if (request.method === "GET" && backfillMemoryMatch) {
+    sendJson(response, 200, { job: await memoryScanJobs.status(decodeURIComponent(backfillMemoryMatch[1])) });
+    return true;
+  }
   if (request.method === "POST" && backfillMemoryMatch) {
     const id = decodeURIComponent(backfillMemoryMatch[1]);
     const thread = await loadThread(id);
     if (!thread?.profile) throw new Error("That character profile is not ready yet.");
-    if (thread.memoryBackfilledAt) {
-      sendJson(response, 200, { thread, added: 0 });
-      return true;
-    }
-    const before = Array.isArray(thread.memories) ? thread.memories.length : 0;
-    const candidates = await extractHistoricalMemories(config, thread);
-    const memories = mergeMemories(thread.memories, candidates, undefined);
-    const saved = await saveThread({ ...thread, memories, memoryBackfilledAt: new Date().toISOString() });
-    sendJson(response, 200, { thread: saved, added: Math.max(0, memories.length - before) });
+    sendJson(response, 202, { job: await memoryScanJobs.start(id) });
     return true;
   }
   if (request.method === "GET" && url.pathname === "/api/characters/profile-progress") {
@@ -940,12 +1475,12 @@ async function handleApi(request, response, url) {
     reportCreation(body.character.id, "sources");
     try {
     const current = await createThread(body.character);
-    const profile = await ensureProfile(config, body.character, Boolean(body.force) || !current.profile, (stage) => reportCreation(body.character.id, stage));
+    const profile = await ensureProfile(config, body.character, Boolean(body.force) || !current.profile, (stage, details) => reportCreation(body.character.id, stage, "", details));
     reportCreation(body.character.id, "opening");
     const isUntouched = current.messages.length === 0;
     const shouldCreateOpening = isUntouched && (!current.firstContact || body.force);
     const generatedFirstContact = shouldCreateOpening
-      ? await generateFirstContactScenario(config, current.character, profile, body.force ? rejectedOpeningHistory(current.firstContact) : [])
+      ? await generateFirstContactScenario(config, current.character, profile, body.force ? rejectedOpeningHistory(current.firstContact) : [], (modelCall) => reportCreation(body.character.id, "opening", "", { modelCall }))
       : current.firstContact;
     const baseScene = generatedFirstContact?.status === "preview"
       ? generatedFirstContact.scene
@@ -976,6 +1511,7 @@ async function handleApi(request, response, url) {
   if (request.method === "POST" && url.pathname === "/api/characters/visual-overrides") {
     const body = await jsonBody(request);
     if (!body.characterId) throw new Error("Choose a character first.");
+    assertVisualEditOwner(body.characterId, body.draftCharacterId);
     const thread = await loadThread(body.characterId);
     const cached = await loadProfile(body.characterId);
     const source = cached || thread?.profile;
@@ -1016,6 +1552,29 @@ async function handleApi(request, response, url) {
     sendJson(response, 200, { url: await saveUpload(body.dataUrl) });
     return true;
   }
+  if (request.method === "POST" && url.pathname === "/api/user/portrait") {
+    const body = await jsonBody(request);
+    const portrait = userPortraitRequest(body.prompt, config);
+    const job = await queueCharacterImage(config, portrait.thread, portrait.brief, portrait.overrides);
+    sendJson(response, 200, { promptId: job.promptId });
+    return true;
+  }
+  if (request.method === "POST" && url.pathname === "/api/user/portrait/appearance") {
+    const body = await jsonBody(request);
+    const imageUrl = normalizeUserProfile({ userAvatarUrl: body.imageUrl }).userAvatarUrl;
+    if (!imageUrl) throw new Error("Choose a portrait before describing its appearance.");
+    const image = imageUrl.startsWith("/api/files/uploads/")
+      ? await readLocalAsset(imageUrl)
+      : (await fetchComfyImage(config, new URL(imageUrl, "http://localhost"))).body;
+    if (image.length > 20 * 1024 * 1024) throw new Error("This portrait is too large to analyze. Choose an image under 20 MB.");
+    sendJson(response, 200, { description: await describeUserPortrait(config, image.toString("base64")) });
+    return true;
+  }
+  const userPortraitStatusMatch = /^\/api\/user\/portrait\/([^/]+)$/.exec(url.pathname);
+  if (request.method === "GET" && userPortraitStatusMatch) {
+    sendJson(response, 200, await generationStatus(config, decodeURIComponent(userPortraitStatusMatch[1]), { detectMissing: true }));
+    return true;
+  }
   if (request.method === "POST" && url.pathname === "/api/chat") {
     const body = await jsonBody(request);
     let thread = await loadThread(body.characterId);
@@ -1044,9 +1603,10 @@ async function handleApi(request, response, url) {
     const userMessage = existingIndex >= 0
       ? thread.messages[existingIndex]
       : nowMessage("user", String(body.text || ""), { ...(body.image ? { image: body.image } : {}), ...(clientMessageId ? { id: clientMessageId } : {}) });
+    const guaranteedMemories = explicitMemoryCandidates(userMessage.text, thread.profile?.name || thread.character?.name);
     const working = existingIndex >= 0
-      ? { ...thread, unreadCount: 0 }
-      : { ...thread, unreadCount: 0, photoCadence: cadence.state, messages: [...thread.messages, userMessage] };
+      ? { ...thread, unreadCount: 0, memories: mergeMemories(thread.memories, guaranteedMemories, userMessage.id, new Date(), { forgottenMemories: thread.forgottenMemories, messages: [...thread.messages, userMessage] }) }
+      : { ...thread, unreadCount: 0, photoCadence: cadence.state, messages: [...thread.messages, userMessage], memories: mergeMemories(thread.memories, guaranteedMemories, userMessage.id, new Date(), { forgottenMemories: thread.forgottenMemories, messages: [...thread.messages, userMessage] }) };
     if (existingIndex < 0) await saveThread(working);
     let imageBase64;
     if (body.image) imageBase64 = (await readLocalAsset(body.image)).toString("base64");
@@ -1054,6 +1614,7 @@ async function handleApi(request, response, url) {
     const turnPresenceCue = presenceSceneCue(priorThread, String(body.text || ""));
     const turnSceneCue = inferSceneCue(body.text);
     const previewScene = previewSceneForUserTurn(priorThread.scene, String(body.text || ""), {
+      characterName: priorThread.profile?.name || priorThread.character?.name,
       presencePatch: turnPresenceCue,
       deterministicPatch: turnSceneCue,
     });
@@ -1090,8 +1651,8 @@ async function handleApi(request, response, url) {
       const photoCandidates = [];
       const speakerErrors = [];
       const imageGenerationConfigured = Boolean(config.comfyWorkflowFile && config.comfyMappingFile);
-      let hostRelationship = working.relationship;
-      let hostRelationshipMomentum = working.relationshipMomentum;
+      let hostProgression = normalizeRelationshipProgress(working);
+      let hostAchievementShadow = normalizeAchievementShadow(working);
       let hostMemories = working.memories;
       let nextGuestThread = guestThread;
       let guestParticipated = false;
@@ -1099,12 +1660,17 @@ async function handleApi(request, response, url) {
         const speakerId = speakerIds[speakerIndex];
         const isInterjection = initialSpeakerCount === 1 && speakerIndex > 0;
         try {
-          const speakerThread = threadForCameoSpeaker(session, speakerId);
+          const speakerThread = {
+            ...threadForCameoSpeaker(session, speakerId),
+            ...normalizeAchievementShadow(speakerId === working.character.id
+              ? { ...working, ...hostAchievementShadow } : nextGuestThread),
+          };
           const contextThread = body.image
             ? { ...speakerThread, messages: speakerThread.messages.filter((message) => message.id !== userMessage.id) }
             : speakerThread;
           const result = await chatAsCharacter(config, contextThread, String(body.text || ""), imageBase64 || null, {
             currentTurnAlreadyInHistory: !body.image,
+            memorySnapshot: speakerId === working.character.id ? priorThread.memories : guestThread.memories,
             extraSystemContext: cameoPromptContext(session, speakerId, {
               groupTurn: initialSpeakerCount > 1 || isInterjection,
               storyMode: working.conversationMode === "story",
@@ -1113,6 +1679,8 @@ async function handleApi(request, response, url) {
               allowInterjection: allowInterjection && speakerIndex === 0,
               interjection: isInterjection,
             }),
+            discoveryReferenceContext: discoveryChatContext(await revelationStore.load(speakerThread.character).catch(() => null),
+              speakerId === working.character.id ? working : guestThread, String(body.text || "")),
             photoOpportunity: false,
             explicitPhotoRequest: explicitlyRequestedPhoto,
             conversationMode: working.conversationMode,
@@ -1131,11 +1699,14 @@ async function handleApi(request, response, url) {
           replies.push(reply);
           const photoOutfit = photoOutfitUpdate(result.photoBrief, result.photoOutfit);
           const speakerScene = reduceSceneTurn(speakerThread.scene, {
+            recordSceneEvaluation: true,
+            sceneEvidence: result.sceneEvidence,
+            characterName: speakerThread.profile?.name || speakerThread.character?.name,
             userText: String(body.text || ""),
             characterText: narrativeTurnText(result),
             modelScene: {
               ...result.scene,
-              ...(photoOutfit ? { outfit: photoOutfit } : {}),
+              ...(photoOutfit && !result.sceneEvidence ? { outfit: photoOutfit } : {}),
             },
             deterministicPatch: turnSceneCue,
             presencePatch: turnPresenceCue,
@@ -1157,21 +1728,29 @@ async function handleApi(request, response, url) {
             ...(session.host.scene?.outfit ? { outfit: session.host.scene.outfit } : {}),
             ...(session.host.scene?.expression ? { expression: session.host.scene.expression } : {}),
           };
-          photoCandidates.push({ speakerId, result, replyId: reply.id, replyClaimsPhoto });
+          photoCandidates.push({ speakerId, result, replyId: reply.id, replyClaimsPhoto,
+            verifiedOutfitChanged: verifiedOutfitChange(speakerThread.scene, speakerScene) });
           session = appendCameoMessage(session, reply);
           if (speakerId === working.character.id) {
-            const progression = applyRelationshipDelta(hostRelationship, result.relationshipDelta, hostRelationshipMomentum);
-            hostRelationship = progression.relationship;
-            hostRelationshipMomentum = progression.relationshipMomentum;
-            hostMemories = mergeMemories(hostMemories, result.memoryCandidates, reply.id);
+            hostAchievementShadow = evaluateAchievementShadow({ ...working, ...hostAchievementShadow }, {
+              userMessageId: userMessage.id, characterMessageId: reply.id,
+              scene: speakerScene,
+              userText: String(body.text || ""), characterText: narrativeTurnText(result),
+            }, result.achievementSignals);
+            hostProgression = progressRelationship({ ...working, ...hostProgression }, result.relationshipDelta, userMessage.id);
+            hostMemories = mergeMemories(hostMemories, [...result.memoryCandidates, ...guaranteedMemories], userMessage.id, new Date(), { forgottenMemories: working.forgottenMemories, messages: [...working.messages, userMessage] });
           } else {
             guestParticipated = true;
-            const progression = applyRelationshipDelta(nextGuestThread.relationship, result.relationshipDelta, nextGuestThread.relationshipMomentum);
+            const progression = progressRelationship(nextGuestThread, result.relationshipDelta, userMessage.id);
             nextGuestThread = {
               ...nextGuestThread,
-              relationship: progression.relationship,
-              relationshipMomentum: progression.relationshipMomentum,
-              memories: mergeMemories(nextGuestThread.memories, result.memoryCandidates, reply.id),
+              ...progression,
+              ...evaluateAchievementShadow(nextGuestThread, {
+                userMessageId: userMessage.id, characterMessageId: reply.id,
+                scene: speakerScene,
+                userText: String(body.text || ""), characterText: narrativeTurnText(result),
+              }, result.achievementSignals),
+              memories: mergeMemories(nextGuestThread.memories, [...result.memoryCandidates, ...guaranteedMemories], userMessage.id, new Date(), { forgottenMemories: nextGuestThread.forgottenMemories, messages: nextGuestThread.messages }),
               scene: stabilizeSceneWardrobe(
                 threadForCameoSpeaker(session, guestThread.character.id).scene,
                 guestProfile,
@@ -1201,8 +1780,8 @@ async function handleApi(request, response, url) {
         ...latestThread,
         messages: [...latestThread.messages, ...replies],
         scene: stabilizeSceneWardrobe(session.scene, latestThread.profile, latestThread.character),
-        relationship: hostRelationship,
-        relationshipMomentum: hostRelationshipMomentum,
+        ...hostProgression,
+        ...hostAchievementShadow,
         memories: hostMemories,
       });
       let relatedThread;
@@ -1212,7 +1791,7 @@ async function handleApi(request, response, url) {
       const photoPlans = photoCandidates.map((candidate) => {
         const imageThread = threadForCameoSpeaker(session, candidate.speakerId);
         const replyVisualEvent = visualEventOpportunity(narrativeTurnText(candidate.result), imageThread.scene, { actor: "character" });
-        const effectiveVisualEvent = visualEvent || replyVisualEvent;
+        const effectiveVisualEvent = candidate.verifiedOutfitChanged ? "a completed outfit change or wardrobe reveal" : visualEvent || replyVisualEvent;
         return {
           ...candidate,
           imageThread,
@@ -1221,8 +1800,9 @@ async function handleApi(request, response, url) {
             hasUserImage: Boolean(body.image),
             explicitRequest: explicitlyRequestedPhoto,
             modelRequested: candidate.result.shouldSendPhoto,
+            verifiedOutfitChanged: candidate.verifiedOutfitChanged,
             visualEvent: effectiveVisualEvent,
-            reply: candidate.result.reply,
+            reply: narrativeTurnText(candidate.result),
           }),
         };
       }).filter((candidate) => candidate.shouldQueue);
@@ -1274,6 +1854,10 @@ async function handleApi(request, response, url) {
         ...(queuedImageJobs.length ? { imageJobs: queuedImageJobs } : {}),
         ...(imageWarning ? { imageWarning } : {}),
       });
+      scheduleFocusedDiscoveryReview(config, thread.id);
+      if (relatedThread) scheduleFocusedDiscoveryReview(config, relatedThread.id);
+      scheduleMemoryCheckpoint(config, thread.id, { imagePending: queuedImageJobs.length > 0 });
+      if (relatedThread) scheduleMemoryCheckpoint(config, relatedThread.id, { imagePending: queuedImageJobs.length > 0 });
       return true;
     }
     // `working` already contains the new user turn for persistence. Give Ollama the
@@ -1283,6 +1867,8 @@ async function handleApi(request, response, url) {
       scene: stabilizeSceneWardrobe(previewScene, priorThread.profile, priorThread.character),
     };
     const result = await chatAsCharacter(config, contextThread, String(body.text || ""), imageBase64, {
+      discoveryReferenceContext: discoveryChatContext(await revelationStore.load(priorThread.character).catch(() => null), priorThread, String(body.text || "")),
+      memorySnapshot: priorThread.memories,
       photoOpportunity,
       explicitPhotoRequest: explicitlyRequestedPhoto,
       visualEventOpportunity: visualEvent,
@@ -1292,11 +1878,11 @@ async function handleApi(request, response, url) {
     let reply = nowMessage("character", replyClaimsPhoto && !imageGenerationConfigured
       ? removeCurrentPhotoClaim(result.reply)
       : result.reply, result.narration ? { narration: result.narration } : {});
-    const progression = applyRelationshipDelta(working.relationship, result.relationshipDelta, working.relationshipMomentum);
+    const progression = progressRelationship(working, result.relationshipDelta, userMessage.id);
     const outfitCorrection = inferOutfitCorrection(String(body.text || ""), working.scene.outfit);
     const sceneCue = turnSceneCue;
     const photoOutfit = photoOutfitUpdate(result.photoBrief, result.photoOutfit);
-    const modelScene = { ...result.scene, ...(photoOutfit ? { outfit: photoOutfit } : {}) };
+    const modelScene = { ...result.scene, ...(photoOutfit && !result.sceneEvidence ? { outfit: photoOutfit } : {}) };
     const modelChangedOutfit = typeof modelScene.outfit === "string"
       && normalizeWardrobePrompt(modelScene.outfit).toLowerCase() !== normalizeWardrobePrompt(working.scene.outfit).toLowerCase();
     const wardrobeChangeEstablished = Boolean(
@@ -1306,7 +1892,7 @@ async function handleApi(request, response, url) {
       || wardrobeDescriptionRequested(body.text)
       || wardrobeChangeIsEstablished(body.text, narrativeTurnText(result)),
     );
-    if (isWardrobePlaceholder(modelScene.outfit) || (modelChangedOutfit && !wardrobeChangeEstablished)) {
+    if (isWardrobePlaceholder(modelScene.outfit) || (modelChangedOutfit && !wardrobeChangeEstablished && !result.sceneEvidence?.outfit)) {
       modelScene.outfit = null;
     }
     const correctedSceneCue = outfitCorrection
@@ -1319,6 +1905,9 @@ async function handleApi(request, response, url) {
     );
     const nextScene = stabilizeSceneWardrobe(
       reduceSceneTurn(working.scene, {
+        recordSceneEvaluation: true,
+        sceneEvidence: result.sceneEvidence,
+        characterName: working.profile?.name || working.character?.name,
         userText: String(body.text || ""),
         characterText: narrativeTurnText(result),
         modelScene,
@@ -1333,9 +1922,13 @@ async function handleApi(request, response, url) {
     thread = await saveThread({
       ...working,
       messages: [...working.messages, reply],
-      relationship: progression.relationship,
-      relationshipMomentum: progression.relationshipMomentum,
-      memories: mergeMemories(working.memories, result.memoryCandidates, userMessage.id),
+      ...progression,
+      ...evaluateAchievementShadow(working, {
+        userMessageId: userMessage.id, characterMessageId: reply.id,
+        scene: nextScene,
+        userText: String(body.text || ""), characterText: narrativeTurnText(result),
+      }, result.achievementSignals),
+      memories: mergeMemories(working.memories, [...result.memoryCandidates, ...guaranteedMemories], userMessage.id, new Date(), { forgottenMemories: working.forgottenMemories, messages: [...working.messages, userMessage] }),
       proactive: followUpState.pending
         ? followUpState
         : scheduleNextProactive(followUpState, progression.relationship, config.proactivePace),
@@ -1346,13 +1939,15 @@ async function handleApi(request, response, url) {
     // The system prompt forbids proactive photos outside cadence opportunities, so
     // shouldSendPhoto can also carry semantic requests that a phrase matcher misses.
     const replyVisualEvent = visualEventOpportunity(narrativeTurnText(result), nextScene, { actor: "character" });
-    const effectiveVisualEvent = visualEvent || replyVisualEvent;
+    const verifiedOutfitChanged = verifiedOutfitChange(working.scene, nextScene);
+    const effectiveVisualEvent = verifiedOutfitChanged ? "a completed outfit change or wardrobe reveal" : visualEvent || replyVisualEvent;
     const shouldQueuePhoto = shouldQueueCharacterPhoto({
       hasUserImage: Boolean(body.image),
       explicitRequest: explicitlyRequestedPhoto,
       modelRequested: result.shouldSendPhoto,
+      verifiedOutfitChanged,
       visualEvent: effectiveVisualEvent,
-      reply: result.reply,
+      reply: narrativeTurnText(result),
     });
     if (shouldQueuePhoto && (!config.comfyWorkflowFile || !config.comfyMappingFile)) {
       imageWarning = "Image generation is not configured yet. Open Settings and complete Image setup.";
@@ -1399,6 +1994,8 @@ async function handleApi(request, response, url) {
       thread = await saveThread({ ...thread, photoCadence: postponePhotoCadence(cadence.state) });
     }
     sendJson(response, 200, { thread, reply, ...(imageJob ? { imageJob } : {}), ...(imageWarning ? { imageWarning } : {}) });
+    scheduleFocusedDiscoveryReview(config, thread.id);
+    scheduleMemoryCheckpoint(config, thread.id, { imagePending: Boolean(imageJob) });
     return true;
   }
   if (request.method === "POST" && url.pathname === "/api/images/generate") {
@@ -1511,6 +2108,8 @@ async function serveFrontend(response, url) {
 await fs.mkdir(dataDir, { recursive: true });
 const server = http.createServer(async (request, response) => {
   const url = new URL(request.url || "/", "http://" + (request.headers.host || host));
+  const foreground = request.method === "POST" && url.pathname.startsWith("/api/");
+  if (foreground) foregroundRequests++;
   try {
     if (url.pathname.startsWith("/api/") && await handleApi(request, response, url)) return;
     if (await serveFrontend(response, url)) return;
@@ -1518,12 +2117,16 @@ const server = http.createServer(async (request, response) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     sendJson(response, 500, { error: message });
+  } finally {
+    if (foreground) foregroundRequests--;
   }
 });
 
 server.listen(port, host, () => {
   console.log("AniMessenger local service listening on http://" + host + ":" + port);
   void recoverCompletedImageJobs();
+  void listThreads().then(reconcileAchievementTally)
+    .catch(() => console.warn("Achievement tally could not finish. Existing awards were preserved; retry from your dossier."));
 });
 
 setInterval(() => void recoverCompletedImageJobs(), 10_000).unref();

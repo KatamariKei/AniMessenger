@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_1" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 24 24">
+  <!-- Generator: Adobe Illustrator 30.8.1, SVG Export Plug-In . SVG Version: 2.1.4 Build 1)  -->
+  <circle id="badge-circle" cx="12" cy="12" r="12" fill="#75ddd1"/>
+  <g id="exclamation-mark">
+    <rect id="stem" x="10.5" y="3.9" width="3" height="10.3" rx="1.2" ry="1.2" fill="#102222"/>
+    <circle id="dot" cx="12" cy="18.4" r="1.7" fill="#102222"/>
+  </g>
+</svg>

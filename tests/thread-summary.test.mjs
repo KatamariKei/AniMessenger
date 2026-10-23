@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { summarizeThread } from "../server/store.mjs";
+import { preserveNewerMemoryState, summarizeThread } from "../server/store.mjs";
 
 test("thread summaries retain list metadata without sending full histories", () => {
   const thread = {
@@ -11,6 +11,7 @@ test("thread summaries retain list metadata without sending full histories", () 
       { id: "latest", from: "character", text: "Latest", time: "2026-01-01T00:01:00.000Z" },
     ],
     memories: [{ id: "memory-1", text: "A remembered detail" }],
+    memoryRevision: 4,
     relationship: 42,
     unreadCount: 1,
     updatedAt: "2026-01-01T00:01:00.000Z",
@@ -21,8 +22,10 @@ test("thread summaries retain list metadata without sending full histories", () 
   assert.equal(summary.summary, true);
   assert.equal(summary.messageCount, 2);
   assert.equal(summary.memoryCount, 1);
+  assert.equal(summary.memoryRevision, 4);
   assert.deepEqual(summary.messages, [thread.messages[1]]);
   assert.equal(summary.memories, undefined);
+  assert.equal(summary.forgottenMemories, undefined);
   assert.equal(summary.relationship, 42);
   assert.equal(summary.unreadCount, 1);
 });
@@ -54,4 +57,25 @@ test("thread summaries keep display essentials without shipping research dossier
   assert.equal(summary.profile.researchDossier, undefined);
   assert.equal(summary.profile.researchEvidence, undefined);
   assert.equal(summary.profile.persona.competencies, undefined);
+});
+
+test("an older chat save preserves a newer background memory checkpoint", () => {
+  const memory = { id: "memory-new", text: "A durable event" };
+  const checkpoint = { lastReviewedMessageId: "message-8" };
+  const forgottenMemories = [{ text: "A rejected memory", forgottenAt: "2026-01-01T00:00:00.000Z" }];
+  const preserved = preserveNewerMemoryState({
+    memories: [memory],
+    forgottenMemories,
+    memoryCheckpoint: checkpoint,
+    memoryRevision: 3,
+  }, {
+    memories: [],
+    memoryRevision: 2,
+  });
+
+  assert.deepEqual(preserved.memories, [memory]);
+  assert.deepEqual(preserved.forgottenMemories, forgottenMemories);
+  assert.deepEqual(preserved.memoryCheckpoint, checkpoint);
+  assert.equal(preserved.memoryRevision, 3);
+  assert.deepEqual(preserveNewerMemoryState({ memoryRevision: 3 }, { memoryRevision: 3 }), {});
 });

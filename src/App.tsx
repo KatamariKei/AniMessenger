@@ -1,7 +1,14 @@
 import { ChangeEvent, FormEvent, TouchEvent as ReactTouchEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { api, AnimaCharacter, AppConfig, ComfyDiagnostics, ImageInstallJob, ImagePackStatus, Message, OllamaDownloadOption, OllamaGpuDiagnostics, OllamaInstallJob, Thread } from "./api";
+import { api, AnimaCharacter, AppConfig, CharacterMemory, ComfyDiagnostics, ImageInstallJob, ImagePackStatus, MemoryScanJob, Message, OllamaDownloadOption, OllamaGpuDiagnostics, OllamaInstallJob, Thread } from "./api";
 import { playSound, primeSoundSystem, SoundCue } from "./sound";
+import relationshipTiers from "../shared/relationship-tiers.json";
+import { CharacterJourney } from "./CharacterJourney";
+import { DiscoveryNotification } from "./DiscoveryNotification";
+import { AchievementNotification } from "./AchievementNotification";
+import { MemoryHealthPanel } from "./MemoryHealthPanel";
+import { useJourneyActivity } from "./useJourneyActivity";
+import { UserPortraitEditor } from "./UserPortraitEditor";
 
 const accentPalette = ["#a8e6c6", "#61e8df", "#ef9caa", "#ff8d76", "#d5d0c7", "#d7a57c", "#bda4ff"];
 const emojiCatalog = [
@@ -122,6 +129,13 @@ type PendingPhoto = {
   dataUrl: string;
   name: string;
 };
+type MemoryDraft = {
+  id?: string;
+  text: string;
+  kind: CharacterMemory["kind"];
+  importance: number;
+  eventDate: string;
+};
 
 type RelationshipMilestone = {
   id: string;
@@ -136,23 +150,11 @@ function accentFor(value: string) {
 }
 
 function relationshipLabel(value: number) {
-  if (value >= 91) return "Deep bond";
-  if (value >= 71) return "Close bond";
-  if (value >= 41) return "Trusted bond";
-  if (value >= 21) return "Familiar bond";
-  return "New acquaintance";
+  return [...relationshipTiers].reverse().find(tier => value >= tier.threshold)?.label || "New acquaintance";
 }
 
 function relationshipColor(value: number) {
-  if (value >= 91) return "#f4f1ea";
-  if (value >= 71) return "#ff6657";
-  if (value >= 41) return "#ff9a3d";
-  if (value >= 21) return "#f0d94f";
-  return "#77727b";
-}
-
-function crossedRelationshipThreshold(previous: number, next: number) {
-  return next > previous && relationshipLabel(previous) !== relationshipLabel(next);
+  return [...relationshipTiers].reverse().find(tier => value >= tier.threshold)?.color || "#77727b";
 }
 
 function sceneContextLabel(thread: Thread) {
@@ -339,7 +341,7 @@ function Portrait({ character, large = false, defer = false }: { character: Anim
   return (
     <span
       ref={portraitRef}
-      className={"portrait portrait--remote " + (large ? "portrait--large " : "") + (usablePortraitUrl && !generatedAvatar && !spritePortrait ? "portrait--source-thumbnail" : "")}
+      className={"portrait portrait--remote " + (large ? "portrait--large " : "") + (spritePortrait ? "portrait--sprite " : "") + (usablePortraitUrl && !generatedAvatar && !spritePortrait ? "portrait--source-thumbnail" : "")}
       style={{
         backgroundColor: accent + "24",
         backgroundImage: image,
@@ -716,7 +718,20 @@ function OllamaModelInstaller({ ollamaUrl, onInstalled }: { ollamaUrl: string; o
 }
 
 function Settings({ initial, onClose, onSaved, onOpenSetup }: SettingsProps) {
+  const [achievementAccount, setAchievementAccount] = useState<Awaited<ReturnType<typeof api.tallyAchievements>> | null>(null);
+  const [achievementError, setAchievementError] = useState(false);
+  const refreshAchievements = () => {
+    setAchievementError(false);
+    api.tallyAchievements().then(setAchievementAccount).catch(() => setAchievementError(true));
+  };
+  useEffect(() => { refreshAchievements(); }, []);
   const [config, setConfig] = useState(initial);
+  const [tab, setTab] = useState<"profile" | "preferences" | "setup">("profile");
+  const [portraitBusy, setPortraitBusy] = useState(false);
+  const [appearanceBusy, setAppearanceBusy] = useState(false);
+  const [appearanceDraft, setAppearanceDraft] = useState("");
+  const [editingField, setEditingField] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [models, setModels] = useState<string[]>([]);
   const [comfyModels, setComfyModels] = useState<string[]>([]);
   const [comfyWorkflowDefault, setComfyWorkflowDefault] = useState("");
@@ -735,8 +750,36 @@ function Settings({ initial, onClose, onSaved, onOpenSetup }: SettingsProps) {
   useDialogFocus(cardRef);
   useDialogFocus(discardRef, confirmDiscard);
 
+  const resetTabScroll = () => {
+    window.requestAnimationFrame(() => scrollRef.current?.scrollTo(0, 0));
+  };
+
+  useEffect(() => {
+    let frame = 0;
+    const keepFocusedFieldVisible = () => {
+      if (window.innerWidth > 760) return;
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        const focused = document.activeElement;
+        const scroll = scrollRef.current;
+        if (focused instanceof HTMLElement && scroll?.contains(focused)
+          && focused.matches("input, textarea, select")) {
+          const field = focused.getBoundingClientRect(), pane = scroll.getBoundingClientRect();
+          if (field.bottom > pane.bottom) scroll.scrollTop += field.bottom - pane.bottom + 12;
+          else if (field.top < pane.top) scroll.scrollTop -= pane.top - field.top + 12;
+        }
+      });
+    };
+    window.visualViewport?.addEventListener("resize", keepFocusedFieldVisible);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.visualViewport?.removeEventListener("resize", keepFocusedFieldVisible);
+    };
+  }, []);
+
   const requestClose = () => {
-    if (dirty) setConfirmDiscard(true);
+    if (saving) return;
+    if (dirty || portraitBusy || appearanceBusy || appearanceDraft) setConfirmDiscard(true);
     else onClose();
   };
 
@@ -755,7 +798,7 @@ function Settings({ initial, onClose, onSaved, onOpenSetup }: SettingsProps) {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [dirty]);
+  }, [dirty, portraitBusy, appearanceBusy, appearanceDraft, saving]);
 
   const update = (key: keyof AppConfig, value: string | boolean | number) => {
     setConfig((current) => ({ ...current, [key]: value }));
@@ -768,6 +811,7 @@ function Settings({ initial, onClose, onSaved, onOpenSetup }: SettingsProps) {
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
+    if (saving || portraitBusy || appearanceBusy) return;
     setSaving(true);
     setError("");
     try {
@@ -794,6 +838,16 @@ function Settings({ initial, onClose, onSaved, onOpenSetup }: SettingsProps) {
     }
   };
 
+  const describePortrait = async () => {
+    if (appearanceBusy || portraitBusy || !config.userAvatarUrl) return;
+    setAppearanceBusy(true); setError("");
+    try {
+      const result = await api.userPortraitAppearance(config.userAvatarUrl);
+      setAppearanceDraft(result.description);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "The portrait couldn't be described. Your appearance is unchanged."); }
+    finally { setAppearanceBusy(false); }
+  };
+
   const shutdown = async () => {
     setShuttingDown(true);
     setError("");
@@ -809,29 +863,56 @@ function Settings({ initial, onClose, onSaved, onOpenSetup }: SettingsProps) {
 
   return (
     <div className="profile-layer settings-layer" role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={requestClose}>
-      <form ref={cardRef} className="settings-card" onSubmit={save} onClick={(event) => event.stopPropagation()} tabIndex={-1}>
+      <form ref={cardRef} className="settings-card user-dossier" data-user-editing={editingField} onFocusCapture={event => setEditingField(event.target.matches("input, textarea, select"))} onBlurCapture={() => window.requestAnimationFrame(() => {
+        const focused = document.activeElement;
+        setEditingField(focused instanceof HTMLElement && Boolean(cardRef.current?.contains(focused)) && focused.matches("input, textarea, select"));
+      })} onSubmit={save} onClick={(event) => event.stopPropagation()} tabIndex={-1}>
         <header className="settings-header">
-          <div className="settings-brand">
-            <div className="brand-lockup"><img src="/animessenger-logo.svg?v=3" alt="ANIMESSENGER" /></div>
-            <span id="settings-title">Settings</span>
-          </div>
-          <button type="button" className="profile-close" onClick={requestClose} aria-label="Close settings">×</button>
+          <span className="dossier-label" id="settings-title"><i aria-hidden="true" />Your dossier</span>
+          <button type="button" className="profile-close user-dossier-close" onClick={requestClose} aria-label="Close settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button>
         </header>
-        <div className="settings-scroll">
-          <div className="settings-intro">
-            <div><p className="eyebrow">Your experience</p><p>Choose the models, images, and message behavior that shape AniMessenger.</p></div>
-            <button type="button" className="settings-guide-link" onClick={onOpenSetup}>Run guided setup</button>
+        <aside className="user-dossier-identity">
+          <div className={"user-dossier-portrait" + (config.userAvatarUrl ? " has-image" : "")}>
+            {config.userAvatarUrl ? <img src={config.userAvatarUrl} alt="Your chosen profile portrait" /> : <div className="user-portrait-placeholder"><svg viewBox="0 0 160 180" aria-hidden="true"><circle cx="80" cy="61" r="28" /><path d="M25 160v-20a55 55 0 0 1 110 0v20" /></svg><span>Your story starts with you</span></div>}
           </div>
+          <div className="user-dossier-caption"><small>Your space</small><h2>{config.userName?.trim() || "Your name"}</h2><p>{config.userPronouns?.trim() || "Your character. Your perspective."}</p>
+            <div className="user-dossier-note"><span className="user-achievement-total" aria-live="polite"><strong>{achievementAccount ? achievementAccount.points.toLocaleString() : "—"}</strong> Achievement points</span><small>Saved on this device. Your saved name, pronouns and appearance define your in-story identity.</small></div>
+          </div>
+        </aside>
+        <div className="user-dossier-main">
+          <nav className="user-dossier-tabs" role="tablist" aria-label="Your profile and settings">
+            {(["profile", "preferences", "setup"] as const).map((value, index, tabs) => <button type="button" role="tab" key={value} id={`user-tab-${value}`} aria-controls="user-settings-panel" aria-selected={tab === value} tabIndex={tab === value ? 0 : -1} onClick={() => { setTab(value); resetTabScroll(); }} onKeyDown={event => {
+              if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+              event.preventDefault(); const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+              setTab(tabs[next]); document.getElementById(`user-tab-${tabs[next]}`)?.focus(); resetTabScroll();
+            }}>{value === "profile" ? "Profile" : value === "preferences" ? "Preferences" : "Setup"}</button>)}
+          </nav>
+        <div ref={scrollRef} className="settings-scroll" id="user-settings-panel" role="tabpanel" aria-labelledby={`user-tab-${tab}`} tabIndex={0}>
 
-          <section className="settings-section">
-            <div className="settings-section-heading"><h3>You and your characters</h3><p>How characters address you and how their profiles are researched.</p></div>
+          <section className="settings-section" hidden={tab !== "profile"}>
+            <div className="settings-section-heading"><small>Introduce yourself</small><h3>Your profile</h3><p>A little about you—or the persona you bring to your stories.</p></div>
+            <details className="user-achievement-history"><summary>Earned achievements{achievementAccount ? ` · ${achievementAccount.earnedCount}` : ""}</summary>
+              <p>10 points per achievement, earned once with each character. Your lifetime total stays separate from bond and survives chat deletion.</p>
+              {achievementError ? <p role="alert">Your tally couldn't load. Existing points are safe. <button type="button" onClick={refreshAchievements}>Retry tally</button></p>
+                : !achievementAccount ? <p role="status">Loading your tally…</p>
+                : !achievementAccount.earnedCount ? <p>No achievements earned yet. Verified Journey progress will count automatically when a target is reached.</p>
+                : <ul>{achievementAccount.achievements.map((item, index) => <li key={`${item.earnedAt}:${index}`}><span><strong>{item.title}</strong><small>{item.characterName}</small></span><b>+{item.points}</b></li>)}</ul>}
+            </details>
             <div className="settings-grid">
               <label className="settings-wide"><span>Your name or nickname</span><input value={config.userName || ""} onChange={(e) => update("userName", e.target.value)} placeholder="What characters should call you" autoComplete="nickname" /></label>
-              <label className="toggle-row settings-wide"><input type="checkbox" checked={config.researchEnabled} onChange={(e) => update("researchEnabled", e.target.checked)} /><span>Research character background before building a profile</span></label>
+              <label className="settings-wide"><span>Pronouns <small>Optional</small></span><input value={config.userPronouns || ""} maxLength={80} onChange={e => update("userPronouns", e.target.value)} placeholder="For example, he/him or they/them" /></label>
+              <label className="settings-wide"><span>Your appearance <small>Optional</small></span><textarea rows={3} maxLength={800} value={config.userAppearance || ""} onChange={e => update("userAppearance", e.target.value)} placeholder="Describe yourself or your chosen persona in your own words…" /><small>Only your written description is used. Your portrait is not analyzed automatically.</small></label>
+              <div className="settings-wide user-appearance-tools">
+                <button type="button" onClick={() => void describePortrait()} disabled={appearanceBusy || portraitBusy || !config.userAvatarUrl || !config.visionModel}>{appearanceBusy ? "Describing portrait…" : "Describe appearance from portrait"}</button>
+                <small>{!config.userAvatarUrl ? "Add a portrait to describe its visible appearance." : !config.visionModel ? "Choose a vision model in Setup to use this optional tool." : "Sends this portrait to your saved local vision model only when you click. Review the suggestion before using it."}</small>
+                {appearanceDraft && <div className="user-appearance-review"><label><span>Suggested appearance</span><textarea rows={4} maxLength={800} value={appearanceDraft} onChange={e => setAppearanceDraft(e.target.value)} /></label><button type="button" onClick={() => { update("userAppearance", appearanceDraft); setAppearanceDraft(""); }}>Use this description</button><button type="button" onClick={() => setAppearanceDraft("")}>Discard suggestion</button><small>Then save settings to make it available in your stories.</small></div>}
+              </div>
+              <small className="settings-wide">Saved name, pronouns and appearance are available in your stories. Characters learn your interests and personality through conversation.</small>
             </div>
           </section>
+          <section className="settings-section" hidden={tab !== "profile"}><div className="settings-section-heading"><h3>Your portrait</h3><p>Create the face of your adventures. It can be you, an avatar, or a fictional persona.</p></div><UserPortraitEditor disabled={appearanceBusy} imageUrl={config.userAvatarUrl || ""} prompt={config.userPortraitPrompt || ""} onPromptChange={prompt => update("userPortraitPrompt", prompt)} onChange={url => update("userAvatarUrl", url)} onBusy={setPortraitBusy} /></section>
 
-          <section className="settings-section">
+          <section className="settings-section" hidden={tab !== "setup"}>
             <div className="settings-section-heading"><h3>Local AI models</h3><p>Chat drives conversation. Profile builds personalities. Vision looks at photos you attach.</p></div>
             <div className="settings-grid">
               <label><span>Chat model</span><input list="ollama-models" value={config.chatModel} onChange={(e) => update("chatModel", e.target.value)} placeholder="Choose an Ollama model" /></label>
@@ -842,7 +923,7 @@ function Settings({ initial, onClose, onSaved, onOpenSetup }: SettingsProps) {
             </div>
           </section>
 
-          <section className="settings-section">
+          <section className="settings-section" hidden={tab !== "setup"}>
             <div className="settings-section-heading"><h3>Character images</h3><p>Select your ANIMA model and keep generated images connected to the gallery.</p></div>
             <div className="settings-grid">
               <label className="settings-wide"><span>ANIMA diffusion model</span><select value={config.comfyDiffusionModel || ""} onChange={(e) => update("comfyDiffusionModel", e.target.value)}><option value="">Workflow default{comfyWorkflowDefault ? ` · ${comfyWorkflowDefault}` : ""}</option>{config.comfyDiffusionModel && !comfyModels.includes(config.comfyDiffusionModel) && <option value={config.comfyDiffusionModel}>{config.comfyDiffusionModel} · Not currently available</option>}{comfyModels.map((model) => <option value={model} key={model}>{model}</option>)}</select><small className="settings-field-help">Used for profile pictures, new images, and retries.</small></label>
@@ -862,7 +943,7 @@ function Settings({ initial, onClose, onSaved, onOpenSetup }: SettingsProps) {
             </details>
           </section>
 
-          <details className="settings-section settings-advanced settings-prompt-section">
+          <details className="settings-section settings-advanced settings-prompt-section" hidden={tab !== "setup"}>
             <summary><span><strong>Image quality prompts</strong><small>Global positive and negative guidance applied to every generation.</small></span></summary>
             <div className="settings-grid">
               <label className="settings-wide"><span>Global positive prompt</span><textarea rows={4} value={config.globalPositivePrompt} onChange={(e) => update("globalPositivePrompt", e.target.value)} /></label>
@@ -870,7 +951,7 @@ function Settings({ initial, onClose, onSaved, onOpenSetup }: SettingsProps) {
             </div>
           </details>
 
-          <section className="settings-section">
+          <section className="settings-section" hidden={tab !== "preferences"}>
             <div className="settings-section-heading"><h3>Proactive messages</h3><p>Control when trusted characters can reach out on their own.</p></div>
             <div className="settings-grid">
               <label className="toggle-row settings-wide"><input type="checkbox" checked={config.proactiveEnabled} onChange={(e) => update("proactiveEnabled", e.target.checked)} /><span>Allow trusted characters to reach out while AniMessenger is open</span></label>
@@ -880,33 +961,36 @@ function Settings({ initial, onClose, onSaved, onOpenSetup }: SettingsProps) {
             </div>
           </section>
 
-          <section className="settings-section sound-settings">
+          <section className="settings-section sound-settings" hidden={tab !== "preferences"}>
             <div className="settings-section-heading"><h3>Sound</h3><p>Subtle feedback for messages, photos, captured moments, and major relationship milestones.</p></div>
             <div className="settings-grid">
               <label className="toggle-row settings-wide"><input type="checkbox" checked={config.soundEnabled} onChange={(e) => update("soundEnabled", e.target.checked)} /><span>Play AniMessenger sounds</span></label>
               <label className="settings-wide sound-volume"><span>Volume <output>{Math.round(config.soundVolume * 100)}%</output></span><input type="range" min="0" max="1" step="0.05" value={config.soundVolume} onChange={(e) => update("soundVolume", Number(e.target.value))} disabled={!config.soundEnabled} /></label>
               <div className="settings-wide sound-preview"><span>Preview</span><div className="sound-basic-previews"><button type="button" onClick={() => previewSound("message-received")} disabled={!config.soundEnabled}>Message</button><button type="button" onClick={() => previewSound("camera")} disabled={!config.soundEnabled}>Camera</button><button type="button" onClick={() => previewSound("photo-received")} disabled={!config.soundEnabled}>Photo</button></div></div>
-              <div className="settings-wide bond-sound-picker"><span>Bond milestone sound</span><div><button type="button" className={config.bondSound === "celebration" ? "selected" : ""} aria-pressed={config.bondSound === "celebration"} onClick={() => { update("bondSound", "celebration"); previewSound("bond-celebration"); }} disabled={!config.soundEnabled}>Bright celebration</button><button type="button" className={config.bondSound === "heartbeat" ? "selected" : ""} aria-pressed={config.bondSound === "heartbeat"} onClick={() => { update("bondSound", "heartbeat"); previewSound("bond-heartbeat"); }} disabled={!config.soundEnabled}>Heartbeat</button></div></div>
+              <div className="settings-wide bond-sound-picker"><span>Preview celebration sounds</span><div><button type="button" onClick={() => previewSound("bond-celebration")} disabled={!config.soundEnabled}>Bond milestone</button><button type="button" onClick={() => previewSound("discovery-unlock")} disabled={!config.soundEnabled}>Discovery fanfare</button></div></div>
               <small className="settings-wide sound-note">Background proactive messages stay quiet. Your device's mute and browser sound controls still apply.</small>
             </div>
           </section>
 
-          <details className="settings-section settings-advanced settings-connections">
+          <section className="settings-section" hidden={tab !== "preferences"}><div className="settings-section-heading"><h3>Character research</h3><p>Ground profiles and discoveries in reference material.</p></div><label className="toggle-row"><input type="checkbox" checked={config.researchEnabled} onChange={e => update("researchEnabled", e.target.checked)} /><span>Research character background before building a profile</span></label></section>
+          <section className="settings-section" hidden={tab !== "setup"}><div className="settings-section-heading"><h3>Need a hand?</h3><p>Guided setup walks through your local chat and image services.</p></div><button type="button" className="settings-guide-link" onClick={() => { if (dirty || portraitBusy) { setError("Save or discard your changes before opening guided setup."); return; } onOpenSetup(); }}>Run guided setup</button></section>
+          <details className="settings-section settings-advanced settings-connections" hidden={tab !== "setup"}>
             <summary><span><strong>Connection addresses</strong><small>Only change these when a local service uses a different address.</small></span></summary>
             <div className="settings-grid"><label><span>Ollama URL</span><input value={config.ollamaUrl} onChange={(e) => update("ollamaUrl", e.target.value)} /></label><label><span>ComfyUI URL</span><input value={config.comfyUrl} onChange={(e) => update("comfyUrl", e.target.value)} /></label><label className="settings-wide"><span>AnimaDex fallback URL</span><input value={config.animadexUrl} onChange={(e) => update("animadexUrl", e.target.value)} /></label></div>
           </details>
 
-          {canShutdown && <section className="settings-shutdown">
+          {canShutdown && <section className="settings-shutdown" hidden={tab !== "setup"}>
             <div><strong>Finished for now?</strong><span>Stops AniMessenger on this computer. Ollama and ComfyUI keep their current state.</span></div>
             {!confirmShutdown ? <button type="button" onClick={() => setConfirmShutdown(true)}>Shut down AniMessenger</button> : <div className="settings-shutdown-confirm"><button type="button" onClick={() => setConfirmShutdown(false)} disabled={shuttingDown}>Cancel</button><button type="button" onClick={() => void shutdown()} disabled={shuttingDown}>{shuttingDown ? "Shutting down…" : "Yes, shut down"}</button></div>}
           </section>}
-          {error && <p className="form-error">{error}</p>}
         </div>
         <div className="settings-actions">
+          <span className="user-settings-save-state" role="status">{error || (saving ? "Saving your changes…" : dirty ? "Unsaved changes" : "You're up to date")}</span>
           <button type="button" onClick={requestClose}>Cancel</button>
-          <button type="submit" disabled={saving}>{saving ? "Saving…" : "Save settings"}</button>
+          <button type="submit" disabled={saving || portraitBusy || appearanceBusy}>{saving ? "Saving…" : "Save settings"}</button>
         </div>
-        {confirmDiscard && <div className="discard-confirm" role="alertdialog" aria-modal="true" aria-labelledby="settings-discard-title"><section ref={discardRef} tabIndex={-1}><strong id="settings-discard-title">Discard unsaved changes?</strong><p>Your settings edits have not been saved.</p><div><button type="button" onClick={() => setConfirmDiscard(false)}>Keep editing</button><button type="button" className="discard-button" onClick={onClose}>Discard</button></div></section></div>}
+        </div>
+        {confirmDiscard && <div className="discard-confirm" role="alertdialog" aria-modal="true" aria-labelledby="settings-discard-title"><section ref={discardRef} tabIndex={-1}><strong id="settings-discard-title">Discard unsaved changes?</strong><p>{portraitBusy ? "Your portrait is still being prepared. Closing this window won't save it or your other edits." : "Your settings edits have not been saved."}</p><div><button type="button" onClick={() => setConfirmDiscard(false)}>Keep editing</button><button type="button" className="discard-button" onClick={onClose}>Discard</button></div></section></div>}
         {shutdownComplete && <div className="shutdown-complete" role="status"><img src="/animessenger-icon.svg?v=4" alt="" /><strong>AniMessenger is shut down.</strong><p>Your chats are safe. You can close this browser tab and use the AniMessenger tray icon or shortcut when you want to return.</p></div>}
       </form>
     </div>
@@ -917,6 +1001,7 @@ type VisualOverrideDraft = { displayName: string; identity: string[]; signature:
 type VisualOverrideListKey = "identity" | "signature" | "exceptions";
 
 function VisualIdentityEditor({ thread, onClose, onSaved }: { thread: Thread; onClose: () => void; onSaved: (thread: Thread) => void }) {
+  const draftCharacterId = useRef(thread.id).current;
   const profile = thread.profile!;
   const saved = profile.visual.userOverrides;
   const initial: VisualOverrideDraft = {
@@ -996,10 +1081,14 @@ function VisualIdentityEditor({ thread, onClose, onSaved }: { thread: Thread; on
     });
   };
   const save = async () => {
+    if (thread.id !== draftCharacterId) {
+      setError("The active character changed. Close and reopen the appearance editor.");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
-      const result = await api.saveVisualOverrides(thread.id, draft, draft.currentOutfit, draft.displayName);
+      const result = await api.saveVisualOverrides(thread.id, draft, draft.currentOutfit, draft.displayName, draftCharacterId);
       if (result.thread) onSaved(result.thread);
       onClose();
     } catch (reason) {
@@ -1013,7 +1102,7 @@ function VisualIdentityEditor({ thread, onClose, onSaved }: { thread: Thread; on
     setSaving(true);
     setError("");
     try {
-      const result = await api.saveVisualOverrides(thread.id, null, undefined, thread.character.displayName);
+      const result = await api.saveVisualOverrides(thread.id, null, undefined, thread.character.displayName, draftCharacterId);
       if (result.thread) onSaved(result.thread);
       onClose();
     } catch (reason) {
@@ -1440,6 +1529,30 @@ function SetupGuide({ initial, initialHealth, onComplete, onSkip }: SetupGuidePr
   );
 }
 
+function DossierAbout({ summary, traits }: { summary: string; traits: string[] }) {
+  const copyRef = useRef<HTMLParagraphElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [clipped, setClipped] = useState(false);
+  useEffect(() => {
+    const copy = copyRef.current;
+    if (!copy) return;
+    const measure = () => {
+      const mobile = window.matchMedia("(max-width: 760px)").matches;
+      const lineHeight = Number.parseFloat(getComputedStyle(copy).lineHeight);
+      setClipped(mobile && copy.scrollHeight > lineHeight * 3 + 2);
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(copy);
+    measure();
+    return () => observer.disconnect();
+  }, [summary]);
+  return <section className={"profile-about dossier-about " + (expanded ? "is-expanded" : "")}>
+    <header><small>About</small>{clipped && <button type="button" aria-expanded={expanded} aria-controls="dossier-about-copy" onClick={() => setExpanded(value => !value)}>{expanded ? "Show less" : "Read more"}</button>}</header>
+    <p ref={copyRef} id="dossier-about-copy">{summary}</p>
+    {traits.length > 0 && <ul className="dossier-traits" aria-label="Personality traits">{traits.slice(0, 5).map((trait, index) => <li key={index}>{trait}</li>)}</ul>}
+  </section>;
+}
+
 export function AniMessengerApp() {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [activeId, setActiveId] = useState("");
@@ -1455,7 +1568,7 @@ export function AniMessengerApp() {
   const [typingSpeakerId, setTypingSpeakerId] = useState("");
   const [searching, setSearching] = useState(false);
   const [building, setBuilding] = useState<AnimaCharacter | null>(null);
-  const [buildStage, setBuildStage] = useState<{ id: string; stage: string; completed: number; total: number; startedAt: number; failedStage?: string; error?: string } | null>(null);
+  const [buildStage, setBuildStage] = useState<{ id: string; stage: string; completed: number; total: number; startedAt: number; stageStartedAt?: number; stageDurations?: Record<string, number>; modelCalls?: Array<{ label: string; totalMs: number; loadMs: number; promptTokens: number; promptMs: number; outputTokens: number; generationMs: number }>; elapsedMs?: number; failedStage?: string; error?: string } | null>(null);
   const pendingBuildThread = threads.find((thread) => thread.id === activeId) ?? threads[0];
   useEffect(() => {
     setBuildStage(null);
@@ -1500,7 +1613,6 @@ export function AniMessengerApp() {
   }, [building?.id, pendingBuildThread?.id, Boolean(pendingBuildThread?.profile)]);
   const [avatarGenerating, setAvatarGenerating] = useState<Record<string, boolean>>({});
   const [showProfile, setShowProfile] = useState(false);
-  const [profileSummaryExpanded, setProfileSummaryExpanded] = useState(false);
   const [showGuestPicker, setShowGuestPicker] = useState(false);
   const [guestSearch, setGuestSearch] = useState("");
   const [cameoUpdating, setCameoUpdating] = useState(false);
@@ -1520,8 +1632,21 @@ export function AniMessengerApp() {
     }
   });
   const [reactionTarget, setReactionTarget] = useState<string | null>(null);
-  const [profileTab, setProfileTab] = useState<"profile" | "memories" | "gallery">("profile");
+  const [profileTab, setProfileTab] = useState<"profile" | "memories" | "gallery" | "journey">("profile");
   const [memoryUpdating, setMemoryUpdating] = useState(false);
+  const [memoryScanStatus, setMemoryScanStatus] = useState("");
+  const [memoryScanRefresh, setMemoryScanRefresh] = useState(0);
+  const memoryScanSeen = useRef("");
+  const [memorySearch, setMemorySearch] = useState("");
+  const [memoryKind, setMemoryKind] = useState<"all" | CharacterMemory["kind"]>("all");
+  const [memorySort, setMemorySort] = useState<"recent" | "event" | "importance">("event");
+  const [memoryOptionsOpen, setMemoryOptionsOpen] = useState(false);
+  const [memoryActionMenuId, setMemoryActionMenuId] = useState("");
+  const [memoryDraft, setMemoryDraft] = useState<MemoryDraft | null>(null);
+  const [memorySaving, setMemorySaving] = useState(false);
+  const [expandedMemorySourceId, setExpandedMemorySourceId] = useState("");
+  const memoryPanelRef = useRef<HTMLDivElement>(null);
+  const memoryEditorTextRef = useRef<HTMLTextAreaElement>(null);
   const [pinUpdating, setPinUpdating] = useState(false);
   const [conversationModeUpdating, setConversationModeUpdating] = useState(false);
   const [animatedStoryMessageId, setAnimatedStoryMessageId] = useState("");
@@ -1540,6 +1665,7 @@ export function AniMessengerApp() {
   const [healthChecking, setHealthChecking] = useState(false);
   const [notice, setNotice] = useState("");
   const [relationshipMilestones, setRelationshipMilestones] = useState<RelationshipMilestone[]>([]);
+  const [discoveryPending, setDiscoveryPending] = useState(false);
   const [visibleMessageLimit, setVisibleMessageLimit] = useState(() => messageBatchSize());
   const [loadingThreadId, setLoadingThreadId] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
@@ -1605,6 +1731,8 @@ export function AniMessengerApp() {
   }, [relationshipMilestones]);
 
   const active = threads.find((thread) => thread.id === activeId) ?? threads[0];
+  const journeyUnread = useJourneyActivity(active?.id, showProfile && profileTab === "journey");
+  useEffect(() => { setMemoryScanStatus(""); }, [active?.id]);
   const firstContactPending = Boolean(active?.profile && active.firstContact?.status === "preview");
   const activeReadyForChat = Boolean(active?.profile && !firstContactPending);
   threadsRef.current = threads;
@@ -1636,6 +1764,23 @@ export function AniMessengerApp() {
         unavailable: unavailableImageIds.has(message.id),
       }));
   }, [active, unavailableImageIds]);
+  const visibleMemories = useMemo(() => {
+    const query = memorySearch.trim().toLowerCase();
+    const memories = [...(active?.memories || [])].filter((memory) => {
+      if (memoryKind !== "all" && memory.kind !== memoryKind) return false;
+      if (!query) return true;
+      return [memory.text, ...(memory.previousVersions || []).map(version => version.text), memory.kind.replaceAll("_", " "), ...(memory.keywords || [])].join(" ").toLowerCase().includes(query);
+    });
+    const timestamp = (value?: string) => value ? Date.parse(value) || 0 : 0;
+    return memories.sort((left, right) => {
+      if (memorySort === "importance") {
+        return Number(right.importance || 0) - Number(left.importance || 0)
+          || timestamp(right.eventAt || right.createdAt) - timestamp(left.eventAt || left.createdAt);
+      }
+      if (memorySort === "event") return timestamp(right.eventAt || right.createdAt) - timestamp(left.eventAt || left.createdAt);
+      return timestamp(right.updatedAt || right.createdAt) - timestamp(left.updatedAt || left.createdAt);
+    });
+  }, [active?.memories, memoryKind, memorySearch, memorySort]);
   const visibleMessages = useMemo(() => active?.messages.slice(-visibleMessageLimit) ?? [], [active?.messages, visibleMessageLimit]);
   const hiddenMessageCount = Math.max(0, (active?.messages.length ?? 0) - visibleMessages.length);
   const selectedLightboxImage = fullScreenImage?.items[fullScreenImage.index];
@@ -1649,6 +1794,10 @@ export function AniMessengerApp() {
     for (const finish of storyRevealWaitersRef.current.values()) finish();
     storyRevealWaitersRef.current.clear();
     setAnimatedStoryMessageId("");
+    setMemoryDraft(null);
+    setExpandedMemorySourceId("");
+    setMemoryOptionsOpen(false);
+    setMemoryActionMenuId("");
   }, [activeId]);
 
   const beginStoryReveal = (messageId: string) => new Promise<void>((resolve) => {
@@ -1692,7 +1841,7 @@ export function AniMessengerApp() {
   };
 
   const changeProfileTabFromKeyboard = (event: React.KeyboardEvent<HTMLButtonElement>) => {
-    const tabs = ["profile", "memories", "gallery"] as const;
+    const tabs = ["profile", "memories", "gallery", "journey"] as const;
     const direction = event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : 0;
     if (!direction) return;
     event.preventDefault();
@@ -1703,11 +1852,18 @@ export function AniMessengerApp() {
 
   const syncMobileViewportHeight = () => {
     if (window.innerWidth > 760) {
+      delete document.documentElement.dataset.mobileKeyboard;
       document.documentElement.style.removeProperty("--mobile-viewport-height");
+      document.documentElement.style.removeProperty("--mobile-viewport-offset-top");
+      document.documentElement.style.removeProperty("--mobile-viewport-offset-left");
       return;
     }
-    const height = window.visualViewport?.height ?? window.innerHeight;
+    const viewport = window.visualViewport;
+    const height = viewport?.height ?? window.innerHeight;
+    document.documentElement.dataset.mobileKeyboard = window.innerHeight - height > 140 ? "open" : "closed";
     document.documentElement.style.setProperty("--mobile-viewport-height", Math.round(height) + "px");
+    document.documentElement.style.setProperty("--mobile-viewport-offset-top", Math.round(viewport?.offsetTop || 0) + "px");
+    document.documentElement.style.setProperty("--mobile-viewport-offset-left", Math.round(viewport?.offsetLeft || 0) + "px");
   };
 
   const anchorComposerAfterKeyboard = () => {
@@ -1779,7 +1935,9 @@ export function AniMessengerApp() {
       const summaries = (await api.threads()).threads;
       for (const summary of summaries) {
         const local = threadsRef.current.find((thread) => thread.id === summary.id);
-        if (!local || String(summary.updatedAt || "") > String(local.updatedAt || "")) {
+        if (!local
+          || String(summary.updatedAt || "") > String(local.updatedAt || "")
+          || Number(summary.memoryRevision || 0) > Number(local.memoryRevision || 0)) {
           const result = await api.thread(summary.id);
           mergeThread(result.thread);
         }
@@ -1958,6 +2116,9 @@ export function AniMessengerApp() {
       window.removeEventListener("orientationchange", handleViewportChange);
       keyboardAnchorTimersRef.current.forEach((timer) => window.clearTimeout(timer));
       document.documentElement.style.removeProperty("--mobile-viewport-height");
+      document.documentElement.style.removeProperty("--mobile-viewport-offset-top");
+      document.documentElement.style.removeProperty("--mobile-viewport-offset-left");
+      delete document.documentElement.dataset.mobileKeyboard;
     };
   }, []);
 
@@ -2079,6 +2240,7 @@ export function AniMessengerApp() {
       ];
       const mergedThread = {
         ...newestSnapshot,
+        ...(newestSnapshot.summary && olderSnapshot && !olderSnapshot.summary ? { profile: olderSnapshot.profile, summary: false } : {}),
         messages: orderedMessageIds.map((id) => messagesById.get(id)!),
       };
       const merged = existing
@@ -2123,9 +2285,12 @@ export function AniMessengerApp() {
     }
   };
 
-  const openProfile = () => {
+  const openProfile = async () => {
+    if (active?.summary) {
+      try { const result = await api.thread(active.id); mergeThread(result.thread); }
+      catch { setNotice("Your character profile couldn't load. Try again."); return; }
+    }
     setProfileTab("profile");
-    setProfileSummaryExpanded(false);
     setShowProfile(true);
   };
 
@@ -2162,25 +2327,132 @@ export function AniMessengerApp() {
     }
   };
 
+  const showMemoryScanProgress = (job: MemoryScanJob | null) => {
+    setMemoryUpdating(Boolean(job && ["queued", "running"].includes(job.status)));
+    if (!job) { setMemoryScanStatus(""); return; }
+    if (job.status === "queued") setMemoryScanStatus("Scan queued — waiting for other AI work to finish.");
+    else if (job.status === "running") setMemoryScanStatus(job.total
+      ? `Scanning full chat — ${job.completed} of ${job.total} batches reviewed · ${job.added} memories recovered.`
+      : "Preparing full-chat scan…");
+    else if (job.status === "error") setMemoryScanStatus(`Scan stopped — ${job.added} memories recovered and saved. ${job.error || "You can retry."}`);
+    else setMemoryScanStatus(job.added
+      ? `Scan complete — ${job.added} lasting ${job.added === 1 ? "memory" : "memories"} recovered.`
+      : "Scan complete — no new lasting memories found.");
+  };
+
+  useEffect(() => {
+    if (!activeId || !showProfile || profileTab !== "memories") return;
+    let disposed = false;
+    let timer: number;
+    const id = activeId;
+    const poll = async () => {
+      try {
+        const result = await api.memoryScanStatus(id);
+        if (disposed) return;
+        showMemoryScanProgress(result.job);
+        if (result.job && ["complete", "error"].includes(result.job.status)
+          && memoryScanSeen.current !== result.job.id + result.job.status) {
+          memoryScanSeen.current = result.job.id + result.job.status;
+          const latest = await api.thread(id);
+          if (!disposed) mergeThread(latest.thread);
+        }
+        if (result.job && ["queued", "running"].includes(result.job.status)) timer = window.setTimeout(() => void poll(), 3000);
+      } catch {
+        if (!disposed) {
+          setMemoryScanStatus("Reconnecting to scan progress… The scan runs in the background.");
+          timer = window.setTimeout(() => void poll(), 5000);
+        }
+      }
+    };
+    setMemoryUpdating(false);
+    setMemoryScanStatus("");
+    void poll();
+    return () => { disposed = true; window.clearTimeout(timer); };
+  }, [activeId, showProfile, profileTab, memoryScanRefresh]);
+
   const backfillActiveMemories = async () => {
     if (!active || memoryUpdating) return;
     setMemoryUpdating(true);
+    setMemoryScanStatus("Preparing full-chat scan…");
     setNotice("");
+    const id = active.id;
     try {
-      const result = await api.backfillMemories(active.id);
-      replaceThread(result.thread);
+      const result = await api.backfillMemories(id);
+      if (activeIdRef.current === id) {
+        showMemoryScanProgress(result.job);
+        setMemoryScanRefresh(value => value + 1);
+      }
     } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : "Earlier chat memories could not be scanned.");
+      if (activeIdRef.current === id) {
+        setMemoryUpdating(false);
+        setMemoryScanStatus("Could not confirm scan startup. Rechecking saved scan status…");
+        setNotice(reason instanceof Error ? reason.message : "Earlier chat memories could not be scanned.");
+        setMemoryScanRefresh(value => value + 1);
+      }
+    }
+  };
+
+  const beginAddingMemory = () => {
+    setMemoryActionMenuId("");
+    setMemoryOptionsOpen(false);
+    setMemoryDraft({ text: "", kind: "shared_event", importance: 3, eventDate: "" });
+  };
+
+  const beginEditingMemory = (memory: CharacterMemory) => {
+    setMemoryActionMenuId("");
+    setMemoryOptionsOpen(false);
+    setMemoryDraft({
+      id: memory.id,
+      text: memory.text,
+      kind: memory.kind,
+      importance: memory.importance,
+      eventDate: memory.eventAt ? memory.eventAt.slice(0, 10) : "",
+    });
+  };
+
+  useEffect(() => {
+    if (!memoryDraft) return;
+    const frame = requestAnimationFrame(() => {
+      memoryPanelRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+      memoryEditorTextRef.current?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [Boolean(memoryDraft), memoryDraft?.id]);
+
+  const saveMemoryDraft = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!active || !memoryDraft || memorySaving) return;
+    setMemorySaving(true);
+    setNotice("");
+    const memory = {
+      text: memoryDraft.text.trim(),
+      kind: memoryDraft.kind,
+      importance: memoryDraft.importance,
+      eventAt: memoryDraft.eventDate ? new Date(memoryDraft.eventDate + "T12:00:00").toISOString() : null,
+    };
+    try {
+      const result = memoryDraft.id
+        ? await api.editMemory(active.id, memoryDraft.id, memory)
+        : await api.addMemory(active.id, memory);
+      replaceThread(result.thread);
+      setMemoryDraft(null);
+      setNotice(memoryDraft.id ? "Memory updated." : "Memory added.");
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : "That memory could not be saved.");
     } finally {
-      setMemoryUpdating(false);
+      setMemorySaving(false);
     }
   };
 
   const forgetActiveMemory = async (memoryId: string) => {
     if (!active) return;
+    setMemoryActionMenuId("");
     try {
       const result = await api.forgetMemory(active.id, memoryId);
       replaceThread(result.thread);
+      if (memoryDraft?.id === memoryId) setMemoryDraft(null);
+      if (expandedMemorySourceId === memoryId) setExpandedMemorySourceId("");
+      setNotice("Memory forgotten. Automatic review will not add it back.");
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "That memory could not be forgotten.");
     }
@@ -2733,20 +3005,21 @@ export function AniMessengerApp() {
         const previousThread = nextThread.id === active.id
           ? active
           : threads.find((thread) => thread.id === nextThread.id);
-        if (!previousThread || !crossedRelationshipThreshold(previousThread.relationship, nextThread.relationship)) return [];
-        return [{
-          id: clientMessageId + "-" + nextThread.id + "-" + nextThread.relationship,
+        if (!previousThread) return [];
+        const earned = new Set((previousThread.relationshipMilestones || []).map(event => event.id));
+        return (nextThread.relationshipMilestones || []).filter(event => !earned.has(event.id)).map(event => ({
+          id: event.id,
           character: nextThread.character,
           relationship: nextThread.relationship,
-          label: relationshipLabel(nextThread.relationship),
-        } satisfies RelationshipMilestone];
+          label: event.label,
+        } satisfies RelationshipMilestone));
       });
       if (newMilestones.length) {
         setRelationshipMilestones((current) => [
           ...current,
           ...newMilestones.filter((milestone) => !current.some((item) => item.id === milestone.id)),
         ]);
-        sound(config?.bondSound === "heartbeat" ? "bond-heartbeat" : "bond-celebration");
+        sound("bond-celebration");
       }
       for (const relatedThread of response.relatedThreads || []) mergeThread(relatedThread, false);
       const cameoReplies = response.replies?.filter((reply) => reply.from === "character") || [];
@@ -3079,11 +3352,11 @@ export function AniMessengerApp() {
               );
             })}
           </div>
-          <footer className="inbox-footer">
-            <span className="user-orb">{config?.userName?.trim().slice(0, 1).toUpperCase() || "Y"}</span>
+          <button type="button" className="inbox-footer user-profile-button" onClick={() => setShowSettings(true)} aria-label="Settings">
+            <span className={"user-orb" + (config?.userAvatarUrl ? " has-portrait" : "")}>{config?.userAvatarUrl ? <img src={config.userAvatarUrl} alt="" /> : config?.userName?.trim().slice(0, 1).toUpperCase() || "Y"}</span>
             <span><strong>{config?.userName?.trim() || "Your space"}</strong><small>{!serviceReachable ? "AniMessenger stopped" : health.ollama ? "Ollama connected · local" : "Ollama needs attention"}</small></span>
-            <button className="settings-button" onClick={() => setShowSettings(true)} aria-label="Settings"><SettingsIcon /></button>
-          </footer>
+            <span className="settings-button" aria-hidden="true"><SettingsIcon /></span>
+          </button>
         </aside>
 
         {!active ? <section className="empty-workspace">
@@ -3147,7 +3420,7 @@ export function AniMessengerApp() {
               </button>
             </header>
             <div className="relationship-strip" style={{ "--accent": relationshipColor(active.relationship) } as React.CSSProperties}>
-              <span>{relationshipLabel(active.relationship)}</span>
+              <span>{active.relationshipTier || relationshipLabel(active.relationship)}</span>
               <output aria-label="Relationship strength">{active.relationship}%</output>
               <div><i style={{ width: active.relationship + "%" }} /></div>
             </div>
@@ -3162,6 +3435,12 @@ export function AniMessengerApp() {
                 <i aria-hidden="true">↑</i>
               </div>
             )}
+            <AchievementNotification key={`achievement:${active.id}`} thread={active} characterName={characterDisplayName(active.character)}
+              portrait={<Portrait character={active.character} />} config={config} paused={Boolean(relationshipMilestone) || showProfile || showSettings || discoveryPending} />
+            <DiscoveryNotification key={`discovery:${active.id}`} thread={active} characterName={characterDisplayName(active.character)}
+              portrait={<Portrait character={active.character} />} config={config} paused={Boolean(relationshipMilestone) || showProfile || showSettings}
+              onPendingChange={setDiscoveryPending}
+              onThreadUpdated={mergeThread} />
             <ServiceRecovery
               health={health}
               serviceReachable={serviceReachable}
@@ -3362,9 +3641,9 @@ export function AniMessengerApp() {
               )}
               {notice && <div className="chat-notice" role="alert">{notice}</div>}
             </div>
-            <div className="quick-prompts">
-              <button onClick={() => setDraft("What are you doing right now?")} disabled={!activeReadyForChat}>What are you doing?</button>
-              <button onClick={insertAction} aria-label="Insert an action" disabled={!activeReadyForChat}>[action: ]</button>
+            <form className="composer" onSubmit={sendMessage}>
+            <div className="composer-tools" role="group" aria-label="Writing and image tools">
+              <button type="button" className="composer-action" onClick={insertAction} aria-label="Insert an action" disabled={!activeReadyForChat}>[action:]</button>
               <button
                 type="button"
                 className={"capture-moment-button " + (capturingMoment ? "is-capturing" : "")}
@@ -3376,7 +3655,6 @@ export function AniMessengerApp() {
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 7.5h3l1.4-2h6.2l1.4 2h3a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2h-15a2 2 0 0 1-2-2V9.5a2 2 0 0 1 2-2Z"/><circle cx="12" cy="13.5" r="4"/><path d="M18 10h.01"/></svg>
               </button>
             </div>
-            <form className="composer" onSubmit={sendMessage}>
               {showEmoji && (
                 <div className="emoji-tray" role="dialog" aria-label="Emoji picker">
                   <label className="emoji-search">
@@ -3476,7 +3754,7 @@ export function AniMessengerApp() {
                     <span><strong>{characterDisplayName(activeGuestThread.character)}</strong><small>{activeGuestThread.character.series}</small></span>
                   </div>
                   <div className="bond-summary guest-bond" style={{ "--bond-color": relationshipColor(activeGuestThread.relationship) } as React.CSSProperties}>
-                    <span><small>Relationship</small><strong>{relationshipLabel(activeGuestThread.relationship)}</strong></span>
+                    <span><small>Relationship</small><strong>{activeGuestThread.relationshipTier || relationshipLabel(activeGuestThread.relationship)}</strong></span>
                     <b>{activeGuestThread.relationship}%</b>
                     <div className="profile-meter"><i style={{ width: activeGuestThread.relationship + "%", background: relationshipColor(activeGuestThread.relationship) }} /></div>
                   </div>
@@ -3511,11 +3789,16 @@ export function AniMessengerApp() {
 
         {showProfile && active?.profile && (
           <div className="profile-layer" onClick={() => setShowProfile(false)} role="dialog" aria-modal="true" aria-labelledby="character-profile-title">
-            <article ref={profileCardRef} className="profile-card" onClick={(event) => event.stopPropagation()} tabIndex={-1}>
-              <button type="button" className="profile-close" onClick={() => setShowProfile(false)} aria-label="Close character profile">×</button>
+            <article ref={profileCardRef} className="profile-card character-dossier" data-profile-tab={profileTab} data-memory-editing={Boolean(memoryDraft)} onClick={(event) => event.stopPropagation()} tabIndex={-1}>
+              <header className="dossier-commandbar">
+                <span className="dossier-label"><i aria-hidden="true" />Character dossier</span>
+                <div className="dossier-window-actions">
               <button type="button" className={"profile-pin " + (active.pinned ? "is-pinned" : "")} onClick={() => void togglePinnedChat()} disabled={pinUpdating} aria-label={active.pinned ? "Unpin chat" : "Pin chat"} title={active.pinned ? "Unpin chat" : "Pin chat"} aria-pressed={Boolean(active.pinned)}>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z" /></svg>
               </button>
+                  <button type="button" className="profile-close" onClick={() => setShowProfile(false)} aria-label="Close character profile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button>
+                </div>
+              </header>
               <div className="profile-hero">
                 <span className={"profile-avatar " + (avatarGenerating[active.character.id] ? "is-generating" : "")}>
                   <Portrait character={active.character} large />
@@ -3538,49 +3821,97 @@ export function AniMessengerApp() {
                 <div className="profile-hero-copy">
                   <p className="eyebrow">{active.character.series}</p>
                   <h2 id="character-profile-title">{characterDisplayName(active.character)}</h2>
+                  <p className="dossier-hero-caption">{(active.profile.persona?.traits || []).slice(0, 3).join(" · ")}</p>
                   <div className="bond-summary" style={{ "--bond-color": relationshipColor(active.relationship) } as React.CSSProperties}>
-                    <span><small>Relationship</small><strong>{relationshipLabel(active.relationship)}</strong></span>
+                    <span><small>Relationship</small><strong>{active.relationshipTier || relationshipLabel(active.relationship)}</strong>{active.soulboundEarned && <small className="soulbound-badge">Soulbound · earned</small>}</span>
                     <b>{active.relationship}%</b>
                     <div className="profile-meter"><i style={{ width: active.relationship + "%", background: relationshipColor(active.relationship) }} /></div>
                   </div>
                 </div>
               </div>
+              <div className="dossier-main">
               <div className="profile-tabs" role="tablist" aria-label="Character profile sections">
                 <button id="profile-tab-profile" type="button" role="tab" aria-selected={profileTab === "profile"} aria-controls="profile-panel" tabIndex={profileTab === "profile" ? 0 : -1} className={profileTab === "profile" ? "active" : ""} onKeyDown={changeProfileTabFromKeyboard} onClick={() => setProfileTab("profile")}>Profile</button>
                 <button id="profile-tab-memories" type="button" role="tab" aria-selected={profileTab === "memories"} aria-controls="profile-panel" tabIndex={profileTab === "memories" ? 0 : -1} className={profileTab === "memories" ? "active" : ""} onKeyDown={changeProfileTabFromKeyboard} onClick={() => setProfileTab("memories")}>Memories <span>{active.memories?.length || 0}</span></button>
                 <button id="profile-tab-gallery" type="button" role="tab" aria-selected={profileTab === "gallery"} aria-controls="profile-panel" tabIndex={profileTab === "gallery" ? 0 : -1} className={profileTab === "gallery" ? "active" : ""} onKeyDown={changeProfileTabFromKeyboard} onClick={() => setProfileTab("gallery")}>Gallery <span>{activeGallery.length}</span></button>
+                <button id="profile-tab-journey" type="button" role="tab" aria-label={journeyUnread ? "Journey — new activity" : "Journey"} aria-selected={profileTab === "journey"} aria-controls="profile-panel" tabIndex={profileTab === "journey" ? 0 : -1} className={profileTab === "journey" ? "active" : ""} onKeyDown={changeProfileTabFromKeyboard} onClick={() => setProfileTab("journey")}>Journey {journeyUnread && <img className="journey-activity-indicator" src="/icons/journey-activity.svg" alt="" aria-hidden="true" />}</button>
               </div>
-              {profileTab === "profile" ? (
+              {profileTab === "journey" ? <CharacterJourney key={active.id} thread={active} /> : profileTab === "profile" ? (
                 <div className="profile-section" id="profile-panel" role="tabpanel" aria-labelledby="profile-tab-profile">
-                  <section className={"profile-about " + (profileSummaryExpanded ? "is-expanded" : "")}>
-                    <header>
-                      <small>About</small>
-                      {active.profile.summary.length > 180 && <button type="button" aria-expanded={profileSummaryExpanded} onClick={() => setProfileSummaryExpanded((expanded) => !expanded)}>{profileSummaryExpanded ? "Show less" : "Read more"}</button>}
-                    </header>
-                    <p>{active.profile.summary}</p>
+                  <DossierAbout key={active.character.id} summary={active.profile.summary} traits={active.profile.persona.traits} />
+                  <section className="dossier-scene" aria-labelledby="dossier-scene-title">
+                    <header><small id="dossier-scene-title">In this moment</small><span className="dossier-presence"><i aria-hidden="true" />{active.scene.presence === "together" ? "Together" : active.scene.presence === "apart" ? "Apart" : "Presence uncertain"}</span></header>
+                    <div className="dossier-location"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 1 1 14 0Z"/><circle cx="12" cy="10" r="2.5"/></svg><strong>{active.scene.location}</strong></div>
+                    <details className="dossier-disclosure dossier-outfit"><summary><span><b>Now wearing</b><small>{active.scene.outfit}</small></span><i aria-hidden="true">＋</i></summary><div className="dossier-disclosure-body"><p>{active.scene.outfit}</p><dl className="dossier-scene-facts"><div><dt>Activity</dt><dd>{active.scene.activity}</dd></div>{active.scene.posture && active.scene.posture !== "unknown" && <div><dt>Position</dt><dd>{active.scene.posture}</dd></div>}</dl>{active.scene.environment && <p className="dossier-environment">{active.scene.environment}</p>}</div></details>
                   </section>
-                  <dl>
-                    <div><dt>Voice</dt><dd>{active.profile.persona.baselineVoice || active.profile.persona.speechStyle}</dd></div>
-                    <div><dt>Now wearing</dt><dd>{active.scene.outfit}</dd></div>
-                    <div><dt>Where</dt><dd>{active.scene.location}</dd></div>
-                  </dl>
-                  <div className="identity-note"><span><strong>Character details</strong><small>{active.profile.visual.userOverrides || active.character.displayName ? "Your corrections are active" : "Researched baseline"}</small></span><p>{activeVisualIdentity.join(" · ")}</p><button type="button" onClick={() => setShowIdentityEditor(true)}>Edit character</button></div>
+                  <details className="dossier-disclosure dossier-voice"><summary><span><b>Voice & personality</b><small>{active.profile.persona.baselineVoice || active.profile.persona.speechStyle}</small></span><i aria-hidden="true">＋</i></summary><div className="dossier-disclosure-body"><p>{active.profile.persona.baselineVoice || active.profile.persona.speechStyle}</p>{active.profile.persona.mannerisms.length > 0 && <div className="dossier-detail-list"><small>Mannerisms</small><ul>{active.profile.persona.mannerisms.map((mannerism, index) => <li key={index}>{mannerism}</li>)}</ul></div>}</div></details>
+                  <details className="dossier-disclosure dossier-identity"><summary><span><b>Appearance & identity</b><small>{active.profile.visual.userOverrides || active.character.displayName ? "Your corrections are active" : "Researched character details"}</small></span><i aria-hidden="true">＋</i></summary><div className="dossier-disclosure-body"><p>{activeVisualIdentity.join(" · ") || "No visual details recorded."}</p><button className="dossier-inline-action" type="button" onClick={() => setShowIdentityEditor(true)}>Edit appearance & default outfit <span aria-hidden="true">↗</span></button></div></details>
                   <small className="fan-note">Character interpretation is created locally from catalogue evidence, optional research, and your selected Ollama model.</small>
                 </div>
               ) : profileTab === "memories" ? (
-                <div className="profile-memories" id="profile-panel" role="tabpanel" aria-labelledby="profile-tab-memories">
+                <div ref={memoryPanelRef} className="profile-memories" id="profile-panel" role="tabpanel" aria-labelledby="profile-tab-memories">
                   <div className="memory-intro">
                     <p>Specific things {characterDisplayName(active.character)} can recall beyond the recent chat window.</p>
-                    {!active.memoryBackfilledAt && <button type="button" onClick={backfillActiveMemories} disabled={memoryUpdating}>{memoryUpdating ? "Scanning earlier chat..." : "Scan earlier chat"}</button>}
+                    <button className="memory-add-button" type="button" onClick={beginAddingMemory} aria-label="Add memory"><span aria-hidden="true">＋</span><b>Add</b></button>
                   </div>
+                  {memoryDraft ? (
+                    <form className="memory-editor" onSubmit={saveMemoryDraft}>
+                      <label className="memory-editor-text"><span>Memory</span><textarea ref={memoryEditorTextRef} value={memoryDraft.text} onChange={(event) => setMemoryDraft((draft) => draft ? { ...draft, text: event.target.value } : draft)} placeholder="Write one clear fact or shared event…" minLength={8} maxLength={500} required /></label>
+                      <label><span>Type</span><select value={memoryDraft.kind} onChange={(event) => setMemoryDraft((draft) => draft ? { ...draft, kind: event.target.value as CharacterMemory["kind"] } : draft)}><option value="shared_event">Shared event</option><option value="user_fact">User fact</option><option value="preference">Preference</option><option value="shared_creation">Shared creation</option><option value="promise">Promise</option><option value="open_loop">Open loop</option><option value="boundary">Boundary</option></select></label>
+                      <label><span>Importance</span><select value={memoryDraft.importance} onChange={(event) => setMemoryDraft((draft) => draft ? { ...draft, importance: Number(event.target.value) } : draft)}><option value={1}>1 · Minor</option><option value={2}>2 · Useful</option><option value={3}>3 · Lasting</option><option value={4}>4 · Important</option><option value={5}>5 · Critical</option></select></label>
+                      <label><span>Event date <small>Optional</small></span><input type="date" value={memoryDraft.eventDate} onChange={(event) => setMemoryDraft((draft) => draft ? { ...draft, eventDate: event.target.value } : draft)} /></label>
+                      <div className="memory-editor-actions"><button type="button" onClick={() => setMemoryDraft(null)} disabled={memorySaving}>Cancel</button><button type="submit" disabled={memorySaving || memoryDraft.text.trim().length < 8}>{memorySaving ? "Saving…" : memoryDraft.id ? "Save changes" : "Add memory"}</button></div>
+                    </form>
+                  ) : null}
+                  <div className="memory-maintenance" aria-busy={memoryUpdating}><span><strong>Recover missed memories</strong><small>Review the complete saved conversation for lasting facts and shared experiences.</small>{memoryScanStatus ? <small className={"memory-scan-status " + (memoryUpdating ? "is-scanning" : "is-complete")} role="status" aria-live="polite">{memoryScanStatus}</small> : null}</span><button className={memoryUpdating ? "is-scanning" : ""} type="button" onClick={backfillActiveMemories} disabled={memoryUpdating}>{memoryUpdating ? "Scanning…" : active.memoryBackfilledAt ? "Rescan" : "Scan chat"}</button></div>
+                  {active.memories?.length ? (
+                    <>
+                      <div className="memory-toolbar">
+                        <label className="memory-search"><span className="sr-only">Search memories</span><input type="search" value={memorySearch} onChange={(event) => setMemorySearch(event.target.value)} placeholder="Search memories…" autoCorrect="off" autoCapitalize="none" spellCheck={false} /></label>
+                        <button className={"memory-options-button " + (memoryKind !== "all" || memorySort !== "event" ? "has-active-options" : "")} type="button" aria-expanded={memoryOptionsOpen} aria-controls="memory-options-panel" onClick={() => setMemoryOptionsOpen((open) => !open)} aria-label="Memory filters and options">
+                          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M14 4v6M4 17h2M10 17h10M6 14v6" /></svg>
+                        </button>
+                      </div>
+                      {(memoryKind !== "all" || memorySort !== "event") ? <div className="memory-active-options" aria-label="Active memory options">
+                        {memoryKind !== "all" ? <button type="button" onClick={() => setMemoryKind("all")}>{memoryKind.replaceAll("_", " ")} <span aria-hidden="true">×</span></button> : null}
+                        {memorySort !== "event" ? <button type="button" onClick={() => setMemorySort("event")}>{memorySort === "recent" ? "Recently captured" : "Most important"} <span aria-hidden="true">×</span></button> : null}
+                      </div> : null}
+                      {memoryOptionsOpen ? <section className="memory-options-panel" id="memory-options-panel" aria-label="Memory filters and options">
+                        <label><span>Show</span><select aria-label="Memory type" value={memoryKind} onChange={(event) => setMemoryKind(event.target.value as "all" | CharacterMemory["kind"])}><option value="all">All memories</option><option value="shared_event">Shared events</option><option value="user_fact">User facts</option><option value="preference">Preferences</option><option value="shared_creation">Shared creations</option><option value="promise">Promises</option><option value="open_loop">Open loops</option><option value="boundary">Boundaries</option></select></label>
+                        <label><span>Order</span><select aria-label="Memory sort order" value={memorySort} onChange={(event) => setMemorySort(event.target.value as "recent" | "event" | "importance")}><option value="event">Newest event</option><option value="recent">Recently captured</option><option value="importance">Most important</option></select></label>
+                        <p className="memory-sort-help">{memorySort === "event" ? "By when the remembered event happened." : memorySort === "recent" ? "By when AniMessenger captured or edited it." : "By its lasting importance to the character."}</p>
+                      <MemoryHealthPanel threadId={active.id} />
+                      </section> : null}
+                      <small className="memory-results-summary">{visibleMemories.length === active.memories.length ? `${active.memories.length} memories` : `${visibleMemories.length} of ${active.memories.length} memories`}</small>
+                    </>
+                  ) : null}
+                  {active.memoryCheckpoint?.lastError ? (
+                    <p className="memory-empty">Automatic memory review could not finish its last pass. Your conversation is safe; use the scan button above to try recovering anything it missed.</p>
+                  ) : null}
                   {!active.memories?.length ? (
                     <p className="memory-empty">No lasting memories saved yet.</p>
-                  ) : active.memories.map((memory) => (
-                    <div className="memory-card" key={memory.id}>
-                      <div><small>{memory.kind.replaceAll("_", " ")}</small><p>{memory.text}</p></div>
-                      <button type="button" onClick={() => void forgetActiveMemory(memory.id)} aria-label={"Forget: " + memory.text}>Forget</button>
-                    </div>
-                  ))}
+                  ) : !visibleMemories.length ? (
+                    <p className="memory-empty">No memories match those filters.</p>
+                  ) : visibleMemories.map((memory) => {
+                    const sourceMessages = (memory.sourceMessageIds || []).map((id) => active.messages.find((message) => message.id === id)).filter((message): message is Message => Boolean(message));
+                    const sourceExpanded = expandedMemorySourceId === memory.id;
+                    const menuExpanded = memoryActionMenuId === memory.id;
+                    return (
+                      <div className="memory-card" key={memory.id}>
+                        <div className="memory-card-copy"><small>{memory.kind.replaceAll("_", " ")}{memory.kind === "open_loop" ? " · unresolved" : memory.kind === "promise" ? " · active" : memory.eventAt ? " · " + new Date(memory.eventAt).toLocaleDateString() : ""}{memory.userEdited ? " · edited" : ""}{memory.archived ? " · archived" : ""}</small><p>{memory.text}</p>
+                          {memory.previousVersions?.length ? <details className="memory-history"><summary>Earlier details</summary>{memory.previousVersions.map((version, index) => <p key={index}>{version.text}</p>)}<small>Saved history, not an outstanding commitment or a current fact.</small></details> : null}
+                        </div>
+                        <button className="memory-card-more" type="button" aria-haspopup="menu" aria-expanded={menuExpanded} onClick={() => setMemoryActionMenuId(menuExpanded ? "" : memory.id)} aria-label="Memory actions">•••</button>
+                        {menuExpanded ? <div className="memory-card-menu" role="menu">{memory.sourceMessageIds?.length ? <button type="button" role="menuitem" aria-expanded={sourceExpanded} onClick={() => { setExpandedMemorySourceId(sourceExpanded ? "" : memory.id); setMemoryActionMenuId(""); }}>{sourceExpanded ? "Hide source" : "View source"}</button> : null}<button type="button" role="menuitem" onClick={() => beginEditingMemory(memory)}>Edit memory</button><button className="is-destructive" type="button" role="menuitem" onClick={() => void forgetActiveMemory(memory.id)} aria-label={"Forget: " + memory.text}>Forget memory</button></div> : null}
+                        {sourceExpanded ? (
+                          <div className="memory-source">
+                            <strong>Original chat</strong>
+                            {sourceMessages.length ? sourceMessages.map((message) => <blockquote key={message.id}><small>{message.from === "user" ? "You" : characterDisplayName(active.character)} · {new Date(message.time).toLocaleString()}</small><p>{message.narration || message.text || (message.image ? "Image shared" : "Message")}</p></blockquote>) : <p>The original messages are no longer available in this chat.</p>}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="profile-gallery" id="profile-panel" role="tabpanel" aria-labelledby="profile-tab-gallery">
@@ -3617,11 +3948,16 @@ export function AniMessengerApp() {
                   })}
                 </div>
               )}
-              <button className="profile-danger" onClick={() => { setDeleteTarget(active); setShowProfile(false); }}>Delete chat</button>
+                <footer className="dossier-footer">
+                  <button className="dossier-edit" type="button" onClick={() => setShowIdentityEditor(true)}>Edit character</button>
+                  <button className="dossier-return" type="button" onClick={() => setShowProfile(false)}>Back to {active.conversationMode === "story" ? "story" : "chat"} <span aria-hidden="true">↗</span></button>
+                  <details className="dossier-chat-options"><summary aria-label="Chat options">•••</summary><div><button type="button" className="profile-danger" onClick={() => { setDeleteTarget(active); setShowProfile(false); }}>Delete chat</button></div></details>
+                </footer>
+              </div>
             </article>
           </div>
         )}
-        {showIdentityEditor && active?.profile && <VisualIdentityEditor thread={active} onClose={() => setShowIdentityEditor(false)} onSaved={replaceThread} />}
+        {showIdentityEditor && active?.profile && <VisualIdentityEditor key={active.id} thread={active} onClose={() => setShowIdentityEditor(false)} onSaved={replaceThread} />}
         {deleteTarget && (
           <div className="profile-layer delete-layer" role="dialog" aria-modal="true" aria-labelledby="delete-chat-title" onClick={() => !deletingChat && setDeleteTarget(null)}>
             <article ref={deleteCardRef} className="delete-card" onClick={(event) => event.stopPropagation()} tabIndex={-1}>

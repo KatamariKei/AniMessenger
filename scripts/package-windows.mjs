@@ -68,7 +68,7 @@ await fsp.rm(output, { recursive: true, force: true, maxRetries: 10, retryDelay:
 await fsp.rm(zipOutput, { force: true });
 await fsp.mkdir(path.join(payload, "scripts"), { recursive: true });
 await fsp.mkdir(path.join(payload, "runtime"), { recursive: true });
-for (const folder of ["dist", "server", "workflows"]) {
+for (const folder of ["dist", "server", "shared", "workflows"]) {
   await fsp.cp(path.join(root, folder), path.join(payload, folder), { recursive: true });
 }
 await Promise.all([

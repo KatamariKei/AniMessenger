@@ -58,12 +58,24 @@ test("ordinary scene movement does not establish an outfit change", () => {
   assert.equal(wardrobeChangeIsEstablished("She's wearing a fitted blue travel dress."), true);
 });
 
+test("the active character's name can establish a completed outfit change", () => {
+  assert.equal(
+    inferWardrobeEvent("Erica put on her waitress uniform.", "user", "Erica Anderson")?.outfit,
+    "waitress uniform",
+  );
+  assert.equal(
+    inferWardrobeEvent("Catherine put on her red dress.", "user", "Erica Anderson"),
+    null,
+  );
+});
+
 test("direct requests to describe current clothing refine wardrobe state", () => {
   assert.equal(wardrobeDescriptionRequested("Can you describe your outfit in detail for me?"), true);
   assert.equal(wardrobeDescriptionRequested("Describe you outfit in detail for me. I like it"), true);
   assert.equal(wardrobeDescriptionRequested("What are you wearing right now?"), true);
   assert.equal(wardrobeDescriptionRequested("Describe your athletic gear, Marie! You look great!"), true);
   assert.equal(wardrobeDescriptionRequested("Describe the dress you're wearing, Asty!"), true);
+  assert.equal(wardrobeDescriptionRequested("Show me what you decided to wear to dinner, Erica."), true);
   assert.equal(wardrobeDescriptionRequested("That outfit looks comfortable."), false);
   assert.equal(wardrobeDescriptionRequested("What should we pack for camping?"), false);
   assert.equal(wardrobeChangeIsEstablished("Go get a jumpsuit on or something."), false);
@@ -116,6 +128,15 @@ test("extracts a completed narrative outfit assembled through styling language",
   assert.doesNotMatch(event?.outfit || "", /playful, feminine look:/i);
 });
 
+test("extracts an outfit the character had chosen before revealing it", () => {
+  const narration = "She returned to the living area with a confident swirl. She had chosen a lightweight, sheer white crochet cover-up dress that clung loosely to her curves and left very little to the imagination, paired with a set of simple gold hoop earrings and strappy gold sandals.";
+  const event = inferWardrobeEvent(narration, "character", "Erica Anderson");
+  assert.equal(event?.source, "character");
+  assert.match(event?.outfit || "", /sheer white crochet cover-up dress/i);
+  assert.match(event?.outfit || "", /gold hoop earrings/i);
+  assert.match(event?.outfit || "", /gold sandals/i);
+});
+
 test("extracts a coordinated ensemble described as sliding into and pairing garments", () => {
   const narration = "Once back in the bedroom, Erica bypassed her usual oversized sweaters. She slid into a pair of high-waisted, charcoal grey leggings that hugged her curves and paired them with a soft, cream-colored off-the-shoulder knit sweater. She turned toward Alex with a smile.";
   const event = inferWardrobeEvent(narration, "character");
@@ -125,6 +146,16 @@ test("extracts a coordinated ensemble described as sliding into and pairing garm
     "high-waisted, charcoal grey leggings, soft, cream-colored off-the-shoulder knit sweater",
   );
   assert.doesNotMatch(event?.outfit || "", /hugged her curves|usual oversized/i);
+});
+
+test("extracts a completed outfit described as dressed for the day or for travel", () => {
+  const narration = "A few minutes later, she padded downstairs, having quickly refreshed herself. She was dressed for travel in something comfortable and easy—a pair of high-waisted denim shorts and a simple, soft white tank top that hugged her curves, her hair still slightly tousled from sleep.";
+  const event = inferWardrobeEvent(narration, "character", "Erica Anderson");
+  assert.equal(event?.source, "character");
+  assert.equal(
+    event?.outfit,
+    "high-waisted denim shorts and a simple, soft white tank top that hugged her curves",
+  );
 });
 
 test("a planned ensemble is not committed before the character changes", () => {

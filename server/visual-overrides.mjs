@@ -1,5 +1,11 @@
 import { normalizeWardrobePrompt } from "./wardrobe.mjs";
 
+export function assertVisualEditOwner(characterId, draftCharacterId) {
+  if (!characterId || !draftCharacterId || characterId !== draftCharacterId) {
+    throw new Error("This appearance draft belongs to a different character. Close the editor and reopen it for the character you want to edit.");
+  }
+}
+
 function cleanList(value, limit = 24) {
   if (!Array.isArray(value)) return [];
   return [...new Set(value

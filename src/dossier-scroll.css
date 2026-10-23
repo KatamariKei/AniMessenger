@@ -1,0 +1,16 @@
+/* Shared by the character and user dossiers. Keep these rules after both layout
+   stylesheets so theme/modal defaults cannot reintroduce backdrop filtering. */
+:root .profile-layer:has(> :is(.character-dossier, .user-dossier)) {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Paint only the scrolling content, not the portrait, gradients and outer
+   rounded frame. Never contain size: disclosures must grow the scroll height. */
+:root .character-dossier :is(.profile-section, .profile-memories, .profile-gallery, .profile-journey),
+:root .user-dossier .settings-scroll {
+  contain: layout paint;
+  isolation: isolate;
+  transform: translateZ(0);
+  background: #101518;
+}

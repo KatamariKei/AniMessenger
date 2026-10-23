@@ -60,6 +60,21 @@ Run:
 
 Then inspect the candidate from a fresh directory before publishing anything.
 
+## 0.6.0 release candidate
+
+- [x] Keep the bundled default image model and workflow unchanged.
+- [x] Update package version, download filename and release notes.
+- [x] Include shared runtime modules in the Windows installer copy list.
+- [x] Pass the public-file privacy audit and full check on the final candidate (812 tests, typecheck and production build).
+- [x] Build and independently inspect the v0.6.0 ZIP (119 audited packaged files).
+- [x] Rehearse a clean install and boot with isolated empty storage.
+- [x] Rehearse upgrading v0.5.0 with synthetic chats, memories, settings and achievement points preserved (six fixture files unchanged byte-for-byte).
+- [x] Complete the packaged-app smoke checks: user confirmed character creation, discovery/artwork, user dossier, achievement celebration, memory rescan, image interruption/retry and persistence on the 3090; mobile dossier checks passed during development.
+- [x] Test the candidate on a second PC: fresh 3090 installation passed; browser graphics acceleration resolved scrolling stutter.
+- [ ] Review the public diff, then obtain approval to commit, push, tag and publish.
+
+Automated results and the candidate checksum are recorded in [v0.6.0 validation](RELEASE-VALIDATION-0.6.0.md). Re-run `node scripts/rehearse-windows-release.mjs` after rebuilding a changed package; it uses a unique isolated folder, disables shortcuts/registration/tray launch and leaves the live installation alone.
+
 ## 0.5.0 release candidate
 
 - [x] Update the package version, README download name, changelog, and public-source user agents.

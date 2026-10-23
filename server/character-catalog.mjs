@@ -5,7 +5,7 @@ const ANILIST = "https://graphql.anilist.co";
 const WIKIDATA = "https://www.wikidata.org/w/api.php";
 const cache = new Map();
 const cacheTtlMs = 10 * 60 * 1000;
-const catalogHeaders = { "user-agent": "AniMessenger/0.5 character catalogue" };
+const catalogHeaders = { "user-agent": "AniMessenger/0.6 character catalogue" };
 
 function cleanText(value = "") {
   return String(value || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
@@ -24,8 +24,24 @@ function titleFromSeriesLink(value = "") {
   return titleFromTag(value).replace(/\s*\((?:game|series|franchise)\)\s*$/i, "").trim();
 }
 
+function expandRomanizationMacrons(value = "") {
+  const replacements = { "ā": "aa", "ē": "ee", "ī": "ii", "ō": "ou", "ū": "uu", "Ā": "Aa", "Ē": "Ee", "Ī": "Ii", "Ō": "Ou", "Ū": "Uu" };
+  return String(value || "").replace(/[āēīōūĀĒĪŌŪ]/g, (letter) => replacements[letter]);
+}
+
+export function catalogSearchVariants(value = "") {
+  const original = String(value || "").trim();
+  const expanded = expandRomanizationMacrons(original);
+  const plain = original.normalize("NFKD").replace(/\p{M}/gu, "");
+  return [...new Set([expanded, plain, original].map((item) => item.trim()).filter(Boolean))];
+}
+
 function normalizedKey(value = "") {
-  return String(value || "").toLowerCase().normalize("NFKD").replace(/\p{M}/gu, "").replace(/[^a-z0-9]+/g, " ").trim();
+  return expandRomanizationMacrons(value).toLowerCase().normalize("NFKD").replace(/\p{M}/gu, "").replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function modelTriggerPart(value = "") {
+  return normalizedKey(value).replace(/\s+/g, "_");
 }
 
 function canonicalNameKey(value = "") {
@@ -187,7 +203,7 @@ export function parseWikidataCharacter(item) {
     id: `wikidata-${item.id}`,
     name: cleanText(item.label),
     series: series ? series.replace(/\s+and\s+.*$/i, "").trim() : "Series to confirm",
-    trigger: cleanText(item.label).toLowerCase().replaceAll(" ", "_"),
+    trigger: modelTriggerPart(cleanText(item.label)),
     tags: [],
     sourceUrl: item.concepturi || `https://www.wikidata.org/wiki/${item.id}`,
     sourceProvider: "wikidata",
@@ -209,7 +225,7 @@ export function parseAniListCharacter(item) {
     name,
     series,
     seriesAliases,
-    trigger: [name, series].map((part) => part.toLowerCase().replace(/\s+/g, "_")).join(", "),
+    trigger: [name, series].map(modelTriggerPart).join(", "),
     tags: [],
     sourceUrl: `https://anilist.co/character/${item.id}`,
     sourceProvider: "anilist",
@@ -230,19 +246,17 @@ async function fetchJson(url, options = {}, timeout = 9000) {
 }
 
 async function searchDanbooru(query) {
-  const tokens = normalizedKey(query).split(/\s+/).filter(Boolean);
-  const rawPattern = String(query).trim().toLowerCase().normalize("NFKD").replace(/\p{M}/gu, "").replace(/[^a-z0-9-]+/g, "_");
-  const patterns = [...new Set([
-    `*${rawPattern}*`,
+  const tokenSets = catalogSearchVariants(query).map((variant) => normalizedKey(variant).split(/\s+/).filter(Boolean));
+  const patterns = [...new Set(tokenSets.flatMap((tokens) => [
+    tokens.length ? `*${tokens.join("_")}*` : "",
     tokens.length > 1 ? `*${tokens.join("-")}*` : "",
-    tokens.length > 1 ? `*${tokens.join("_")}*` : "",
     tokens.length > 1 ? `*${tokens.join("*")}*` : "",
     // Anime catalogues frequently store Japanese name order while users and
     // AniList display Western order (Elf Yamada vs. yamada_elf). Query both
     // orders so verified recurring visual tags are not silently lost.
     tokens.length > 1 ? `*${[...tokens].reverse().join("_")}*` : "",
     tokens.length > 1 ? `*${[...tokens].reverse().join("*")}*` : "",
-  ].filter(Boolean))];
+  ]).filter(Boolean))];
   let tags = [];
   for (const pattern of patterns) {
     try {
@@ -251,10 +265,10 @@ async function searchDanbooru(query) {
       url.searchParams.set("search[category]", "4");
       url.searchParams.set("search[order]", "count");
       url.searchParams.set("limit", "16");
-      const matches = await fetchJson(url, { headers: { "user-agent": "AniMessenger/0.5 character catalogue" } });
+      const matches = await fetchJson(url, { headers: { "user-agent": "AniMessenger/0.6 character catalogue" } });
       tags = (Array.isArray(matches) ? matches : []).filter((tag) => {
         const name = normalizedKey(tag?.name);
-        return tokens.every((token) => name.includes(token));
+        return tokenSets.some((tokens) => tokens.every((token) => name.includes(token)));
       });
     } catch {
       tags = [];
@@ -267,13 +281,13 @@ async function searchDanbooru(query) {
       const wikiUrl = new URL("/wiki_pages.json", DANBOORU);
       wikiUrl.searchParams.set("search[title]", tag.name);
       wikiUrl.searchParams.set("limit", "1");
-      const requests = [fetchJson(wikiUrl, { headers: { "user-agent": "AniMessenger/0.5 character catalogue" } }, 6000)];
+      const requests = [fetchJson(wikiUrl, { headers: { "user-agent": "AniMessenger/0.6 character catalogue" } }, 6000)];
       if (index < 6) {
         const postsUrl = new URL("/posts.json", DANBOORU);
         postsUrl.searchParams.set("tags", tag.name);
         postsUrl.searchParams.set("limit", "100");
         postsUrl.searchParams.set("only", "id,tag_string_general,tag_string_character");
-        requests.push(fetchJson(postsUrl, { headers: { "user-agent": "AniMessenger/0.5 character catalogue" } }, 7000).catch(() => []));
+        requests.push(fetchJson(postsUrl, { headers: { "user-agent": "AniMessenger/0.6 character catalogue" } }, 7000).catch(() => []));
       }
       const [pages, posts = []] = await Promise.all(requests);
       return parseDanbooruCharacter(tag, pages?.[0], summarizeDanbooruEvidence(posts, tag.name));
@@ -287,7 +301,7 @@ async function searchDanbooru(query) {
 async function searchAniList(query) {
   const payload = await fetchJson(ANILIST, {
     method: "POST",
-    headers: { "content-type": "application/json", "user-agent": "AniMessenger/0.5 character catalogue" },
+    headers: { "content-type": "application/json", "user-agent": "AniMessenger/0.6 character catalogue" },
     body: JSON.stringify({
       query: `query CharacterSearch($search: String) {
         Page(page: 1, perPage: 10) {
@@ -314,7 +328,7 @@ async function searchWikidata(query) {
   url.searchParams.set("limit", "12");
   url.searchParams.set("format", "json");
   url.searchParams.set("origin", "*");
-  const payload = await fetchJson(url, { headers: { "user-agent": "AniMessenger/0.5 character catalogue" } });
+  const payload = await fetchJson(url, { headers: { "user-agent": "AniMessenger/0.6 character catalogue" } });
   return (payload?.search || []).map(parseWikidataCharacter).filter(Boolean);
 }
 

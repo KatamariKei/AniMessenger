@@ -4,6 +4,9 @@ import { AniMessengerApp } from "./App";
 import { ErrorBoundary } from "./ErrorBoundary";
 import "../app/globals.css";
 import "./local.css";
+import "./character-dossier.css";
+import "./user-dossier.css";
+import "./dossier-scroll.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

@@ -1,3 +1,5 @@
+import { stripWikiReferences } from "./wiki-text.mjs";
+
 function plainText(value) {
   return String(value || "")
     .replace(/<br\s*\/?>/gi, "\n")
@@ -28,10 +30,12 @@ function shortDesignation(name) {
   return /^(?=.*[a-z])(?=.*\d)[a-z0-9]{2,}$/i.test(token) ? token : "";
 }
 
-function wikiPageMatches(name, series, page) {
+export function wikiPageMatches(name, series, page) {
   const title = String(page?.title || "");
   const body = String(page?.wikitext?.["*"] || "");
   if (!body || title.includes("/") || /\bdisambiguation\b/i.test(title)) return false;
+  const installment = String(series).split(/[:：]/).slice(1).join(" ").trim();
+  if (installment && !sharesUsefulWords(installment, body)) return false;
   const designation = shortDesignation(name);
   if (designation) {
     const exactTitle = title.toLowerCase() === designation.toLowerCase();
@@ -45,10 +49,10 @@ function wikiPageMatches(name, series, page) {
   // A short catalogue designation may redirect to a longer official name.
   // Accept it only when the character's own lead explicitly states the alias,
   // and the selected franchise appears in the page, never from a loose mention.
-  if (!designation || !sharesUsefulWords(series, body)) return false;
-  const escaped = designation.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (!sharesUsefulWords(series, body)) return false;
+  const escaped = (designation || name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const lead = body.slice(0, 5000).replace(/'{2,}/g, "");
-  return new RegExp("\\b(?:or just|also known as|known as|called|alias(?:es)?)\\s+" + escaped + "\\b", "i")
+  return new RegExp("\\b(?:or just|also known as|known as|called|alias(?:es)?)\\s+(?:just\\s+)?" + escaped + "\\b", "i")
     .test(lead);
 }
 
@@ -70,7 +74,7 @@ function researchName(character) {
 }
 
 function researchSeries(character) {
-  const series = String(character?.series || "").trim();
+  const series = String(character?.series || "").replace(/\s*\(series\)\s*$/i, "").trim();
   const qualifier = String(character?.name || "").match(/\(([^)]+)\)\s*$/)?.[1]?.trim();
   // Danbooru sometimes exposes only a short tag qualifier (for example
   // "botw") while its character wiki redirects to a fully qualified tag such
@@ -107,9 +111,14 @@ const franchiseWikis = [
   { series: /^catherine(?:: full body)?$/i, host: "catherine.fandom.com" },
   { series: /^dead or alive(?:\s+\d+)?$/i, host: "deadoralive.fandom.com" },
   { series: /^ghost in the shell/i, host: "ghostintheshell.fandom.com" },
+  { series: /^cyberpunk\b/i, host: "cyberpunk.fandom.com" },
+  { series: /^atelier\b/i, host: "atelier.fandom.com" },
+  { series: /^(?:vocaloid|piapro(?:\s+studio)?)(?:\s+\(series\))?$/i, host: "vocaloid.fandom.com" },
+  { series: /^fate(?:\b|\/)|^type[- ]moon\b/i, host: "typemoon.fandom.com" },
+  { series: /^kill la kill$/i, host: "kill-la-kill.fandom.com" },
   { series: /^the witcher$|^witcher$/i, host: "witcher.fandom.com" },
   { series: /^pok[eé]mon\b/i, host: "bulbapedia.bulbagarden.net", apiPath: "/w/api.php" },
-  { series: /^tokyo mirage sessions\b/i, host: "megamitensei.fandom.com" },
+  { series: /^(?:persona(?:\b|\d)|shin megami tensei\b|megami tensei\b|tokyo mirage sessions\b)/i, host: "megamitensei.fandom.com" },
   { series: /^azur lane$/i, host: "blhx.fandom.com" },
   { series: /^genshin impact$/i, host: "genshin-impact.fandom.com", detailSubpage: "Profile" },
   { series: /^zenless zone zero$/i, host: "zenless-zone-zero.fandom.com", detailSubpage: "Lore" },
@@ -134,9 +143,22 @@ export function fandomWikiCandidates(character) {
       add(url.hostname, pageName);
     } catch { /* An invalid catalogue reference is not a research source. */ }
   }
-  const seriesNames = [character.series, ...(Array.isArray(character.seriesAliases) ? character.seriesAliases : [])];
+  const seriesNames = [...new Set([character.series, ...(Array.isArray(character.seriesAliases) ? character.seriesAliases : [])]
+    .filter(Boolean).map(value => String(value).replace(/\s*\(series\)\s*$/i, "").trim()))];
+  // Known franchise families share one community across named installments.
+  // Explicit source links stay first; verified family routes precede guesses.
   for (const series of seriesNames) {
-    const words = String(series || "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/&/g, " and ")
+    const route = franchiseWikis.find(item => item.series.test(series));
+    if (route) add(route.host);
+  }
+  // Catalogue aliases can supply the parent franchise without a hardcoded
+  // rule. Prefer that alias only when it is a whole-word prefix of a longer
+  // selected installment; never guess a parent by dropping arbitrary words.
+  const parentNames = seriesNames.filter(name => seriesNames.some(other => other.length > name.length
+    && other.toLowerCase().startsWith(name.toLowerCase()) && /^[\s:：-]/.test(other.slice(name.length))));
+  const orderedNames = [...parentNames.sort((a, b) => a.length - b.length), ...seriesNames.filter(name => !parentNames.includes(name))];
+  for (const series of orderedNames) {
+    const words = String(series || "").replace(/\s*\(series\)\s*$/i, "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/&/g, " and ")
       .split(/[:：]/, 1)[0].toLowerCase().match(/[a-z0-9]+/g) || [];
     if (!words.length) continue;
     const slug = words.join("");
@@ -221,7 +243,7 @@ export function selectFranchiseWikiTitle(name, results = []) {
   return scored[0]?.coverage >= 0.5 ? scored[0].title : "";
 }
 
-async function fetchFranchiseWikiPage(host, pageName, apiPath = "/api.php") {
+export async function fetchFranchiseWikiPage(host, pageName, apiPath = "/api.php") {
   const url = new URL("https://" + host + apiPath);
   url.search = new URLSearchParams({ action: "parse", page: pageName, prop: "wikitext", redirects: "1", format: "json" }).toString();
   const response = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(9000) });
@@ -250,7 +272,7 @@ async function researchFranchiseWiki(character) {
         const searchResults = (await searchResponse.json())?.query?.search || [];
         const searchTitle = selectFranchiseWikiTitle(name, searchResults);
         page = searchTitle ? await fetchFranchiseWikiPage(candidate.host, searchTitle, candidate.apiPath) : null;
-        if (!wikiPageMatches(name, series, page) && shortDesignation(name)) {
+        if (!wikiPageMatches(name, series, page)) {
           // Search indexes may return the official long title without the
           // short designation in its title. Verify the page's own lead.
           for (const result of searchResults.slice(0, 6)) {
@@ -264,9 +286,8 @@ async function researchFranchiseWiki(character) {
         attempts.push({ host: candidate.host, status: "no_match" });
         continue;
       }
-      const text = selectWikiEvidenceText(String(page.wikitext["*"])
+      const text = selectWikiEvidenceText(stripWikiReferences(page.wikitext["*"])
         .split(/==\s*(?:Gallery|Trivia|References)\s*==/i)[0]
-        .replace(/<ref\b[^>]*>[\s\S]*?<\/ref>/gi, "")
         .replace(/\[\[(?:File|Image):[^\]]*\]\]/gi, "")
         .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2")
         .replace(/\[\[([^\]]+)\]\]/g, "$1")
@@ -321,7 +342,7 @@ async function researchAniList(character) {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "user-agent": "AniMessenger/0.2 local character research",
+      "user-agent": "AniMessenger/0.6 local character research",
     },
     body: JSON.stringify({
       query: `query CharacterResearch($search: String) {
@@ -391,7 +412,7 @@ export async function researchCharacter(character, enabled = true) {
     search.searchParams.set("format", "json");
     search.searchParams.set("origin", "*");
     const response = await fetch(search, {
-      headers: { "user-agent": "AniMessenger/0.5 local character research" },
+      headers: { "user-agent": "AniMessenger/0.6 local character research" },
       signal: AbortSignal.timeout(9000),
     });
     if (!response.ok) throw new Error("Wikipedia HTTP " + response.status);

@@ -161,9 +161,55 @@ export const memoryExtractionSchema = {
   type: "object",
   additionalProperties: false,
   properties: {
-    memories: { type: "array", maxItems: 8, items: memoryCandidateSchema },
+    memories: {
+      type: "array",
+      maxItems: 8,
+      items: {
+        ...memoryCandidateSchema,
+        properties: {
+          ...memoryCandidateSchema.properties,
+          sourceMessageIds: stringArraySchema,
+          eventAt: nullableStringSchema,
+        },
+        required: [...memoryCandidateSchema.required, "sourceMessageIds", "eventAt"],
+      },
+    },
   },
   required: ["memories"],
+};
+
+export const checkpointMemoryExtractionSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    memories: {
+      type: "array",
+      maxItems: 6,
+      items: {
+        ...memoryCandidateSchema,
+        properties: {
+          ...memoryCandidateSchema.properties,
+          sourceMessageIds: stringArraySchema,
+          eventAt: nullableStringSchema,
+          action: { type: "string", enum: ["add", "update", "resolve"] },
+          targetMemoryId: nullableStringSchema,
+          evidenceMessageId: { type: "string" },
+          evidenceQuote: { type: "string", minLength: 8, maxLength: 500 },
+        },
+        required: [...memoryCandidateSchema.required, "sourceMessageIds", "eventAt", "action", "targetMemoryId", "evidenceMessageId", "evidenceQuote"],
+      },
+    },
+  },
+  required: ["memories"],
+};
+
+export const memoryRecallSelectionSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    memoryIds: { type: "array", maxItems: 8, items: stringSchema },
+  },
+  required: ["memoryIds"],
 };
 
 const softFollowUpSchema = {
@@ -181,6 +227,36 @@ const softFollowUpSchema = {
   ],
 };
 
+const sceneEvidenceItemSchema = {
+  anyOf: [{
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      quote: stringSchema,
+      source: { type: "string", enum: ["user", "character"] },
+      phase: { type: "string", enum: ["current", "planned", "negated"] },
+      actor: { type: "string", enum: ["user", "character", "shared"] },
+    },
+    required: ["quote", "source", "phase", "actor"],
+  }, { type: "null" }],
+};
+
+export const sceneEvidenceSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: Object.fromEntries(["location", "environment", "activity", "outfit", "expression", "lighting", "presence", "posture"].map((field) => [field, sceneEvidenceItemSchema])),
+  required: ["location", "environment", "activity", "outfit", "expression", "lighting", "presence", "posture"],
+};
+
+const finalChatSceneSchema = {
+  ...sceneSchema,
+  properties: {
+    ...sceneSchema.properties,
+    posture: { anyOf: [{ type: "string", enum: ["standing", "seated", "lying", "kneeling", "crouching", "unknown"] }, { type: "null" }] },
+  },
+  required: [...sceneSchema.required, "posture"],
+};
+
 export const characterChatSchema = {
   type: "object",
   additionalProperties: false,
@@ -188,19 +264,40 @@ export const characterChatSchema = {
     narration: nullableStringSchema,
     reply: stringSchema,
     relationshipDelta: { type: "integer", minimum: -2, maximum: 2 },
-    scene: sceneSchema,
+    scene: finalChatSceneSchema,
+    sceneEvidence: sceneEvidenceSchema,
     shouldSendPhoto: { type: "boolean" },
     photoBrief: nullableStringSchema,
     photoOutfit: nullableStringSchema,
     photoMessage: nullableStringSchema,
     memoryCandidates: { type: "array", items: memoryCandidateSchema },
+    achievementSignals: {
+      type: "array", maxItems: 5,
+      items: {
+        type: "object", additionalProperties: false,
+        properties: {
+          id: { type: "string", enum: ["shared-laughter", "new-horizons", "time-well-spent", "heartfelt"] },
+          event: { type: "string", enum: ["laughter", "arrival", "shared_activity", "feelings"] },
+          subject: nullableStringSchema,
+          occasion: nullableStringSchema,
+          actor: { type: "string", enum: ["shared"] },
+          phase: { type: "string", enum: ["completed"] },
+          evidence: { type: "array", minItems: 1, maxItems: 3, items: {
+            type: "object", additionalProperties: false,
+            properties: { source: { type: "string", enum: ["user", "character"] }, quote: { type: "string", minLength: 8, maxLength: 400 } },
+            required: ["source", "quote"],
+          } },
+        },
+        required: ["id", "event", "subject", "occasion", "actor", "phase", "evidence"],
+      },
+    },
     followUp: softFollowUpSchema,
     resolvesPendingFollowUp: { type: "boolean" },
     otherShouldRespond: { type: "boolean" },
   },
   required: [
-    "narration", "reply", "relationshipDelta", "scene", "shouldSendPhoto", "photoBrief", "photoOutfit", "photoMessage",
-    "memoryCandidates", "followUp", "resolvesPendingFollowUp", "otherShouldRespond",
+    "narration", "reply", "relationshipDelta", "scene", "sceneEvidence", "shouldSendPhoto", "photoBrief", "photoOutfit", "photoMessage",
+    "memoryCandidates", "achievementSignals", "followUp", "resolvesPendingFollowUp", "otherShouldRespond",
   ],
 };
 

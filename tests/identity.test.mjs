@@ -49,6 +49,28 @@ test("carried weapons can never become the character's default wardrobe", () => 
   reconcileCatalogueWardrobe(mixed, [], null);
   assert.equal(mixed.visual.defaultWardrobe, "black tactical bodysuit, fingerless gloves");
 });
+
+test("wardrobe colors cannot leak from unrelated visual tags", () => {
+  const profile = { visual: {
+    defaultWardrobe: "A white short-sleeved serafuku top, a red pleated skirt, and red suspenders.",
+    wardrobePreferences: [],
+  } };
+  reconcileCatalogueWardrobe(profile, ["red hair", "school uniform", "shirt", "skirt", "suspenders"], {
+    evidence: { passages: [{ provider: "anilist", text: "She attends Honnouji Academy." }] },
+  }, { strictColors: true });
+  assert.equal(profile.visual.defaultWardrobe, "A short-sleeved serafuku top, a pleated skirt, and suspenders.");
+});
+
+test("source-supported garment colors survive wardrobe reconciliation", () => {
+  const profile = { visual: {
+    defaultWardrobe: "A navy blue sailor uniform with a red tie and a black skirt.",
+    wardrobePreferences: [],
+  } };
+  reconcileCatalogueWardrobe(profile, ["red hair", "school uniform"], {
+    evidence: { passages: [{ provider: "franchise_wiki", text: "Her clothing is Senketsu, a living navy blue sailor uniform with a red tie and a black skirt." }] },
+  }, { strictColors: true });
+  assert.equal(profile.visual.defaultWardrobe, "A navy blue sailor uniform with a red tie and a black skirt.");
+});
 import { normalizeWardrobePrompt } from "../server/wardrobe.mjs";
 
 test("prompt tags are merged without repeating overlapping safeguards", () => {
@@ -85,6 +107,13 @@ test("discussing work or training does not teleport an in-person scene", () => {
   assert.deepEqual(inferSceneCue("Tell me about your classes and the students you teach."), {});
   assert.deepEqual(inferSceneCue("Your tactical training must have been intense."), {});
   assert.deepEqual(inferSceneCue("It might rain tomorrow."), {});
+  assert.deepEqual(inferSceneCue("We should go to school tomorrow."), {});
+  assert.deepEqual(inferSceneCue("I'm going to the gym later."), {});
+  assert.deepEqual(inferSceneCue("Maybe we can attend a formal event tomorrow."), {});
+  assert.deepEqual(inferSceneCue("Come meet me at school today. We can plan tomorrow afterward."), {
+    location: "at school",
+    activity: "spending time at school",
+  });
 });
 
 test("ANIMA prompt uses scene clothing without reintroducing the default costume", () => {

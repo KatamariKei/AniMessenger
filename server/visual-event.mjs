@@ -10,6 +10,17 @@ const visibleSelfReveal = /\b(?:here(?:'s| is) (?:the |my )?(?:new )?(?:outfit|d
 const completedWardrobeReveal = /\b(?:(?:put(?:s)?|slip(?:s|ped)?|pull(?:s|ed)?|throw(?:s)?|fasten(?:s|ed)?)\s+(?:(?:the|a|an|her|his|their|my|this|that)\s+)?[^.!?\]]{0,100}\s+on(?!\s+(?:(?:the|a)\s+)?(?:bed|chair|table|counter|hanger|sofa|couch|floor)\b)|(?:(?:change(?:s|d)|dress(?:es|ed))|(?:i|she|he|they)\s+(?:change|dress))\s+into\s+[^.!?\]]{1,100}|(?:step(?:s|ped)?|come(?:s)?|came|return(?:s|ed)?|emerge(?:s|d)?)\s+(?:back\s+|out\s+)?[^.!?\]]{0,50}\b(?:wearing|dressed in)\b|(?:now\s+)?(?:wearing|dressed in)\s+[^.!?\]]{1,100})\b/i;
 const scenicReveal = /\b(?:cloud sea|panoramic (?:view|vista)|vast (?:landscape|view|vista|fields?|ocean|sea)|rolling (?:green )?hills?|craggy mountains?|distant mountains?|city skyline|cityscape|waterfall|breathtaking (?:view|landscape|scenery)|grass waving in the wind)\b/i;
 
+// Only use evidence already accepted by the final-scene validator. A changed
+// description alone (including a profile correction) is not a completed event.
+export function verifiedOutfitChange(previous = {}, next = {}) {
+  const normalize = (value) => String(value || "").normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase();
+  const evidence = next.outfitEvidence;
+  return Boolean(normalize(previous.outfit) && normalize(next.outfit)
+    && normalize(previous.outfit) !== normalize(next.outfit)
+    && evidence?.kind === "final_scene" && evidence.text
+    && JSON.stringify(evidence) !== JSON.stringify(previous.outfitEvidence));
+}
+
 export function visualEventOpportunity(text, scene = {}, options = {}) {
   const value = String(text || "").replace(/\s+/g, " ").trim();
   const actor = options.actor === "character" ? "character" : "user";
@@ -32,15 +43,14 @@ export function visualEventOpportunity(text, scene = {}, options = {}) {
 
 export function keyVisualPhotoBrief(baseBrief, visualEvent, claimsPhoto = false, evidence = "") {
   const visualDirection = /outfit|wardrobe/i.test(String(visualEvent || ""))
-    ? "Show the completed current outfit naturally"
+    ? "clothing silhouette and garment details clearly visible"
     : /environment|location|arrival/i.test(String(visualEvent || ""))
-      ? "Establish the current settled surroundings"
+      ? "wide shot, character and surrounding setting visible"
       : visualEvent
-        ? "Show the completed current visual change"
+        ? "character-focused composition"
         : "";
   return [
     String(baseBrief || "").trim(),
     visualDirection,
-    claimsPhoto ? "the character is actively sharing this current visual with the viewer" : "",
   ].filter(Boolean).join("; ");
 }

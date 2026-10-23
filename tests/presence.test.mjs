@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { normalizeSceneState, reduceSceneTurn } from "../server/scene-state.mjs";
 import {
   currentPresence,
   inferPresenceCue,
@@ -31,6 +32,27 @@ test("travel and departures establish physical separation", () => {
 test("moving between rooms does not imply physical separation", () => {
   assert.equal(inferPresenceCue("[action: I throw on a robe and leave the bathroom]", "together").presence, "together");
   assert.equal(inferPresenceCue("We leave the kitchen and walk into the living room.", "together").presence, "together");
+});
+
+test("proposed shared travel preserves co-presence instead of enabling a remote check-in", () => {
+  const text = "[action: Hey! How about we head home? We've been in the water a long time.]";
+  assert.equal(inferPresenceCue(text, "together").presence, "together");
+  assert.deepEqual(presenceSceneCue({ scene: { presence: "together" }, messages: [] }, text), {
+    presence: "together", presenceAuthority: "deterministic",
+  });
+  for (const text of ["We head home.", "We're heading home together.", "Let's leave the hot spring.", "We leave the venue."]) {
+    assert.equal(inferPresenceCue(text, "together").presence, "together");
+  }
+  assert.equal(inferPresenceCue("How about I head home?", "together").presence, "together");
+  assert.equal(inferPresenceCue("I'm heading home now.", "together").presence, "apart");
+  assert.equal(inferPresenceCue("We part ways.", "together").presence, "apart");
+  const scene = normalizeSceneState({ location: "the hot spring", presence: "together", outfit: "swimsuit" });
+  const next = reduceSceneTurn(scene, { userText: text,
+    characterText: "She swims closer to the edge of the shallow pool. Once we get home, we can play that game!",
+    modelScene: { presence: "apart", location: "a living room" },
+    presencePatch: presenceSceneCue({ scene, messages: [] }, text) });
+  assert.equal(next.presence, "together");
+  assert.equal(next.location, "the hot spring");
 });
 
 test("leaving to return later or texting back establishes physical separation", () => {

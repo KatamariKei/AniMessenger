@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { normalizeUserProfile } from "./user-profile.mjs";
 
 export const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const appHomeDir = process.env.ANIMESSENGER_HOME
@@ -11,6 +12,12 @@ export const configPath = path.join(appHomeDir, "animessenger.config.json");
 
 export const defaultConfig = {
   userName: "",
+  userPronouns: "",
+  userAbout: "",
+  userAppearance: "",
+  userAvatarUrl: "",
+  userPortraitPrompt: "",
+  userProfileShared: false,
   ollamaUrl: "http://127.0.0.1:11434",
   chatModel: "",
   profileModel: "",
@@ -52,10 +59,12 @@ function directoriesOverlap(left, right) {
 
 export function normalizeConfigPaths(config) {
   const next = { ...config };
+  Object.assign(next, normalizeUserProfile(next));
   next.soundVolume = Number.isFinite(Number(next.soundVolume))
     ? Math.max(0, Math.min(1, Number(next.soundVolume)))
     : defaultConfig.soundVolume;
-  next.bondSound = next.bondSound === "heartbeat" ? "heartbeat" : "celebration";
+  // Migrate the retired heartbeat preference to the remaining milestone cue.
+  next.bondSound = "celebration";
   const models = String(next.comfyModelsDir || "").trim();
   const output = String(next.comfyOutputDir || "").trim();
   if (models && output && directoriesOverlap(path.resolve(models), path.resolve(output))) {

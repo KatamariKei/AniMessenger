@@ -19,6 +19,7 @@ const concretePlace = /\b(?:apartment|house|home|room|kitchen|bedroom|bathroom|l
 const completedLocationTransition = /\b(?:arrive(?:d|s|ing)?|enter(?:ed|s|ing)?|step(?:ped|s|ping)? (?:inside|into|outside|out)|walk(?:ed|s|ing)? (?:inside|into|outside|out)|went (?:inside|outside|into|to)|came (?:inside|outside|through|to)|come(?:s|ing)? through|emerge(?:d|s|ing)?|move(?:d|s|ing)? (?:into|outside|inside)|land(?:ed|s|ing)? (?:in|inside|at)|teleport(?:ed|s|ing)? (?:into|to)|(?:leave(?:s|ing)?|left)\b[^.!?;]{0,120}?\band\s+(?:then\s+)?(?:are\s+)?(?:walk(?:ed|s|ing)?|stroll(?:ed|s|ing)?|step(?:ped|s|ping)?|move(?:d|s|ing)?|head(?:ed|s|ing)?)\s+(?:along|onto|across|to|into|through)|(?:hear|heard) (?:a )?knock at (?:my|our|the) door)\b/i;
 const currentPlaceActivity = /\b(?:taking a break from|working out|exercising|training|lifting|hitting (?:the )?weights|doing (?:strength|cardio)|cleaning|shopping|eating|having (?:breakfast|lunch|dinner)|waiting|sitting|standing|swimming|playing|practicing|studying|working)\b/i;
 const futureOrHypotheticalPlace = /\b(?:will|would|might|maybe|later|tomorrow|plan(?:ning)? to|want(?:ing)? to|going to|head(?:ing)? to|on (?:my|our|the) way to|should (?:go|head)|could (?:go|head))\b/i;
+const definiteFuturePlace = /\b(?:will|would|might|maybe|later|tomorrow|plan(?:ning)? to|want(?:ing)? to|going to|should (?:go|head)|could (?:go|head))\b/i;
 const characterDirectionLead = /^(?:(?:she|he|they|the character|[a-z][a-z'-]+)\s+)?(?:looks?|looking|gazes?|gazing|glances?|glancing|stares?|staring|faces?|facing|turns?|turning|poses?|posing|strikes?|striking|stands?|standing|sits?|sitting|leans?|leaning)\b/i;
 const sceneActionLead = /^(?:ok[, ]+)?(?:as\s+|once\s+|when\s+|while\s+)?(?:we|i|you|she|he|they|the character)\s+(?:(?:finally|then|now)\s+)?(?:arriv\w*|enter\w*|leav\w*|left|walk\w*|step\w*|mov\w*|head\w*|go(?:es|ing)?|went|com\w*|came|rac\w*|run(?:s|ning)?|ran|rush\w*|dash\w*|follow\w*|driv\w*|drove|rid\w*|rode|fl\w*|flew|climb\w*|return\w*|jump\w*|sit\w*|sat|stand\w*|stood|play\w*|wrestl\w*|roll\w*|laugh\w*|mak\w*|start\w*|beg\w*)\b/i;
 const narrativeSubjectLead = /^(?:(?:as|once|when|while|after|before)\s+)?(?:we|i|you|she|he|they|the character)\b/i;
@@ -110,7 +111,7 @@ function concreteLocationFromPhrase(value, { allowOpenVocabulary = false } = {})
     .replace(/\s+(?:right )?now$/i, "")
     .replace(/\s+(?:already|together)$/i, "")
     .trim();
-  const match = concretePlace.exec(candidate);
+  const match = concretePlace.exec(candidate) || /\b(?:hot springs?|onsen|thermal baths?|spa)\b/i.exec(candidate);
   const knownPlace = match ? candidate.slice(0, match.index + match[0].length) : "";
   const openPlace = allowOpenVocabulary
     ? candidate.replace(trailingDestinationAction, "").trim()
@@ -133,6 +134,7 @@ export function inferLocationEvent(text = "", source = "user") {
     /\b(?:she|he|they|[a-z][a-z'-]*(?:\s+[a-z][a-z'-]*){0,2})\s+(?:join(?:s|ed|ing)?|follow(?:s|ed|ing)?)\s+(?:me|us|you)\s+(?:at|in|inside|into|outside|on)\s+([^,.!?;]+)/i,
   );
   if (joined?.[1]) {
+    if (definiteFuturePlace.test(joined[0])) return null;
     const location = concreteLocationFromPhrase(joined[1]);
     if (location && !vagueLocation.test(location)) {
       return { type: "location_change", phase: "arrived", kind: "rejoined", location, actor: "shared", evidence: normalized };
@@ -147,6 +149,10 @@ export function inferLocationEvent(text = "", source = "user") {
   for (const { kind, pattern } of patterns) {
     const match = normalized.match(pattern);
     if (!match?.[2]) continue;
+    // A named destination in a plan is not the present scene. This check is
+    // deliberately scoped to the matched clause so an unrelated future plan
+    // elsewhere in the turn cannot suppress a genuine arrival.
+    if (definiteFuturePlace.test(match[0])) continue;
     // Completed movement may establish a new named place that is not in a
     // finite vocabulary. Present-location statements remain conservative so
     // phrases such as "we're in trouble" cannot become scene locations.
@@ -314,13 +320,27 @@ export function locationChangeIsEstablished(currentLocation, nextLocation, evide
   const locationAnchor = meaningfulWords.at(-1) || "";
   const namesLocationAnchor = locationAnchor.length >= 3
     && new RegExp(`\\b${locationAnchor.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(normalizedEvidence);
-  const completedNamedTransition = completedLocationTransition.test(observed)
-    && (namesNextLocation || namesLocationAnchor || /\b(?:hear|heard) (?:a )?knock at (?:my|our|the) door\b/i.test(observed));
+  const locationClauses = observed.split(/(?:\.{2,}|[.!?;]|\s+but\s+|\s+while\s+)/i)
+    .map((clause) => clause.trim())
+    .filter(Boolean)
+    .filter((clause) => {
+      const normalizedClause = locationKey(clause);
+      return normalizedClause.includes(next)
+        || (locationAnchor && new RegExp(`\\b${locationAnchor.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(normalizedClause));
+    });
+  const presentLocationClauses = locationClauses.filter((clause) => !futureOrHypotheticalPlace.test(clause));
+  // If every clause that names the proposed destination is explicitly about
+  // later, tomorrow, a desire, or a hypothetical, the model cannot promote
+  // that destination into current scene state.
+  if (locationClauses.length && !presentLocationClauses.length) return false;
+  const groundedEvidence = presentLocationClauses.length ? presentLocationClauses.join(". ") : observed;
+  const completedNamedTransition = completedLocationTransition.test(groundedEvidence)
+    && (namesNextLocation || namesLocationAnchor || /\b(?:hear|heard) (?:a )?knock at (?:my|our|the) door\b/i.test(groundedEvidence));
   if (completedNamedTransition) return true;
-  const statesPresentLocation = /\b(?:(?:we|i|you|she|he|they)(?:\s+(?:are|am|is)|'(?:re|m|s))\s+(?:still\s+)?(?:at|in|inside|outside|on)|(?:our|the|my)\s+(?:current\s+)?location\s+is|we (?:never left|remain(?:ed)?|stayed))\b/i.test(observed);
+  const statesPresentLocation = /\b(?:(?:we|i|you|she|he|they)(?:\s+(?:are|am|is)|'(?:re|m|s))\s+(?:still\s+)?(?:at|in|inside|outside|on)|(?:our|the|my)\s+(?:current\s+)?location\s+is|we (?:never left|remain(?:ed)?|stayed))\b/i.test(groundedEvidence);
   const reportsCurrentActivityThere = namesLocationAnchor
-    && currentPlaceActivity.test(observed)
-    && !futureOrHypotheticalPlace.test(observed);
+    && currentPlaceActivity.test(groundedEvidence)
+    && !futureOrHypotheticalPlace.test(groundedEvidence);
   return (namesNextLocation && statesPresentLocation) || reportsCurrentActivityThere;
 }
 

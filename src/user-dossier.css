@@ -1,0 +1,152 @@
+/* The user's counterpart to the character dossier: identity left, tools right. */
+:root .settings-layer:has(> .user-dossier) { position: fixed; inset: 0; z-index: 100; }
+:root .settings-layer > .user-dossier {
+  --character-accent: var(--accent-bright);
+  display: grid; grid-template-columns: minmax(280px, .88fr) minmax(0, 1.12fr); grid-template-rows: 54px minmax(0, 1fr);
+  width: min(1080px, 100%); height: min(780px, calc(100dvh - 48px)); max-height: calc(100dvh - 48px);
+  padding: 0; border: 1px solid #e0edf122; border-radius: 24px; background: #101518; overflow: hidden; text-align: left;
+  box-shadow: 0 32px 100px #0009;
+}
+.user-dossier .settings-header { grid-column: 1 / -1; min-height: 54px; padding: 0 12px 0 24px; background: #12191c; }
+:root .user-dossier .user-dossier-close { display: grid; place-items: center; width: 38px; height: 38px; padding: 0; margin: 0; border-radius: 12px; line-height: 1; }
+.user-dossier-close svg { display: block; width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+.user-dossier-identity { position: relative; isolation: isolate; display: flex; flex-direction: column; justify-content: flex-end; min-width: 0; min-height: 0; padding: 32px; overflow: hidden; border-right: 1px solid #ffffff0d; background: linear-gradient(150deg, #203335, #101719 85%); }
+.user-dossier-portrait { position: absolute; z-index: -2; inset: 0 0 auto; display: grid; place-items: center; width: 100%; aspect-ratio: 1; overflow: hidden; background: radial-gradient(ellipse at 50% 45%, #355556, #19282a 65%); }
+.user-dossier-portrait.has-image { background: #192225; }
+.user-dossier-identity::after { position: absolute; z-index: -1; inset: 0 0 auto; width: 100%; aspect-ratio: 1; content: ""; background: linear-gradient(180deg, #10151800 45%, #10151822 65%, #101518bb 88%, #101518 100%); pointer-events: none; }
+.user-dossier-portrait > img { display: block; width: 100%; height: 100%; min-height: 0; object-fit: cover; object-position: center top; }
+.user-portrait-placeholder { display: flex; flex-direction: column; align-items: center; gap: 26px; width: 100%; padding: 35px 20px; }
+.user-portrait-placeholder svg { width: min(180px, 65%); fill: #75ddd109; stroke: #75ddd15c; stroke-width: 1.1; }
+.user-portrait-placeholder span { color: #9db6b8; font-size: 13px; letter-spacing: .025em; }
+.user-dossier-caption { padding: 0; text-shadow: 0 2px 15px #0006; }
+.user-dossier-caption > small { color: var(--accent-bright); font-size: 10px; letter-spacing: .16em; text-transform: uppercase; font-weight: 700; }
+.user-dossier-caption h2 { margin: 16px 0 12px; color: #efefea; font-size: clamp(30px, 3vw, 44px); font-weight: 700; line-height: 1.08; letter-spacing: -.045em; overflow-wrap: anywhere; }
+.user-dossier-caption > p { margin: 0; color: #bccbce; font-size: 14px; line-height: 1.5; }
+.user-dossier-note { margin-top: 28px; padding-top: 20px; border-top: 1px solid #ffffff15; color: #d0dddf; font-size: 12px; }
+.user-dossier-note > small { display: block; margin-top: 10px; color: #8fa5ab; font-size: 11px; line-height: 1.6; }
+.user-achievement-total { display: inline-flex; align-items: baseline; gap: 8px; color: #a8bfc2; }
+.user-achievement-total strong { color: var(--accent-bright); font-size: 20px; line-height: 1; font-variant-numeric: tabular-nums; }
+.user-achievement-history { margin: 20px 0 26px; padding: 14px 0; border-block: 1px solid #ffffff12; color: #a8bdc3; font-size: 13px; }
+.user-achievement-history summary { color: var(--accent-bright); cursor: pointer; }
+.user-achievement-history p { line-height: 1.6; }
+.user-achievement-history ul { list-style: none; padding: 0; margin: 12px 0 0; }
+.user-achievement-history li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; border-top: 1px solid #ffffff0d; }
+.user-achievement-history li span { min-width: 0; }
+.user-achievement-history li strong { display: block; color: #e1e9eb; }
+.user-achievement-history li small { display: block; margin-top: 4px; }
+.user-achievement-history li b { flex-shrink: 0; color: var(--accent-bright); }
+.user-local-dot { display: inline-block; width: 5px; height: 5px; margin: 0 8px 2px 0; border-radius: 50%; background: var(--accent-bright); }
+.user-dossier-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: radial-gradient(ellipse at 100% 0%, #142123, #101518 60%); }
+.user-dossier-tabs { display: flex; flex: 0 0 auto; gap: 26px; margin: 0 30px; border-bottom: 1px solid #ffffff12; }
+:root .user-dossier-tabs button { position: relative; min-height: 62px; padding: 0 2px; border: 0; border-radius: 0; background: transparent; color: #93a4aa; font-size: 14px; font-weight: 600; cursor: pointer; }
+:root .user-dossier-tabs button[aria-selected="true"] { color: #edf5f5; }
+.user-dossier-tabs button[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--accent-bright); }
+:root .user-dossier .settings-scroll { flex: 1 1 0; min-height: 0; padding: 0 30px 16px; }
+.user-dossier .settings-section { padding: 26px 0 28px; }
+.user-dossier .settings-section:first-child { border-top: 0; }
+.user-dossier [hidden] { display: none !important; }
+.user-dossier .settings-section-heading > small { display: block; margin-bottom: 10px; color: var(--accent-bright); font-size: 10px; font-weight: 650; letter-spacing: .14em; text-transform: uppercase; }
+.user-dossier .settings-section-heading h3 { font-size: 22px; line-height: 1.25; }
+:root .user-dossier .settings-section-heading p { color: #98adb4; font-size: 13px; line-height: 1.65; }
+.user-dossier .settings-grid label > span > small { margin-left: 7px; color: #859aa2; font-size: 11px; font-weight: 400; letter-spacing: 0; text-transform: none; }
+:root .user-dossier .settings-grid label > span, :root .user-dossier .user-portrait-generator label > span { color: #c8d5d9; font-size: 13px; letter-spacing: 0; text-transform: none; font-weight: 550; }
+:root .user-dossier .settings-grid input:not([type="checkbox"]):not([type="range"]), :root .user-dossier .settings-grid select, :root .user-dossier textarea { min-height: 44px; border: 1px solid #ffffff18; border-radius: 9px; background: #ffffff03; color: #e1e9eb; font-size: 14px; }
+.user-dossier .settings-grid, .user-dossier .settings-grid > label { min-width: 0; max-width: 100%; }
+:root .user-dossier .settings-grid input:not([type="checkbox"]):not([type="range"]), :root .user-dossier .settings-grid select, :root .user-dossier textarea { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; }
+/* WebKit's native time editor must not impose its intrinsic width on the grid. */
+:root .user-dossier .settings-grid input[type="time"] { display: block; min-inline-size: 0; max-inline-size: 100%; appearance: none; -webkit-appearance: none; }
+.user-dossier input[type="time"]::-webkit-date-and-time-value { min-width: 0; text-align: left; }
+.user-dossier input[type="time"]::-webkit-datetime-edit { padding: 0; }
+:root .user-dossier .settings-grid textarea { line-height: 1.6; resize: vertical; }
+:root .user-dossier input::placeholder, :root .user-dossier textarea::placeholder { color: #72878f; opacity: 1; }
+.user-dossier .toggle-row { align-items: flex-start; }
+.user-dossier .toggle-row > input[type="checkbox"] { margin: 2px 0 0; }
+.user-dossier .toggle-row > span { line-height: 1.5; }
+.user-dossier .settings-grid .toggle-row > span > small { display: block; margin: 5px 0 0; color: #8fa5ad; font-size: 12px; font-weight: 400; }
+.user-dossier :is(button, summary, input[type="checkbox"]) { cursor: pointer; }
+.user-dossier button:disabled { cursor: default; opacity: .45; }
+.user-dossier :is(button, input, textarea, select, summary, [role="tabpanel"]):focus-visible { outline: 2px solid var(--accent-bright); outline-offset: 3px; }
+:root .user-dossier .settings-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 16px 30px; background: #101719; }
+.user-settings-save-state { flex: 1 1 130px; color: #a0b6bc; font-size: 12px; line-height: 1.45; }
+.user-dossier .settings-actions button { flex: 0 0 auto; min-height: 42px; margin: 0; }
+.user-portrait-tools { display: flex; align-items: center; gap: 12px; margin: 22px 0 12px; padding-top: 20px; border-top: 1px solid #ffffff12; }
+:root .user-dossier .user-portrait-tools button, :root .user-dossier .user-portrait-generator > button { min-height: 44px; padding: 10px 16px; border: 1px solid #75ddd138; border-radius: 9px; background: #75ddd10a; color: var(--accent-bright); font-size: 13px; font-weight: 600; }
+:root .user-dossier .user-portrait-tools .quiet-button { border-color: #ffffff16; background: transparent; color: #a6b7bd; }
+.user-portrait-editor > small, .user-portrait-generator > small { display: block; color: #8ba1aa; font-size: 12px; line-height: 1.65; }
+.user-portrait-editor > p { margin-top: 14px; color: var(--accent-bright); font-size: 13px; line-height: 1.5; }
+.user-portrait-editor > p.form-error { color: #efa296; }
+.user-portrait-generator label { display: flex; flex-direction: column; gap: 8px; margin: 14px 0 12px; }
+.user-portrait-generator textarea { width: 100%; padding: 12px; }
+.user-portrait-generator > small { margin-top: 12px; }
+.user-dossier .settings-advanced > summary { color: #adc1c7; }
+:root .user-dossier .settings-grid label > small, :root .user-dossier .settings-advanced > summary small { color: #8ba1aa; }
+.user-dossier .discard-confirm { grid-column: 1 / -1; grid-row: 1 / -1; }
+.user-orb.has-portrait { overflow: hidden; }
+.user-orb.has-portrait img { display: block; width: 100%; height: 100%; object-fit: cover; }
+:root .user-profile-button { width: 100%; margin: 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; color: var(--ink); font: inherit; text-align: left; cursor: pointer; transition: background .15s ease; }
+:root .user-profile-button:hover { background: #75ddd10a; }
+.user-profile-button .user-orb, .user-profile-button .settings-button { flex-shrink: 0; }
+.user-profile-button > span:nth-child(2) { min-width: 0; }
+.user-profile-button strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-profile-button .settings-button { color: #8fa5ab; }
+.user-profile-button:hover .settings-button { color: var(--accent-bright); background: transparent; }
+.user-profile-button:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: -4px; }
+.user-appearance-tools { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.user-appearance-tools button { padding: 10px 14px; border: 1px solid #75ddd138; border-radius: 9px; background: #75ddd10a; color: var(--accent-bright); font: inherit; font-size: 13px; }
+.user-appearance-tools small { color: #8ba1aa; font-size: 12px; line-height: 1.6; }
+.user-appearance-review { width: 100%; padding: 16px; border: 1px solid #75ddd138; border-radius: 12px; }
+.user-appearance-review label { width: 100%; margin-bottom: 12px; }
+.user-appearance-review textarea { width: 100%; padding: 12px; }
+.user-appearance-review button { margin: 0 8px 10px 0; }
+.user-appearance-review small { display: block; }
+@media (min-width: 761px) {
+  /* The longer user-status note otherwise pulls this bottom-aligned caption
+     closer to the portrait than the character dossier's bond summary. */
+  .user-dossier-identity { padding-bottom: 16px; }
+  /* Use the same identity type rhythm as the character dossier. */
+  .user-dossier-caption > small { display: block; margin: 0 0 10px; font-size: 10px; font-weight: 750; letter-spacing: .17em; line-height: 1.4; }
+  .user-dossier-caption h2 { margin: 0; font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif; font-size: clamp(30px, 3.5vw, 48px); font-weight: 760; line-height: 1.04; letter-spacing: -.04em; text-wrap: balance; color: #f2f6f7; }
+  .user-dossier-caption > p { margin: 12px 0 26px; color: #bdc8cd; font-size: 13px; line-height: 1.45; }
+  .user-dossier-note { margin-top: 0; padding-top: 12px; }
+}
+@media (max-width: 760px) {
+  /* Match the character dossier. The containing mobile shell already tracks
+     visualViewport; applying its offset here a second time shifts the modal. */
+  :root .settings-layer:has(> .user-dossier) { inset: 0; height: 100%; padding: 0; place-items: stretch; }
+  :root .settings-layer > .user-dossier { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); width: 100%; height: 100%; min-height: 0; max-height: 100%; border: 0; border-radius: 0; overflow: hidden; }
+  .user-dossier .settings-header { grid-column: 1; grid-row: 1; min-height: calc(54px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) 12px 0 20px; }
+  .user-dossier-identity { grid-column: 1; grid-row: 2; display: grid; grid-template-columns: 86px minmax(0, 1fr); gap: 18px; padding: 18px 20px; border-right: 0; border-bottom: 1px solid #ffffff0e; overflow: hidden; }
+  .user-dossier-portrait { position: relative; z-index: auto; inset: auto; aspect-ratio: auto; min-height: 0; height: 104px; border-radius: 12px; }
+  .user-dossier-identity::after { display: none; }
+  .user-dossier-portrait.has-image { aspect-ratio: auto; }
+  .user-portrait-placeholder { padding: 10px; gap: 0; }
+  .user-portrait-placeholder svg { width: 64px; }
+  .user-portrait-placeholder span { display: none; }
+  .user-dossier-caption { align-self: center; min-width: 0; padding: 0; }
+  .user-dossier-caption > small { font-size: 9px; }
+  .user-dossier-caption h2 { margin: 9px 0 8px; font-size: 28px; }
+  .user-dossier-caption > p { font-size: 12px; }
+  .user-dossier-note { margin: 10px 0 0; padding: 0; border: 0; font-size: 10px; }
+  .user-achievement-total strong { font-size: 16px; }
+  .user-dossier-note > small { display: none; }
+  .user-dossier-main { grid-column: 1; grid-row: 3; display: flex; min-height: 0; }
+  .user-dossier-tabs { gap: 25px; margin: 0 20px; }
+  :root .user-dossier-tabs button { min-height: 54px; font-size: 14px; }
+  :root .user-dossier .settings-scroll { flex: 1 1 0; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 0 20px 12px; -webkit-overflow-scrolling: touch; }
+  /* iOS zooms focused controls below 16px; retain user pinch-zoom support. */
+  :root .user-dossier .settings-grid input:not([type="checkbox"]):not([type="range"]),
+  :root .user-dossier .settings-grid select,
+  :root .user-dossier input:not([type="checkbox"]):not([type="range"]),
+  :root .user-dossier select,
+  :root .user-dossier textarea { font-size: 16px; }
+  :root .user-dossier .settings-actions { gap: 10px; padding: 12px 20px calc(12px + env(safe-area-inset-bottom)); }
+  .user-settings-save-state { flex-basis: 100%; }
+  .user-dossier .settings-actions button { flex: 1; }
+  .user-dossier .settings-section-heading h3 { font-size: 21px; }
+  :root[data-mobile-keyboard="open"] .user-dossier[data-user-editing="true"] .user-dossier-identity,
+  :root[data-mobile-keyboard="open"] .user-dossier[data-user-editing="true"] .settings-actions { display: none; }
+}
+@media (max-width: 760px) and (max-height: 530px) {
+  .user-dossier[data-user-editing="true"] .user-dossier-identity,
+  .user-dossier[data-user-editing="true"] .settings-actions { display: none; }
+}
