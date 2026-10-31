@@ -55,8 +55,8 @@ test("interrupted preparation resumes without duplicating an active history job"
 
 test("automatic preparation is wired only to successful opening completion and actual Journey visits", async () => {
   const server = await fs.readFile(new URL("../server/index.mjs", import.meta.url), "utf8");
-  const start = server.indexOf('const withImage = insertOpeningSceneMessage');
-  const end = server.indexOf('\n  const saved = await saveThread', start);
+  const start = server.indexOf('if (job.kind === "opening_scene") {');
+  const end = server.indexOf('\n  const saved = await updateThread', start);
   assert.match(server.slice(start, end), /openingImage: \{ status: "complete"[\s\S]*prepareDiscoveriesAutomatically\(saved\)/);
   const journeyGet = server.slice(server.indexOf('if (request.method === "GET" && journeyMatch)'), server.indexOf('const destinationRecheckMatch'));
   assert.doesNotMatch(journeyGet, /prepareDiscoveriesAutomatically/);

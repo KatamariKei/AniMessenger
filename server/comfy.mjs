@@ -4,6 +4,7 @@ import { buildImagePrompt, CHARACTER_PHOTO_NEGATIVE, mergePromptTags, visualExce
 import { imageEyeState } from "./image-eyes.mjs";
 import { effectiveVisual } from "./visual-overrides.mjs";
 import { prepareSnapshotBrief } from "./moment-capture.mjs";
+import { pendingSceneFields } from "./scene-verification.mjs";
 
 export async function checkComfy(config) {
   try {
@@ -276,6 +277,9 @@ export function imageGenerationSeed(seed) {
 }
 
 export async function queueCharacterImage(config, thread, brief = "", overrides = {}) {
+  if (overrides.sceneAwareFraming !== false && !overrides.positivePrompt && pendingSceneFields(thread.scene).length) {
+    throw new Error("The current scene needs to be verified before a new picture can be started.");
+  }
   if (overrides.sceneAwareFraming !== false) brief = prepareSnapshotBrief(thread, brief);
   const workflow = structuredClone(await readJson(config.comfyWorkflowFile, "workflow"));
   const mapping = await readJson(config.comfyMappingFile, "workflow mapping");

@@ -19,6 +19,32 @@ export function storyPassageHasDialogue(value) {
   return /[“"][^”"\n]{2,}[”"]/.test(String(value || ""));
 }
 
+export function storyPassageHasFirstPersonNarration(value) {
+  // Mask only closed quotation spans. Apostrophes inside words are contractions
+  // or possessives, not dialogue delimiters. An unclosed quote must not hide the
+  // rest of a first-person passage from validation.
+  const text = String(value || "");
+  let outside = "", quoted = "", closing = "";
+  const word = character => /[\p{L}\p{N}]/u.test(character || "");
+  for (let index = 0; index < text.length; index++) {
+    const character = text[index];
+    const apostrophe = ["'", "’"].includes(character) && word(text[index - 1]) && word(text[index + 1]);
+    const escaped = text[index - 1] === "\\";
+    if (closing) {
+      quoted += character;
+      if (character === closing && !apostrophe && !escaped) {
+        outside += " "; quoted = ""; closing = "";
+      }
+    } else if (!apostrophe && !escaped && (["\"", "“", "‘"].includes(character) || (character === "'" && !word(text[index - 1])))) {
+      closing = character === "“" ? "”" : character === "‘" ? "’" : character;
+      quoted = character;
+    } else outside += character;
+  }
+  outside += quoted;
+  return /(?<![\w-])[Ii](?:['’](?:m|ve|ll|d)\b|\s+[a-z]|\s*[,;]\s*[a-z])|\b(?:my|mine|myself|me|we|we['’](?:re|ve|ll|d)|our|ours|ourselves|us)\b/.test(outside)
+    || /(?:^|[.!?]\s+)(?:My|Mine|Myself|Me|We|Our|Ours|Ourselves|Us)\b/.test(outside);
+}
+
 export function storyPassageHasDanglingSpeechCue(value) {
   const passage = String(value || "").trim();
   if (!passage || storyPassageHasDialogue(passage)) return false;
@@ -71,6 +97,10 @@ export function normalizeNarration(value, mode) {
   return narration ? ensureNarrativeParagraphs(narration) : null;
 }
 
+export const storyViewpointInstruction = "CURRENT TURN VIEWPOINT: Write third-person narration outside quotation marks, even when older Chat-mode assistant messages use I, my, or we. Those older replies remain character dialogue and continuity, not examples of narrator voice. Keep natural first-person quoted dialogue and explicitly supplied user words intact; never invent the user's next move.";
+export const storyVerbalResponseInstruction = "VERBAL RESPONSE REQUIRED THIS TURN: The user asked a question or explicitly requested words. The character must give a natural, quoted spoken answer inside the prose. Action, expression, or silence alone is not a sufficient response.";
+export const optionalStoryDialogueInstruction = "Dialogue may be omitted only when a nonverbal response is genuinely more natural and the user did not ask for words or an answer.";
+
 export function narrativeModeInstructions(mode, presence = "apart", userText = "") {
   if (normalizeConversationMode(mode) !== "story") {
     return [
@@ -79,6 +109,7 @@ export function narrativeModeInstructions(mode, presence = "apart", userText = "
   }
   return [
     "STORY MODE: Turn the latest user contribution and the character's response into one self-contained third-person prose passage in narration. This is immersive fiction, not a chat reply with commentary around it.",
+    "VIEWPOINT: Outside quotation marks, use the character's name and third-person pronouns. Keep first-person words in quoted speech or explicitly quoted thoughts only. Older Chat-mode replies are dialogue history, not a narrator style to imitate. Quote any user-supplied first-person words you reprise; do not invent user actions or rewrite character dialogue into third-person self-reference.",
     characterFidelityInstruction,
     "Let tension, loss, ambiguity, and consequences remain unresolved when the scene calls for it. Do not append a hopeful lesson or comforting resolution by default. Preserve the user's agency and distinguish the character's beliefs from narrator assertions.",
     "Narration must be the complete visible response. Reprise or naturally adapt the user's explicitly supplied words or actions inside the passage, then flow into the character's response before, during, and after that moment. The separate visible user message remains in the timeline, but its contribution must still become part of the prose rather than merely receiving an answer. End on a natural opening that invites the user's next choice without directly asking a generic question.",
@@ -89,8 +120,8 @@ export function narrativeModeInstructions(mode, presence = "apart", userText = "
     "Use concrete sensory detail, spatial continuity, pacing, body language, atmosphere, and the character's emotions or thoughts when appropriate. Prefer a few precise details over exhaustive description. Stay in the established scene and avoid purple prose, summaries, screenplay language, or repetitive stage directions.",
     "Narration is the only response field in Story mode. Put every action, emotion, thought, and spoken line into that one flowing passage. There is no separate reply field where dialogue can go. Never announce that the character speaks, answers, replies, whispers, or lowers their voice and then end before writing what they actually say.",
     storyDialogueRequired(userText, presence)
-      ? "VERBAL RESPONSE REQUIRED THIS TURN: The user asked a question or explicitly requested words. The character must give a natural, quoted spoken answer inside the prose. Action, expression, or silence alone is not a sufficient response."
-      : "Dialogue may be omitted only when a nonverbal response is genuinely more natural and the user did not ask for words or an answer.",
+      ? storyVerbalResponseInstruction
+      : optionalStoryDialogueInstruction,
     "You may faithfully adapt dialogue and actions the user explicitly supplied, preserving their meaning. Never invent additional user dialogue, choices, facial expression, gaze, thoughts, feelings, bodily reactions, consent, or success.",
     presence === "together"
       ? "The character and user share a physical scene. The passage may describe the character acting around the user and the environment responding, while leaving the user's next move genuinely open."
@@ -113,6 +144,7 @@ export function storyTurnMeetsRequirements(result = {}, dialogueRequired = false
   const minimumWords = Math.max(0, Number(requiredMinimumWords) || 0);
   const wordCount = passage.trim().split(/\s+/).filter(Boolean).length;
   return storyTurnHasUsablePassage(result)
+    && !storyPassageHasFirstPersonNarration(passage)
     && !storyPassageHasDanglingSpeechCue(passage)
     && (!dialogueRequired || storyPassageHasDialogue(passage))
     && (!minimumWords || storyPassageHasDialogue(passage) || wordCount >= minimumWords);

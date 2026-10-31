@@ -520,7 +520,7 @@ export function buildImagePrompt(profile, character, scene, brief = "", options 
   const characterTags = [
     subject,
     "adult",
-    character.trigger || character.name,
+    profile.imageIdentity?.trigger || character.imageIdentity?.trigger || character.trigger || character.name,
     ...(eyes === "closed" ? ["(closed eyes:1.2), eyelids fully closed"] : eyes === "open" ? ["open eyes"] : []),
     ...framedIdentity.filter((tag) => !subjectCountTags.has(String(tag).trim().toLowerCase())),
     ...framedSignature,

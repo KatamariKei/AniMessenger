@@ -111,9 +111,9 @@ function wikiLinks(body = "") {
   return [...String(body).matchAll(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g)].map((match) => match[1].trim());
 }
 
-const visualTagPattern = /\b(?:1girl|1boy|1other|hair|ponytail|twintails?|braid|bun|bangs|ahoge|eyes?|skin|complexion|freckles?|scar|tattoo|ears?|horns?|tail|wings?|fangs?|breasts?|chest|build|physique|height|short|tall|petite|muscular|athletic|curvy|slender|glasses|eyepatch|blindfold|ribbon|hairband|earrings?|necklace|choker|shirt|top|blouse|dress|skirt|shorts|pants|trousers|jeans|leggings|stockings|socks|boots|shoes|heels|jacket|coat|robe|armor|uniform|swimsuit|bikini|leotard|bodysuit|gloves|sleeves|hat|cap)\b/i;
+const visualTagPattern = /\b(?:1girl|1boy|1other|hair|wolf cut|hime cut|two side up|ponytail|twintails?|braid|bun|bangs|ahoge|eyes?|skin|complexion|freckles?|scar|tattoo|ears?|horns?|tail|wings?|fangs?|breasts?|chest|build|physique|height|short|tall|petite|muscular|athletic|curvy|slender|glasses|eyepatch|blindfold|ribbon|hairband|earrings?|necklace|choker|shirt|top|blouse|dress|skirt|shorts|pants|trousers|jeans|leggings|stockings|socks|boots|shoes|heels|jacket|coat|robe|armor|uniform|swimsuit|bikini|leotard|bodysuit|gloves|sleeves|hat|cap)\b/i;
 
-const stableEvidencePattern = /^(?:1girl|1boy|1other|(?:black|blonde|brown|blue|green|grey|gray|orange|pink|purple|red|silver|white|aqua|multicolored|two-tone)_hair|(?:black|brown|blue|green|grey|gray|orange|pink|purple|red|yellow|aqua|heterochromia)_eyes|(?:dark|dark-skinned|tan|pale)_skin|freckles|scar|facial_scar|tattoo|petite|short|tall|muscular|athletic|curvy|slender|very_long_hair|long_hair|medium_hair|short_hair|blunt_bangs|parted_bangs|sidelocks|hair_intakes|ahoge|ponytail|side_ponytail|twintails|low_twintails|braid|twin_braids|hair_bun|single_hair_bun|double_bun|half_updo|multi-tied_hair|glasses|eyepatch|blindfold|fangs|animal_ears|horns|tail|wings|hair_beads|beads|hair_ornament|hair_ribbon|hair_bow|hairband|ribbon|(?:black|blue|brown|green|grey|gray|orange|pink|purple|red|white|yellow)_ribbon|earrings|necklace|choker|chinese_clothes|japanese_clothes|hanfu|aoqun|ruqun|qipao|kimono|yukata|school_uniform|sailor_collar|serafuku|armor|robe|dress|shirt|blouse|tank_top|crop_top|skirt|shorts|pants|trousers|jeans|leggings|jacket|coat|leotard|bodysuit|swimsuit|bikini|gloves|stockings|thighhighs|boots|shoes|sandals|flats|heels|long_sleeves|short_sleeves|wide_sleeves|sleeveless|(?:black|blue|brown|green|grey|gray|orange|pink|purple|red|white|yellow)_(?:hanfu|kimono|robe|dress|shirt|blouse|skirt|shorts|pants|jacket|coat|leotard|bodysuit|swimsuit|bikini|gloves|stockings|thighhighs|boots|shoes))$/;
+const stableEvidencePattern = /^(?:1girl|1boy|1other|(?:black|blonde|brown|blue|green|grey|gray|orange|pink|purple|red|silver|white|aqua|multicolored|two-tone)_hair|(?:black|brown|blue|green|grey|gray|orange|pink|purple|red|yellow|aqua|heterochromia)_eyes|(?:dark|dark-skinned|tan|pale)_skin|freckles|scar|facial_scar|tattoo|petite|short|tall|muscular|athletic|curvy|slender|very_long_hair|long_hair|medium_hair|short_hair|wolf_cut|antenna_hair|two_side_up|hime_cut|messy_hair|spiked_hair|blunt_bangs|parted_bangs|sidelocks|hair_intakes|ahoge|ponytail|side_ponytail|twintails|low_twintails|braid|twin_braids|hair_bun|single_hair_bun|double_bun|half_updo|multi-tied_hair|glasses|eyepatch|blindfold|fangs|animal_ears|horns|tail|wings|hair_beads|beads|hair_ornament|hair_ribbon|hair_bow|hairband|ribbon|(?:black|blue|brown|green|grey|gray|orange|pink|purple|red|white|yellow)_ribbon|earrings|necklace|choker|chinese_clothes|japanese_clothes|hanfu|aoqun|ruqun|qipao|kimono|yukata|school_uniform|sailor_collar|serafuku|armor|robe|dress|shirt|blouse|tank_top|crop_top|skirt|shorts|pants|trousers|jeans|leggings|jacket|coat|leotard|bodysuit|swimsuit|bikini|gloves|stockings|thighhighs|boots|shoes|sandals|flats|heels|long_sleeves|short_sleeves|wide_sleeves|sleeveless|(?:black|blue|brown|green|grey|gray|orange|pink|purple|red|white|yellow)_(?:hanfu|kimono|robe|dress|shirt|blouse|skirt|shorts|pants|jacket|coat|leotard|bodysuit|swimsuit|bikini|gloves|stockings|thighhighs|boots|shoes))$/;
 
 export function summarizeDanbooruEvidence(posts, targetTag) {
   const target = String(targetTag || "").trim();
@@ -144,13 +144,16 @@ export function parseDanbooruCharacter(tag, wiki = null, evidenceTags = []) {
   if ((tagName.match(/_\([^()]*\)/g) || []).length > 1) return null;
   const parsed = booruParts(tagName);
   const body = String(wiki?.body || "");
+  // A loose "in [[...]]" later in a visual guide may describe a pose or
+  // garment, not a franchise. Reserve the generic origin fallback for its lead.
+  const originLead = body.split(/[.!?]\s+(?=[A-Z])|\n/, 1)[0];
   const appearanceBody = body.split(/\b(?:other|alternate)\s+(?:official\s+)?(?:outfits?|costumes?)\b|\bh\d(?:#\S+)?\./i)[0];
   const links = wikiLinks(appearanceBody);
   const linkedSeries = body.match(/\bfrom\s+(?:the\s+)?series\s+\[\[([^\]|]+)/i)?.[1]
     || body.match(/\b(?:video\s+game|action\s+game|game|anime|manga|novel)?\s*series\s+\[\[([^\]|]+)/i)?.[1]
     || body.match(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]\s+character\b/i)?.[1]
     || body.match(/\b(?:protagonist|antagonist|character)\s+(?:from|of|in)\s+(?:the\s+)?\[\[([^\]|]+)/i)?.[1]
-    || body.match(/\b(?:from|of|in)\s+(?:the\s+)?\[\[([^\]|]+)(?:\|[^\]]+)?\]\](?:\s+(?:franchise|series|game|anime|manga))?/i)?.[1]
+    || originLead.match(/\b(?:from|in)\s+(?:the\s+)?\[\[([^\]|]+)(?:\|[^\]]+)?\]\](?:\s+(?:franchise|series|game|anime|manga))?/i)?.[1]
     || "";
   // A character tag's parenthetical suffix is often only a Danbooru
   // disambiguator (for example `catherine_(atlus_character)`), not the work
@@ -164,7 +167,7 @@ export function parseDanbooruCharacter(tag, wiki = null, evidenceTags = []) {
   const subject = /\b(?:she|her)\b/i.test(body) ? "1girl" : /\b(?:he|him|his)\b/i.test(body) ? "1boy" : "";
   const hasEvidenceHairColor = evidenceTags.some((item) => /^(?:black|blonde|brown|blue|green|grey|gray|orange|pink|purple|red|silver|white|aqua|multicolored|two-tone) hair$/i.test(item));
   const hasEvidenceEyeColor = evidenceTags.some((item) => /^(?:black|brown|blue|green|grey|gray|orange|pink|purple|red|yellow|aqua|heterochromia) eyes$/i.test(item));
-  const wikiVisuals = links.filter((item) => visualTagPattern.test(item)).filter((item) => {
+  const wikiVisuals = links.map(item => item.replaceAll("_", " ")).filter((item) => visualTagPattern.test(item)).filter((item) => {
     if (hasEvidenceHairColor && /\b(?:black|blonde|brown|blue|green|grey|gray|orange|pink|purple|red|silver|white|aqua|multicolored|two-tone) hair\b/i.test(item)) return false;
     if (hasEvidenceEyeColor && /\b(?:black|brown|blue|green|grey|gray|orange|pink|purple|red|yellow|aqua) eyes\b/i.test(item)) return false;
     return true;
@@ -180,6 +183,11 @@ export function parseDanbooruCharacter(tag, wiki = null, evidenceTags = []) {
     series: series || "Series to confirm",
     seriesAliases,
     trigger: [tagName, series ? String(series).toLowerCase().replaceAll(" ", "_") : ""].filter(Boolean).join(", "),
+    ...(Number(tag.post_count || 0) > 0 ? { imageIdentity: {
+      trigger: [tagName, linkedSeries ? linkedSeries.toLowerCase().replaceAll(" ", "_") : ""].filter(Boolean).join(", "),
+      sourceUrl: `${DANBOORU}/wiki_pages/${encodeURIComponent(tagName)}`,
+      postCount: Number(tag.post_count),
+    } } : {}),
     tags,
     sourceUrl: `${DANBOORU}/wiki_pages/${encodeURIComponent(tagName)}`,
     sourceProvider: "danbooru",
@@ -195,7 +203,8 @@ export function parseWikidataCharacter(item) {
   const description = cleanText(item?.description);
   if (!item?.id || !item?.label || !/\b(?:fictional|character|protagonist|antagonist)\b/i.test(description)) return null;
   const typedTitle = description.match(/\b(?:from|in|of)\s+(?:the\s+)?(?:video\s+game|game|anime|manga|television\s+series|film|comic|novel)\s+(.+)$/i)?.[1];
-  const series = (typedTitle || description.match(/\b(?:from|in|of)\s+(?:the\s+)?(.+?)(?:\s+(?:video game|game|anime|manga|television|film|comic|novel|franchise|series)\b|$)/i)?.[1])
+  const franchiseCharacter = description.match(/^(?:(?:fan[- ](?:made|created)|fictional)\s+)?(.+?)\s+(?:franchise|series)\s+character\b/i)?.[1];
+  const series = (typedTitle || description.match(/\b(?:from|in|of)\s+(?:the\s+)?(.+?)(?:\s+(?:video game|game|anime|manga|television|film|comic|novel|franchise|series)\b|$)/i)?.[1] || franchiseCharacter)
     ?.replace(/^(?:fictional\s+)?character\s+/i, "")
     ?.replace(/\s+(?:video game|game|anime|manga|television|film|comic|novel|franchise|series)$/i, "")
     ?.trim();
@@ -207,6 +216,7 @@ export function parseWikidataCharacter(item) {
     tags: [],
     sourceUrl: item.concepturi || `https://www.wikidata.org/wiki/${item.id}`,
     sourceProvider: "wikidata",
+    catalogDescription: description,
     sourceRefs: [{ title: `${cleanText(item.label)} on Wikidata`, url: item.concepturi || `https://www.wikidata.org/wiki/${item.id}` }],
     catalogNotes: description ? [`Wikidata description: ${description}`] : [],
     count: 0,
@@ -258,6 +268,7 @@ async function searchDanbooru(query) {
     tokens.length > 1 ? `*${[...tokens].reverse().join("*")}*` : "",
   ]).filter(Boolean))];
   let tags = [];
+  const discovered = new Map();
   for (const pattern of patterns) {
     try {
       const url = new URL("/tags.json", DANBOORU);
@@ -266,16 +277,24 @@ async function searchDanbooru(query) {
       url.searchParams.set("search[order]", "count");
       url.searchParams.set("limit", "16");
       const matches = await fetchJson(url, { headers: { "user-agent": "AniMessenger/0.6 character catalogue" } });
-      tags = (Array.isArray(matches) ? matches : []).filter((tag) => {
-        const name = normalizedKey(tag?.name);
-        return tokenSets.some((tokens) => tokens.every((token) => name.includes(token)));
+      const matching = (Array.isArray(matches) ? matches : []).filter((tag) => {
+        const words = normalizedKey(tag?.name).split(/\s+/);
+        // Prefix matching supports incomplete searches without treating Anna
+        // as a substring of an unrelated surname such as Kannazuki.
+        return tokenSets.some((tokens) => tokens.every((token) => words.some(word => word.startsWith(token))));
       });
+      for (const tag of matching) discovered.set(tag.name, tag);
+      tags = [...discovered.values()];
     } catch {
-      tags = [];
+      tags = [...discovered.values()];
     }
-    if (Array.isArray(tags) && tags.length) break;
+    // An empty name-order placeholder is not a useful stopping point. Keep
+    // trying the existing bounded patterns for populated reference tags.
+    if (tags.some(tag => Number(tag.post_count) > 0 && !tag.is_deprecated)) break;
   }
-  const canonical = (Array.isArray(tags) ? tags : []).filter((tag) => (String(tag.name).match(/_\([^()]*\)/g) || []).length <= 1).slice(0, 10);
+  const canonical = (Array.isArray(tags) ? tags : []).filter(tag => !tag.is_deprecated && Number(tag.category) === 4)
+    .filter(tag => Number(tag.post_count) > 0 || !tags.some(other => Number(other.post_count) > 0 && canonicalNameKey(booruParts(other.name).name) === canonicalNameKey(booruParts(tag.name).name)))
+    .filter((tag) => (String(tag.name).match(/_\([^()]*\)/g) || []).length <= 1).slice(0, 10);
   const wikiResults = await Promise.all(canonical.map(async (tag, index) => {
     try {
       const wikiUrl = new URL("/wiki_pages.json", DANBOORU);
@@ -290,7 +309,30 @@ async function searchDanbooru(query) {
         requests.push(fetchJson(postsUrl, { headers: { "user-agent": "AniMessenger/0.6 character catalogue" } }, 7000).catch(() => []));
       }
       const [pages, posts = []] = await Promise.all(requests);
-      return parseDanbooruCharacter(tag, pages?.[0], summarizeDanbooruEvidence(posts, tag.name));
+      const original = parseDanbooruCharacter(tag, pages?.[0], summarizeDanbooruEvidence(posts, tag.name));
+      // Only follow an entire short alias declaration, never arbitrary links
+      // in a character biography. One hop, fixed provider and exact tag match.
+      const alias = String(pages?.[0]?.body || "").trim().match(/^See\s+(?:\[\[([^\]|]+)\]\]|\{\{([^{}]+)\}\})\.?$/i);
+      const target = (alias?.[1] || alias?.[2] || "").trim().replaceAll(" ", "_");
+      if (!target || target === tag.name || target.length > 160 || !/^[\p{L}\p{N}_():.'-]+$/u.test(target)) return original;
+      try {
+        const targetTags = new URL("/tags.json", DANBOORU);
+        targetTags.searchParams.set("search[name_matches]", target);
+        targetTags.searchParams.set("search[category]", "4");
+        targetTags.searchParams.set("limit", "1");
+        const matches = await fetchJson(targetTags, { headers: catalogHeaders }, 4000);
+        const canonicalTag = matches.find(item => item.name === target && Number(item.category) === 4 && !item.is_deprecated);
+        if (!canonicalTag) return original;
+        const targetWiki = new URL("/wiki_pages.json", DANBOORU);
+        targetWiki.searchParams.set("search[title]", target);
+        targetWiki.searchParams.set("limit", "1");
+        const targetPages = await fetchJson(targetWiki, { headers: catalogHeaders }, 4000);
+        const canonical = parseDanbooruCharacter(canonicalTag, targetPages?.[0]);
+        if (!canonical) return original;
+        return { ...canonical, id: original.id, name: original.name,
+          catalogNotes: [...original.catalogNotes, ...canonical.catalogNotes],
+          sourceRefs: mergeSourceRefs(original.sourceRefs, canonical.sourceRefs) };
+      } catch { return original; }
     } catch {
       return parseDanbooruCharacter(tag);
     }
@@ -369,25 +411,31 @@ export function mergeCatalogResults(groups, query, limit = 20) {
   for (const item of items) {
     const index = merged.findIndex((candidate) => catalogNameKey(candidate) === catalogNameKey(item) && compatibleIncludingUnambiguousUnknown(candidate, item));
     const existing = index >= 0 ? merged[index] : null;
+    const imageIdentity = [item.imageIdentity, existing?.imageIdentity].filter(value => value?.trigger && value.postCount > 0)
+      .sort((a, b) => b.postCount - a.postCount)[0];
     if (!existing) {
       merged.push({ ...item });
     } else if (resultScore(item, query) > resultScore(existing, query)) {
       merged[index] = {
         ...item,
+        ...(imageIdentity ? { imageIdentity, trigger: imageIdentity.trigger } : {}),
         thumbUrl: item.thumbUrl || existing.thumbUrl,
         series: seriesKeys(item).length ? item.series : existing.series,
         seriesAliases: [...new Set([...(item.seriesAliases || []), ...(existing.seriesAliases || []), item.series, existing.series].filter(Boolean))],
         tags: mergedEvidenceTags(item, existing),
         catalogNotes: [...new Set([...(item.catalogNotes || []), ...(existing.catalogNotes || [])])],
+        catalogDescription: item.catalogDescription || existing.catalogDescription,
         sourceRefs: mergeSourceRefs(item.sourceRefs, existing.sourceRefs),
       };
     } else {
+      if (imageIdentity) { existing.imageIdentity = imageIdentity; existing.trigger = imageIdentity.trigger; }
       if (!seriesKeys(existing).length && seriesKeys(item).length) existing.series = item.series;
       else if (item.sourceProvider === "anilist" && seriesCompatible(existing, item)) existing.series = item.series;
       existing.thumbUrl ||= item.thumbUrl;
       existing.seriesAliases = [...new Set([...(existing.seriesAliases || []), ...(item.seriesAliases || []), existing.series, item.series].filter(Boolean))];
       existing.tags = mergedEvidenceTags(existing, item);
       existing.catalogNotes = [...new Set([...(existing.catalogNotes || []), ...(item.catalogNotes || [])])];
+      existing.catalogDescription ||= item.catalogDescription;
       existing.sourceRefs = mergeSourceRefs(existing.sourceRefs, item.sourceRefs);
     }
   }
@@ -453,11 +501,20 @@ export async function searchCharacterCatalog(config, query, page = 1) {
 export async function enrichCharacterCatalog(config, character) {
   if (!character?.name) return character;
   const result = await searchCharacterCatalog(config, character.name, 1);
-  const match = (result.results || []).find((candidate) => canonicalNameKey(candidate.name) === canonicalNameKey(character.name) && seriesCompatible(candidate, character));
+  const selectedSources = new Set([character.sourceUrl, ...(character.sourceRefs || []).map(ref => ref.url)].filter(Boolean));
+  const match = (result.results || []).find(candidate => {
+    if (seriesKeys(candidate).length && seriesKeys(character).length && !seriesCompatible(candidate, character)) return false;
+    const sameSource = [candidate.sourceUrl, ...(candidate.sourceRefs || []).map(ref => ref.url)].some(url => url && selectedSources.has(url));
+    return candidate.id === character.id || sameSource
+      || (canonicalNameKey(candidate.name) === canonicalNameKey(character.name) && seriesCompatible(candidate, character));
+  });
   if (!match) return character;
   return {
     ...character,
-    trigger: match.trigger || character.trigger,
+    series: seriesKeys(character).length ? character.series : match.series,
+    catalogDescription: character.catalogDescription || match.catalogDescription,
+    trigger: match.imageIdentity?.trigger || match.trigger || character.trigger,
+    ...(match.imageIdentity ? { imageIdentity: match.imageIdentity } : {}),
     tags: [...new Set([...(character.tags || []), ...(match.tags || [])])],
     sourceRefs: mergeSourceRefs(character.sourceRefs, match.sourceRefs),
     catalogNotes: [...new Set([...(character.catalogNotes || []), ...(match.catalogNotes || [])])],

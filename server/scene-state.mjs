@@ -18,6 +18,7 @@ import { inferWardrobeDescription, inferWardrobeEvent, normalizeWardrobePrompt, 
 import { classifyPlaceCandidate, recordSceneShadowEvaluation } from "./scene-events-v2.mjs";
 import { applyFinalScene } from "./final-scene.mjs";
 import { recordFinalSceneEvaluation } from "./scene-evaluation.mjs";
+import { withSceneVerification, sceneStateFields, pendingSceneFields } from "./scene-verification.mjs";
 
 const presenceValues = new Set(["apart", "together", "uncertain"]);
 const ownerValues = new Set(["shared", "character", "user", "unknown"]);
@@ -67,6 +68,8 @@ export function normalizeSceneState(scene = {}) {
     } : {}),
   };
 }
+
+export const sceneContinuityGuidance = "IMMEDIATE SCENE CHECKPOINT: Verified CURRENT SCENE fields are authoritative immediately before the latest user turn. Fields explicitly marked uncertain are provisional older values: resolve them from the latest visible exchange and its continuity, with current evidence, rather than treating the old value as a confirmed setting. Any earlier history at another location or describing an earlier activity is completed past context. Do not make earlier food, props, surroundings, actions, or unfinished business present again unless the latest user turn explicitly returns to them.";
 
 export function sceneContinuityCheckpoint(scene = {}) {
   const current = normalizeSceneState(scene);
@@ -151,9 +154,9 @@ function eventForMainScene(event, presence) {
 export function reduceSceneTurn(existing, options = {}) {
   const current = normalizeSceneState(existing);
   if (options.sceneEvidence && typeof options.sceneEvidence === "object") {
-    const result = applyFinalScene(current, options);
+    const result = applyFinalScene(current, { ...options, verifyFields: pendingSceneFields(current) });
     if (options.recordSceneEvaluation) void recordFinalSceneEvaluation(result.decisions);
-    return normalizeSceneState(result.scene);
+    return normalizeSceneState(withSceneVerification(current, result.scene, result.decisions));
   }
   if (options.recordSceneEvaluation) void recordFinalSceneEvaluation([{ field: "contract", status: "rejected", reason: "missing_final_scene_contract_legacy_fallback" }]);
   const userText = value(options.userText);
@@ -268,7 +271,11 @@ export function reduceSceneTurn(existing, options = {}) {
   // codes and disagreement counts without saving dialogue, locations, or
   // model output, so existing threads remain untouched during evaluation.
   try { recordSceneShadowEvaluation(current, options, next); } catch { /* Shadow evaluation can never affect chat. */ }
-  return next;
+  return options.modelScene && Object.values(options.modelScene).some(value => typeof value === "string" && value.trim())
+    ? withSceneVerification(current, next, sceneStateFields.filter(field => typeof options.modelScene[field] === "string"
+      && options.modelScene[field].trim() && options.modelScene[field].trim() !== current[field])
+      .map(field => ({ field, status: "rejected", reason: "missing_final_scene_contract" })))
+    : next;
 }
 
 export function previewSceneForUserTurn(existing, userText, options = {}) {

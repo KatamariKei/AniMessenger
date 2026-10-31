@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { writeJsonAtomically } from "./atomic-json.mjs";
 import { normalizeUserProfile } from "./user-profile.mjs";
 
 export const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -23,6 +24,7 @@ export const defaultConfig = {
   profileModel: "",
   visionModel: "",
   ollamaThinking: false,
+  chatKeepAliveMinutes: 15,
   animadexUrl: "https://animadex.net",
   comfyUrl: "http://127.0.0.1:8188",
   comfyOutputDir: "",
@@ -59,6 +61,9 @@ function directoriesOverlap(left, right) {
 
 export function normalizeConfigPaths(config) {
   const next = { ...config };
+  next.chatKeepAliveMinutes = Number.isFinite(Number(next.chatKeepAliveMinutes ?? defaultConfig.chatKeepAliveMinutes))
+    ? Math.max(0, Math.min(60, Math.trunc(Number(next.chatKeepAliveMinutes ?? defaultConfig.chatKeepAliveMinutes))))
+    : defaultConfig.chatKeepAliveMinutes;
   Object.assign(next, normalizeUserProfile(next));
   next.soundVolume = Number.isFinite(Number(next.soundVolume))
     ? Math.max(0, Math.min(1, Number(next.soundVolume)))
@@ -114,7 +119,6 @@ export async function writeConfig(input) {
   }
   next.accentTheme = "signal";
   const normalized = normalizeConfigPaths(next);
-  await fs.mkdir(appHomeDir, { recursive: true });
-  await fs.writeFile(configPath, JSON.stringify(normalized, null, 2) + "\n", "utf8");
+  await writeJsonAtomically(configPath, normalized);
   return normalized;
 }

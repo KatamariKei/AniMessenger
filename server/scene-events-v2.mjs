@@ -92,10 +92,10 @@ export function classifyPlaceCandidate(input = "", evidence = "") {
   }
   const words = label.split(/\s+/).filter(Boolean);
   const named = /^(?:(?:the|a|an)\s+)?[A-Z][\p{L}\p{N}'’&.-]+(?:\s+(?:and|of|the|&|[A-Z][\p{L}\p{N}'’&.-]+)){0,7}$/u.test(label);
-  const residentialPlace = /\b(?:townhouse|townhome|condo|condominium|duplex|bungalow|cottage|cabin|flat|residence|driveway|entryway|foyer|vestibule|mudroom|basement|attic)\b/i;
+  const residentialPlace = /\b(?:townhouse|townhome|condo|condominium|duplex|bungalow|cottage|cabin|flat|residence|driveway|entryway|foyer|vestibule|mudroom|basement|attic|chambers?|quarters|lounge|corridor)\b/i;
   if (!placeWord.test(label) && !residentialPlace.test(label) && !/\b(?:boutique|hot springs?|onsen|thermal baths?|spa)\b/i.test(label) && !inhabitableObject.test(label + " " + evidence) && !named) return { valid: false, label, kind: "unknown", reason: "destination_not_place_like" };
   if (words.length > 12) return { valid: false, label, kind: "unknown", reason: "destination_too_long" };
-  const kind = /\b(?:bedroom|bathroom|kitchen|classroom|office|room|hall|hallway|lobby|laboratory|workshop|entryway|foyer|vestibule|mudroom|basement|attic|walk[- ]in)\b/i.test(label)
+  const kind = /\b(?:bedroom|bathroom|kitchen|classroom|office|room|hall|hallway|lobby|laboratory|workshop|entryway|foyer|vestibule|mudroom|basement|attic|chambers?|quarters|lounge|corridor|walk[- ]in)\b/i.test(label)
     ? "room"
     : /\b(?:deck|patio|porch|yard|garden|courtyard|balcony|rooftop|beach|forest|woods|mountain|field|street|shoreline|driveway)\b/i.test(label)
       ? "outdoor_area"

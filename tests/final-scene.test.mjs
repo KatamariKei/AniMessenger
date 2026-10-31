@@ -5,6 +5,41 @@ import { reduceSceneTurn, sceneContinuityCheckpoint } from "../server/scene-stat
 import { buildImagePrompt } from "../server/identity.mjs";
 
 const initial = { location: "restaurant", environment: "wooden tables and warm lamps", activity: "having dinner", posture: "seated", outfit: "blue dress", presence: "together", revision: 3 };
+
+test("a private-quarters scene commits the room and lounging pose together for artwork", () => {
+  const characterText = "Mira is inside her private quarters. Obsidian pillars surround a lounge with red velvet cushions. Mira reclines across the cushions.";
+  const evidence = quote => ({ quote, source: "character", actor: "character", phase: "current" });
+  const scene = reduceSceneTurn({ ...initial, location: "private wing corridor", activity: "returning from the gardens", posture: "standing" }, {
+    characterText,
+    modelScene: { location: "private quarters", environment: "Obsidian pillars surround a lounge with red velvet cushions", activity: "reclining across the cushions", posture: "lying" },
+    sceneEvidence: {
+      location: evidence("Mira is inside her private quarters"),
+      environment: evidence("Obsidian pillars surround a lounge with red velvet cushions"),
+      activity: evidence("Mira reclines across the cushions"),
+      posture: evidence("Mira reclines across the cushions"),
+    },
+  });
+  assert.equal(scene.location, "private quarters");
+  assert.equal(scene.posture, "lying");
+  assert.equal(scene.sharedLocation, scene.location);
+  const prompt = buildImagePrompt({ visual: { identity: [], signature: [] } }, { name: "Mira" }, scene);
+  assert.match(prompt, /private quarters/);
+  assert.match(prompt, /red velvet cushions/);
+  assert.match(prompt, /Mira is lying/);
+  assert.doesNotMatch(prompt, /corridor|returning from the gardens/);
+});
+
+test("private-room vocabulary still requires current grounded evidence", () => {
+  for (const quote of ["Mira will enter her private quarters tomorrow", "Mira did not enter her private chambers", "Mira entered the private lounge"]) {
+    const result = applyFinalScene(initial, {
+      characterText: "Mira remains at the restaurant.",
+      modelScene: { location: "private quarters", posture: "lying" },
+      sceneEvidence: { location: { quote, source: "character", actor: "character", phase: "current" } },
+    });
+    assert.equal(result.scene.location, initial.location);
+    assert.equal(result.scene.posture, initial.posture);
+  }
+});
 test("a clear shared current-location declaration corrects stale or missing model state", () => {
   const userText = "[action: we're standing inside my living room and Nagatoro is looking up at me, provocatively]";
   for (const modelScene of [{ location: "arcade exit" }, {}, { location: "Alex's living room" }]) {
@@ -25,6 +60,25 @@ test("shared declarations do not accept questions, memories, imagined scenes, pl
   assert.equal(applyFinalScene({ ...initial, presence: "apart" }, {
     userText: "We're standing inside my living room.", modelScene: {}, sceneEvidence: {},
   }).scene.location, initial.location);
+});
+
+test("shared declarations preserve coordinated room adjectives before the place noun", () => {
+  for (const location of ["Mira's expansive and lush private quarters", "the bright and spacious lounge", "my small and cozy living room"]) {
+    const userText = `[action: We are in ${location}.]`;
+    const result = applyFinalScene(initial, { userText, modelScene: {}, sceneEvidence: {} });
+    assert.equal(result.scene.location, location);
+    assert.equal(result.scene.sharedLocation, location);
+    assert.equal(result.scene.locationEvidence.text, `[action: We are in ${location}`);
+  }
+});
+
+test("coordinated room adjectives still separate a following character action", () => {
+  const result = applyFinalScene(initial, {
+    userText: "We're inside the bright and spacious lounge and Mira is sitting beside the window.",
+    modelScene: {}, sceneEvidence: {},
+  });
+  assert.equal(result.scene.location, "the bright and spacious lounge");
+  assert.doesNotMatch(result.scene.location, /sitting|window/);
 });
 
 test("a completed apartment arrival supports a home label, but cannot invent a specific room", () => {

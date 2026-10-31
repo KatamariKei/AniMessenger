@@ -14,6 +14,7 @@ import {
   storyMinimumWords,
   storyPassageHasDanglingSpeechCue,
   storyPassageHasDialogue,
+  storyPassageHasFirstPersonNarration,
   storyTurnHasUsablePassage,
   storyTurnMeetsRequirements,
 } from "../server/narrative-mode.mjs";
@@ -115,6 +116,32 @@ test("short dialogue-free reactions to spoken turns receive one completion retry
   assert.equal(storyMinimumWords("[action: I take his hand.]"), 0);
   assert.equal(storyTurnMeetsRequirements(croppedFeeling, false, 60), false);
   assert.equal(storyTurnMeetsRequirements({ narration: 'Astolfo grins. “Then you have excellent taste.”' }, false, 60), true);
+});
+
+test("first-person narrator prose is rejected while quoted speech and thoughts keep their viewpoint", () => {
+  for (const passage of [
+    'I step into the garden. "I can see the path," I say.',
+    'My hand rests on the gate. "It is open," Mira says.',
+    'Mira turns toward me. "The path is clear," she says.',
+    'We step inside, our footsteps fading.',
+    'I\u2019m waiting beside the gate.',
+    'Mira pauses. My coat catches on a branch.',
+    '"I step into the garden without closing the quote.',
+  ]) {
+    assert.equal(storyPassageHasFirstPersonNarration(passage), true, passage);
+    assert.equal(storyTurnMeetsRequirements({ narration: passage }), false, passage);
+  }
+  for (const passage of [
+    'Mira opens the gate. "I can see the path. Come with me," she says.',
+    'Mira smiles. “I’m ready. We can go whenever you like.”',
+    "Mira nods. 'I'm ready. My coat is by the gate,' she says.",
+    'Mira considers the gate. ‘I should check the latch,’ she thinks.',
+    'Mira’s coat brushes the gate. Her friend\'s scarf hangs beside it.',
+    'I-No rests beside the gate. "I am ready," she says.',
+    'Mira repeats the user’s words: “I open the gate.” She stays beside the path.',
+  ]) {
+    assert.equal(storyPassageHasFirstPersonNarration(passage), false, passage);
+  }
 });
 
 test("the client exposes a persistent mode control and a typewritten prose surface", () => {

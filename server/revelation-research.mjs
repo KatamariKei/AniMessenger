@@ -1,5 +1,6 @@
 import { fetchFranchiseWikiPage } from "./research.mjs";
 import { stripWikiReferences } from "./wiki-text.mjs";
+import { performanceMetrics } from "./performance-metrics.mjs";
 
 export function selectDiscoveryEvidenceText(raw, maximum = 24000) {
   const content = stripWikiReferences(raw)
@@ -93,6 +94,7 @@ async function searchDiscoveryPages(target) {
 }
 
 export async function researchCharacterDiscoveries(character, research, { fetchPage = fetchFranchiseWikiPage, searchPages = searchDiscoveryPages } = {}) {
+  const startedAt = performance.now();
   const base = research.evidence?.passages || [];
   const targets = base.filter(item => ["franchise_wiki", "wikipedia"].includes(item.provider)).map(item => discoveryWikiTarget(item, character)).filter(Boolean);
   const target = targets[0];
@@ -107,14 +109,15 @@ export async function researchCharacterDiscoveries(character, research, { fetchP
       const text = selectDiscoveryEvidenceText(page.wikitext["*"]);
       if (text.trim().length < 80) return null;
       diagnostics.retrievedPages++;
-      passages.push({ id: `discovery-${target.host}-${page.pageid || title}`, provider: "franchise_wiki", title: page.title,
-        url: `https://${target.host}/wiki/${encodeURIComponent(page.title.replaceAll(" ", "_"))}`, text });
-      return page;
+      return { page, passage: { id: `discovery-${target.host}-${page.pageid || title}`, provider: "franchise_wiki", title: page.title,
+        url: `https://${target.host}/wiki/${encodeURIComponent(page.title.replaceAll(" ", "_"))}`, text } };
     } catch { return null; }
   }
   // Re-fetch the full verified character page rather than reusing the appearance-heavy
   // creation excerpt. Follow only actually linked, same-character detail pages.
-  const main = await retrieve(target.title);
+  const mainResult = await retrieve(target.title);
+  if (mainResult) passages.push(mainResult.passage);
+  const main = mainResult?.page;
   const details = main ? linkedDiscoverySubpages(main.wikitext["*"], target.title) : [];
   if (details.length < 2) {
     diagnostics.attemptedSearches++;
@@ -127,6 +130,8 @@ export async function researchCharacterDiscoveries(character, research, { fetchP
       }
     } catch { /* Keep the retrieved character page when targeted search is unavailable. */ }
   }
-  for (const title of details.slice(0, 2)) await retrieve(title);
+  const detailResults = await Promise.all(details.slice(0, 2).map(retrieve));
+  for (const result of detailResults) if (result) passages.push(result.passage);
+  performanceMetrics.record("discovery_research", { totalMs: performance.now() - startedAt, sourceCount: passages.length });
   return { ...research, evidence: { ...research.evidence, passages: [...passages, ...base] }, discoveryResearch: diagnostics };
 }

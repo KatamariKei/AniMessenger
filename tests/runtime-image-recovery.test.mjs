@@ -59,7 +59,10 @@ test("a completed image is recovered after AniMessenger restarts without its bro
   for (let attempt = 0; attempt < 50; attempt += 1) {
     try {
       const thread = JSON.parse(await fs.readFile(path.join(home, "data", "threads", `${threadId}.json`), "utf8"));
-      if (thread.messages?.[0]?.image) {
+      const jobs = JSON.parse(await fs.readFile(path.join(home, "data", "image-jobs.json"), "utf8"));
+      // Thread and durable job ownership are separate atomic writes. Recovery
+      // is complete only after both are visible, not in the gap between them.
+      if (thread.messages?.[0]?.image && jobs[promptId]?.appended) {
         recovered = thread;
         break;
       }

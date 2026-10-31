@@ -33,13 +33,16 @@ export function userLocalTimeContext(now = new Date()) {
     hour: "numeric",
     minute: "2-digit",
   }).format(now);
+  const state = "USER LOCAL TIME: " + display + " (" + dayPart + "). Treat this clock and day part as authoritative.";
+  const guidance = [
+    "Assume the character shares the user's local time unless the recent conversation explicitly establishes another timezone or schedule.",
+    "Keep greetings, meals, school/work, sleep, lighting, and suggested activities consistent with this time. " + dayPartGuidance(dayPart),
+  ].join(" ");
   return {
     dayPart,
     display,
-    prompt: [
-      "USER LOCAL TIME: " + display + " (" + dayPart + "). Treat this clock and day part as authoritative.",
-      "Assume the character shares the user's local time unless the recent conversation explicitly establishes another timezone or schedule.",
-      "Keep greetings, meals, school/work, sleep, lighting, and suggested activities consistent with this time. " + dayPartGuidance(dayPart),
-    ].join(" "),
+    state,
+    guidance,
+    prompt: [state, guidance].join(" "),
   };
 }

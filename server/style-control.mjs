@@ -66,7 +66,9 @@ function saturatedStyle(messages) {
   return { recent, families, openings, rhetoric };
 }
 
-export function recentStyleCooldown(messages) {
+export const styleCooldownSuffix = ". Avoid all of these in the next reply, even if they are normally in character. Change the rhetorical shape, not merely the vocabulary. Do not replace a tired metaphor with a synonym. Use the character's plain baseline voice and choose a genuinely different move: a direct answer, sincere observation, practical detail, specific question, dry understatement, or brief unqualified acceptance.";
+
+export function recentStyleCooldownDetails(messages) {
   const { recent, families, openings, rhetoric } = saturatedStyle(messages);
   if (recent.length < 3 || (!families.length && !openings.length && !rhetoric.length)) return "";
   const details = [
@@ -74,7 +76,12 @@ export function recentStyleCooldown(messages) {
     ...(openings.length ? ["overused openings: " + openings.map((item) => item.name).join(", ")] : []),
     ...(rhetoric.length ? ["overused rhetorical moves: " + rhetoric.map((item) => item.name).join("; ")] : []),
   ].join(". ");
-  return "RECENT STYLE COOLDOWN: " + details + ". Avoid all of these in the next reply, even if they are normally in character. Change the rhetorical shape, not merely the vocabulary. Do not replace a tired metaphor with a synonym. Use the character's plain baseline voice and choose a genuinely different move: a direct answer, sincere observation, practical detail, specific question, dry understatement, or brief unqualified acceptance.";
+  return details;
+}
+
+export function recentStyleCooldown(messages) {
+  const details = recentStyleCooldownDetails(messages);
+  return details ? "RECENT STYLE COOLDOWN: " + details + styleCooldownSuffix : "";
 }
 
 export function repeatsRecentStyle(reply, messages) {

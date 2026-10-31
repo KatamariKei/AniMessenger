@@ -34,12 +34,15 @@ test("chat and proactive contracts carry soft follow-up and topic metadata", () 
   assert.equal("reply" in storyCharacterChatSchema.properties, false);
 });
 
-test("chat and narrative require a final pose and field-specific source evidence", () => {
+test("chat and narrative carry sparse final-scene changes with field-specific source evidence", () => {
   for (const schema of [characterChatSchema, storyCharacterChatSchema]) {
     assert.ok(schema.required.includes("sceneEvidence"));
-    assert.ok(schema.properties.scene.required.includes("posture"));
+    assert.ok(schema.required.includes("scene"));
+    assert.ok(schema.properties.scene.properties.posture);
+    assert.deepEqual(schema.properties.scene.required, []);
     const evidence = schema.properties.sceneEvidence;
-    assert.deepEqual(new Set(evidence.required), new Set(["location", "environment", "activity", "outfit", "expression", "lighting", "presence", "posture"]));
+    assert.deepEqual(evidence.required, []);
+    assert.deepEqual(new Set(Object.keys(evidence.properties)), new Set(["location", "environment", "activity", "outfit", "expression", "lighting", "presence", "posture"]));
     const item = evidence.properties.location.anyOf.find((entry) => entry.type === "object");
     assert.deepEqual(item.required, ["quote", "source", "phase", "actor"]);
     assert.deepEqual(item.properties.phase.enum, ["current", "planned", "negated"]);

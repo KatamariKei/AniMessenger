@@ -1,3 +1,5 @@
+import { readChatResponse } from "./chat-stream";
+
 export type DiscoveryUnlock = { id: string; discoveryId: string; title: string; bondReward: number };
 
 export type AnimaCharacter = {
@@ -7,6 +9,7 @@ export type AnimaCharacter = {
   displayName?: string;
   series: string;
   trigger: string;
+  imageIdentity?: { trigger: string; sourceUrl: string; postCount: number };
   tags: string[];
   thumbUrl?: string;
   imageUrl?: string;
@@ -15,11 +18,13 @@ export type AnimaCharacter = {
   sourceProvider?: "danbooru" | "anilist" | "wikidata" | "animadex";
   sourceRefs?: Array<{ title: string; url: string }>;
   catalogNotes?: string[];
+  catalogDescription?: string;
   sprite?: string;
   avatarUrl?: string;
 };
 
 export type CharacterProfile = {
+  imageIdentity?: { trigger: string; sourceUrl: string; postCount: number };
   profileVersion?: number;
   id: string;
   name: string;
@@ -41,6 +46,7 @@ export type CharacterProfile = {
     signature: string[];
     defaultWardrobe: string;
     wardrobePreferences: string[];
+    grounding?: { status: "supported" | "limited"; supportedGroups: string[]; sourceCount: number };
     userOverrides?: {
       identity: string[];
       signature: string[];
@@ -258,6 +264,7 @@ export type AppConfig = {
   profileModel: string;
   visionModel: string;
   ollamaThinking: boolean;
+  chatKeepAliveMinutes: number;
   animadexUrl: string;
   comfyUrl: string;
   comfyOutputDir: string;
@@ -379,10 +386,12 @@ export type ImageInstallJob = {
   error?: string;
 };
 
-async function request<T>(url: string, options?: RequestInit, timeoutMs = 30000): Promise<T> {
+async function request<T>(url: string, options?: RequestInit, timeoutMs = 30000, onDraft?: (text: string) => void): Promise<T> {
   try {
     const response = await fetch(url, { ...options, signal: options?.signal ?? AbortSignal.timeout(timeoutMs) });
-    const payload = await response.json().catch(() => ({}));
+    const payload = response.headers.get("content-type")?.includes("application/x-ndjson")
+      ? await readChatResponse<T>(response, onDraft)
+      : await response.json().catch(() => ({}));
     if (!response.ok) {
       if (payload.error) throw new Error(payload.error);
       if ([502, 503, 504].includes(response.status)) {
@@ -403,6 +412,9 @@ async function request<T>(url: string, options?: RequestInit, timeoutMs = 30000)
 }
 
 export const api = {
+  warmChat: (characterId: string) => request<{ status: string }>("/api/chat/warm", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ characterId }),
+  }, 65000),
   achievementUnlocks: (id: string) => request<{ unlocks: { id: string; title: string; points: number }[] }>(`/api/threads/${encodeURIComponent(id)}/achievements/unlocks`),
   acknowledgeAchievement: (id: string, awardId: string) => request(`/api/threads/${encodeURIComponent(id)}/achievements/unlocks`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: [awardId] }) }),
   tallyAchievements: () => request<{ points: number; earnedCount: number; achievements: { title: string; characterName: string; points: number; earnedAt: string }[] }>("/api/achievements/tally", { method: "POST" }),
@@ -556,11 +568,11 @@ export const api = {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ characterId, draftCharacterId, reset: overrides === null, overrides, currentOutfit, displayName }),
   }),
-  chat: (characterId: string, text: string, image?: string, clientMessageId?: string, focusSpeakerId?: string) => request<{ thread: Thread; reply?: Message; replies?: Message[]; relatedThreads?: Thread[]; imageJob?: { promptId: string }; imageJobs?: Array<{ promptId: string }>; imageWarning?: string; replyWarning?: string; cancelled?: boolean }>("/api/chat", {
+  chat: (characterId: string, text: string, image?: string, clientMessageId?: string, focusSpeakerId?: string, onDraft?: (text: string) => void) => request<{ thread: Thread; reply?: Message; replies?: Message[]; relatedThreads?: Thread[]; imageJob?: { promptId: string }; imageJobs?: Array<{ promptId: string }>; imageWarning?: string; replyWarning?: string; cancelled?: boolean }>("/api/chat", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ characterId, text, image, clientMessageId, focusSpeakerId }),
-  }, 180000),
+    body: JSON.stringify({ characterId, text, image, clientMessageId, focusSpeakerId, ...(onDraft ? { stream: true } : {}) }),
+  }, 180000, onDraft),
   upload: (dataUrl: string) => request<{ url: string }>("/api/uploads", {
     method: "POST",
     headers: { "content-type": "application/json" },

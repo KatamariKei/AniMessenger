@@ -30,3 +30,11 @@ test("a later unrelated reply is not mistaken for the failed turn's reply", () =
   ];
   assert.equal(recoverClientTurn(messages, "client-123").reply, null);
 });
+
+test("an image completing during generation is not treated as a delivered chat reply", () => {
+  const user = { id: "client-pending", from: "user", text: "Hello" };
+  const image = { id: "image", from: "character", text: "Image caption", image: "/synthetic.png", generated: true };
+  assert.equal(recoverClientTurn([user, image], user.id).reply, null);
+  const reply = { id: "actual", from: "character", text: "Hello back", inReplyTo: user.id };
+  assert.equal(recoverClientTurn([user, image, reply], user.id).reply, reply);
+});

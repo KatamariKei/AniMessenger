@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { writeJsonAtomically } from "./atomic-json.mjs";
 import { dataDir } from "./config.mjs";
 
 const jobsPath = path.join(dataDir, "image-jobs.json");
@@ -19,21 +20,7 @@ export async function loadImageJobEntries(now = Date.now(), filePath = jobsPath)
 }
 
 async function writeImageJobEntries(entries, filePath) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const value = Object.fromEntries(entries);
-  const temporary = filePath + "." + process.pid + "." + crypto.randomUUID() + ".tmp";
-  try {
-    await fs.writeFile(temporary, JSON.stringify(value, null, 2) + "\n", "utf8");
-    try {
-      await fs.rename(temporary, filePath);
-    } catch (error) {
-      if (!(["EEXIST", "EPERM"].includes(error?.code))) throw error;
-      await fs.rm(filePath, { force: true });
-      await fs.rename(temporary, filePath);
-    }
-  } finally {
-    await fs.rm(temporary, { force: true }).catch(() => {});
-  }
+  await writeJsonAtomically(filePath, Object.fromEntries(entries));
 }
 
 export function saveImageJobEntries(entries, filePath = jobsPath) {

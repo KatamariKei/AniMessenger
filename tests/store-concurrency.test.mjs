@@ -1,0 +1,36 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { execFileSync } from "node:child_process";
+
+test("thread updates retain concurrent changes and reject stale or deleted conversation snapshots", async t => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "animessenger-store-review-"));
+  t.after(() => fs.rm(home, { recursive: true, force: true }));
+  const store = new URL("../server/store.mjs", import.meta.url).href;
+  const code = `import assert from 'node:assert/strict';
+    import {createThread,loadThread,saveThread,updateThread,deleteThread,listThreads,mergeThreadHistoricalMemories} from ${JSON.stringify(store)};
+    const [original,duplicateCreate]=await Promise.all([createThread({id:'review',name:'Synthetic'}),createThread({id:'review',name:'Synthetic'})]);
+    assert.equal(original.storageInstanceId,duplicateCreate.storageInstanceId);
+    await listThreads();
+    await updateThread(original.id,current=>({pinned:true,conversationMode:'story',messages:[...current.messages,{id:'image',from:'character',image:'/synthetic.png'}]}));
+    await assert.rejects(saveThread({...original,messages:[]}), {statusCode:409});
+    const completed=await updateThread(original.id,current=>({messages:[...current.messages,{id:'reply',from:'character',text:'Synthetic reply'}]}),{expectedInstanceId:original.storageInstanceId});
+    assert.equal(completed.pinned,true); assert.equal(completed.conversationMode,'story');
+    assert.deepEqual(completed.messages.map(m=>m.id),['image','reply']);
+    await Promise.all(Array.from({length:12},(_,i)=>updateThread(original.id,current=>({messages:[...current.messages,{id:'parallel-'+i,from:'user',text:'Parallel synthetic turn'}]}))));
+    assert.equal((await loadThread(original.id)).messages.length,14);
+    const beforeScan=await loadThread(original.id);
+    await mergeThreadHistoricalMemories(original.id,[],true);
+    await assert.rejects(saveThread({...beforeScan,pinned:false}),{statusCode:409});
+    await deleteThread(original.id);
+    await assert.rejects(saveThread(completed),{statusCode:409});
+    await assert.rejects(updateThread(original.id,()=>({pinned:false}),{expectedInstanceId:original.storageInstanceId}),{statusCode:409});
+    const replacement=await createThread({id:'review',name:'Replacement'});
+    assert.notEqual(replacement.storageInstanceId,original.storageInstanceId);
+    await assert.rejects(saveThread(completed),{statusCode:409});
+    await assert.rejects(updateThread(original.id,()=>({pinned:true}),{expectedInstanceId:original.storageInstanceId}),{statusCode:409});
+    assert.equal((await loadThread(original.id)).character.name,'Replacement');`;
+  assert.doesNotThrow(() => execFileSync(process.execPath, ["--input-type=module", "-e", code], { env: { ...process.env, ANIMESSENGER_HOME: home }, timeout: 15000 }));
+});

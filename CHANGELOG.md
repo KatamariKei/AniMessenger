@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.1 — 2026-10-30
+
+- Protect the local API with Host/origin checks and narrowly scoped browser access instead of wildcard CORS. This does not replace authenticated remote access.
+- Save conversations, profiles, settings and image-job records atomically, retaining the previous valid file when a write or replacement fails. Serialize conversation updates against current state to preserve concurrent images/edits and prevent late work from recreating deleted chats.
+- Replace quadratic history merging with linear membership checks and reject clear first-person Story narration outside quoted dialogue, using a bounded retry.
+- Reduce avoidable chat preparation, research and prompt overhead; preserve relevant memories, personality instructions and inherited model context settings. Add bounded selected-model keep-alive and optional preparation before the first reply after idle.
+- Stream Story prose with paced word reveal and received sound at the first visible text. Messaging delivers a completed, validated bubble and sound together. Preserve reading progress when streamed text becomes the saved reply.
+- Reduce redundant foreground scene metadata while preserving exact evidence checks and separate image-scene verification.
+- Improve room, posture, outfit and eye-state continuity. Reconcile uncertain current scenes before image generation, preserve grounded room checkpoints, and omit unsupported optional details instead of reusing stale actions or surroundings.
+- Strengthen current-scene validation and stale-request checks across direct photos, automatic images and guest image preparation.
+- Improve visual grounding using character-specific source evidence, with more reliable niche-character research and bounded source lookups.
+- Resolve short character-catalogue aliases, recognize fan-created franchise descriptions and combine compatible research sources. Show catalogue descriptions/provider labels and preserve distinct characters when identity remains ambiguous.
+- Keep existing chat/profile IDs on catalogue enrichment and give clearer missing-evidence guidance for fan-created characters. Research quality checks remain in place.
+
+The bundled image model and recommended workflow remain unchanged. Performance and character/image consistency still depend on models, hardware and available evidence.
+
 ## 0.6.0 — 2026-10-22
 
 - Share scroll-layer isolation and backdrop-filter removal between the user and character dossiers, keeping their rendering behavior consistent across tabs.

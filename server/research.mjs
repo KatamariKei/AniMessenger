@@ -1,4 +1,5 @@
 import { stripWikiReferences } from "./wiki-text.mjs";
+import { performanceMetrics } from "./performance-metrics.mjs";
 
 function plainText(value) {
   return String(value || "")
@@ -252,6 +253,12 @@ export async function fetchFranchiseWikiPage(host, pageName, apiPath = "/api.php
 }
 
 async function researchFranchiseWiki(character) {
+  const pages = new Map();
+  const fetchPage = (host, title, apiPath) => {
+    const key = JSON.stringify([host, title, apiPath || "/api.php"]);
+    if (!pages.has(key)) pages.set(key, fetchFranchiseWikiPage(host, title, apiPath));
+    return pages.get(key);
+  };
   const name = researchName(character);
   const series = researchSeries(character);
   const route = franchiseWikis.find((item) => item.series.test(series));
@@ -263,7 +270,7 @@ async function researchFranchiseWiki(character) {
   const seriesNamedHosts = new Set(fandomWikiCandidates({ series: character.series, seriesAliases: character.seriesAliases }).map((item) => item.host));
   for (const candidate of candidates) {
     try {
-      let page = await fetchFranchiseWikiPage(candidate.host, candidate.pageName || name, candidate.apiPath);
+      let page = await fetchPage(candidate.host, candidate.pageName || name, candidate.apiPath);
       if (!wikiPageMatches(name, series, page)) {
         const searchUrl = new URL("https://" + candidate.host + (candidate.apiPath || "/api.php"));
         searchUrl.search = new URLSearchParams({ action: "query", list: "search", srsearch: name, srlimit: "6", format: "json" }).toString();
@@ -271,14 +278,22 @@ async function researchFranchiseWiki(character) {
         if (!searchResponse.ok) throw new Error("Franchise wiki search HTTP " + searchResponse.status);
         const searchResults = (await searchResponse.json())?.query?.search || [];
         const searchTitle = selectFranchiseWikiTitle(name, searchResults);
-        page = searchTitle ? await fetchFranchiseWikiPage(candidate.host, searchTitle, candidate.apiPath) : null;
+        page = searchTitle ? await fetchPage(candidate.host, searchTitle, candidate.apiPath) : null;
         if (!wikiPageMatches(name, series, page)) {
           // Search indexes may return the official long title without the
           // short designation in its title. Verify the page's own lead.
-          for (const result of searchResults.slice(0, 6)) {
-            if (!result?.title || result.title === searchTitle || result.title.includes("/")) continue;
-            const possible = await fetchFranchiseWikiPage(candidate.host, result.title, candidate.apiPath);
-            if (wikiPageMatches(name, series, possible)) { page = possible; break; }
+          const alternatives = searchResults.slice(0, 6).filter(result => result?.title && result.title !== searchTitle && !result.title.includes("/"));
+          for (let offset = 0; offset < alternatives.length; offset += 3) {
+            const pending = alternatives.slice(offset, offset + 3).map(result => fetchPage(candidate.host, result.title, candidate.apiPath).catch(() => null));
+            // Keep source priority deterministic, regardless of response order.
+            // Await in order, but do not wait on lower-priority pages once a
+            // preferred match is verified. Rejections are handled immediately.
+            let matched;
+            for (const request of pending) {
+              const possible = await request;
+              if (wikiPageMatches(name, series, possible)) { matched = possible; break; }
+            }
+            if (matched) { page = matched; break; }
           }
         }
       }
@@ -305,7 +320,7 @@ async function researchFranchiseWiki(character) {
       let detailPassage = null;
       if (candidate.host === route?.host && route.detailSubpage) {
         try {
-          const detailPage = await fetchFranchiseWikiPage(candidate.host, page.title + "/" + route.detailSubpage, candidate.apiPath);
+          const detailPage = await fetchPage(candidate.host, page.title + "/" + route.detailSubpage, candidate.apiPath);
           const detailText = selectWikiEvidenceText(detailPage?.wikitext?.["*"]);
           if (detailPage && detailText.trim().length >= 80) detailPassage = {
             id: "franchise-" + candidate.host + "-detail-" + detailPage.pageid,
@@ -317,7 +332,7 @@ async function researchFranchiseWiki(character) {
       }
       if (candidate.host === "blhx.fandom.com") {
         try {
-          const quotePage = await fetchFranchiseWikiPage(candidate.host, page.title + "/Quotes", candidate.apiPath);
+          const quotePage = await fetchPage(candidate.host, page.title + "/Quotes", candidate.apiPath);
           const quoteText = selectBaselineQuoteText(quotePage?.wikitext?.["*"]);
           if (quotePage && quoteText.trim().length >= 80) quotePassage = {
             id: "franchise-" + candidate.host + "-quotes-" + quotePage.pageid,
@@ -393,7 +408,12 @@ export async function researchCharacter(character, enabled = true) {
   const notes = [...catalogueNotes];
   if (Array.isArray(character.sourceRefs)) sources.push(...character.sourceRefs.filter((item) => item?.url));
   else if (character.sourceUrl) sources.push({ title: "Character catalogue source", url: character.sourceUrl });
-  const result = () => ({ catalogueNotes, notes, sources, selectedForm: selectedForm(character), evidence: { version: 1, retrievedAt: new Date().toISOString(), durationMs: Date.now() - startedAt, diagnostics, passages } });
+  const result = () => {
+    const durationMs = Date.now() - startedAt;
+    performanceMetrics.record("research", { totalMs: durationMs, sourceCount: passages.length,
+      stages: Object.fromEntries(diagnostics.map(item => [item.provider, item.durationMs])) });
+    return { catalogueNotes, notes, sources, selectedForm: selectedForm(character), evidence: { version: 1, retrievedAt: new Date().toISOString(), durationMs, diagnostics, passages } };
+  };
   if (!enabled) return result();
   const wikipedia = (async () => {
   const providerStarted = Date.now();

@@ -1,7 +1,10 @@
+import { createSingleFlight } from "./single-flight.mjs";
+
 const DEFAULT_CONTEXT_WINDOW = 8192;
 const MIN_CONTEXT_WINDOW = 4096;
 const MAX_CONTEXT_WINDOW = 131072;
 const contextCache = new Map();
+const contextRequests = createSingleFlight();
 
 export function estimateTokens(value) {
   const text = typeof value === "string" ? value : JSON.stringify(value || "");
@@ -24,7 +27,7 @@ export async function resolveOllamaContextWindow(config, model) {
   const key = String(config?.ollamaUrl || "") + "|" + name;
   const cached = contextCache.get(key);
   if (cached && Date.now() - cached.checkedAt < 30_000) return cached.value;
-
+  return contextRequests(key, async () => {
   let value = 0;
   try {
     const response = await fetch(String(config?.ollamaUrl || "") + "/api/ps", {
@@ -45,6 +48,7 @@ export async function resolveOllamaContextWindow(config, model) {
   value ||= validContextWindow(process.env.OLLAMA_CONTEXT_LENGTH) || DEFAULT_CONTEXT_WINDOW;
   contextCache.set(key, { checkedAt: Date.now(), value });
   return value;
+  });
 }
 
 const OPTIONAL_SYSTEM_PREFIXES = [

@@ -10,6 +10,8 @@ import { fileURLToPath } from "node:url";
 // touch the real private home, call a model, or replace the live installation.
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const version = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8")).version;
+const baselineVersion = process.argv[2] || "0.6.0";
+assert.match(baselineVersion, /^\d+\.\d+\.\d+$/, "Pass a baseline release version such as 0.6.0.");
 const release = path.join(root, "release");
 const sandbox = await fs.mkdtemp(path.join(release, `rehearsal-v${version}-`));
 const literal = value => "'" + value.replaceAll("'", "''") + "'";
@@ -91,7 +93,7 @@ await fs.writeFile(path.join(freshHome, "animessenger.config.json"), JSON.string
 const fresh = await boot(freshApp, freshHome, 0);
 
 const baseline = inside(path.join(sandbox, "baseline"));
-extract(path.join(release, "AniMessenger-Windows-v0.5.0.zip"), baseline);
+extract(path.join(release, `AniMessenger-Windows-v${baselineVersion}.zip`), baseline);
 const upgradeApp = inside(path.join(sandbox, "upgrade-app"));
 const upgradeHome = inside(path.join(sandbox, "upgrade-home"));
 install(baseline, upgradeApp, upgradeHome);
@@ -127,8 +129,8 @@ for (const file of modelFiles) {
   assert.deepEqual(await fs.readFile(path.join(candidate, "support", "workflows", file)),
     await fs.readFile(path.join(baseline, "support", "workflows", file)), "Default model asset changed: " + file);
 }
-const report = { version, audit, fresh, upgrade, privateFilesPreservedByteForByte: Object.keys(fixtures).length,
-  defaultWorkflowAndAssetsUnchangedFrom050: true,
+const report = { version, baselineVersion, audit, fresh, upgrade, privateFilesPreservedByteForByte: Object.keys(fixtures).length,
+  defaultWorkflowAndAssetsUnchangedFrom: baselineVersion,
   zipSha256: crypto.createHash("sha256").update(await fs.readFile(zip)).digest("hex"),
   manualDesktopMobileAndSecondPC: "not tested by this automated rehearsal" };
 await fs.writeFile(path.join(sandbox, "report.json"), JSON.stringify(report, null, 2));

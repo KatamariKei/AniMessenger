@@ -9,6 +9,10 @@ import { AchievementNotification } from "./AchievementNotification";
 import { MemoryHealthPanel } from "./MemoryHealthPanel";
 import { useJourneyActivity } from "./useJourneyActivity";
 import { UserPortraitEditor } from "./UserPortraitEditor";
+import { advanceStoryReveal, createStoryReveal, StoryRevealState, updateStoryReveal } from "./story-reveal";
+import { createReplyDelivery } from "./reply-delivery";
+import { prepareChatOnActivity } from "./chat-warmup";
+import { catalogSourceLabel } from "./catalog-display";
 
 const accentPalette = ["#a8e6c6", "#61e8df", "#ef9caa", "#ff8d76", "#d5d0c7", "#d7a57c", "#bda4ff"];
 const emojiCatalog = [
@@ -230,41 +234,45 @@ function ConversationModeIcon({ mode }: { mode: "chat" | "story" }) {
   );
 }
 
-function StoryPassage({ text, animate, onComplete, onProgress }: { text: string; animate: boolean; onComplete: () => void; onProgress: () => void }) {
+function StoryPassage({ text, animate, streaming = false, resume, onFirstVisible, onComplete, onProgress }: { text: string; animate: boolean; streaming?: boolean; resume?: StoryRevealState; onFirstVisible?: () => void; onComplete: () => void; onProgress: () => void }) {
   const tokens = useMemo(() => text.split(/(\s+)/).filter(Boolean), [text]);
-  const [visibleTokens, setVisibleTokens] = useState(animate ? 0 : tokens.length);
+  const localRevealRef = useRef(createStoryReveal());
+  const checkpoint = resume ?? localRevealRef.current;
+  const [visibleTokens, setVisibleTokens] = useState(animate ? checkpoint.cursor : tokens.length);
   const passageRef = useRef<HTMLParagraphElement>(null);
   const passageEndRef = useRef<HTMLSpanElement>(null);
   const animationFrameRef = useRef<number | null>(null);
   const onCompleteRef = useRef(onComplete);
   const onProgressRef = useRef(onProgress);
+  const onFirstVisibleRef = useRef(onFirstVisible);
+  const announcedCheckpointRef = useRef<StoryRevealState | null>(null);
   onCompleteRef.current = onComplete;
   onProgressRef.current = onProgress;
+  onFirstVisibleRef.current = onFirstVisible;
 
   useEffect(() => {
-    if (animationFrameRef.current !== null) window.cancelAnimationFrame(animationFrameRef.current);
-    if (!animate) {
-      setVisibleTokens(tokens.length);
-      return;
+    if (onFirstVisibleRef.current && announcedCheckpointRef.current !== checkpoint && tokens.slice(0, visibleTokens).join("").trim()) {
+      announcedCheckpointRef.current = checkpoint;
+      onFirstVisibleRef.current?.();
     }
-    setVisibleTokens(0);
-    let cursor = 0;
-    let nextRevealAt = performance.now() + 180;
+  }, [checkpoint, tokens, visibleTokens, onFirstVisible]);
+
+  useLayoutEffect(() => {
+    updateStoryReveal(checkpoint, text, streaming, performance.now());
+    if (!animate) checkpoint.cursor = tokens.length;
+    setVisibleTokens(checkpoint.cursor);
+  }, [text, streaming, animate, checkpoint, tokens]);
+
+  useEffect(() => {
+    if (!animate) return;
     const revealFrame = (now: number) => {
-      if (now >= nextRevealAt) {
-        cursor = Math.min(tokens.length, cursor + 1);
-        const revealedToken = tokens[Math.max(0, cursor - 1)] || "";
-        let followingSpace = "";
-        while (cursor < tokens.length && /^\s+$/.test(tokens[cursor])) {
-          followingSpace += tokens[cursor];
-          cursor += 1;
-        }
-        setVisibleTokens(cursor);
+      const previous = checkpoint.cursor;
+      const next = advanceStoryReveal(checkpoint, now);
+      if (next.visibleTokens !== previous) {
+        setVisibleTokens(next.visibleTokens);
         window.requestAnimationFrame(() => onProgressRef.current());
-        const delay = followingSpace.includes("\n") ? 430 : /[.!?][”"']?$/.test(revealedToken) ? 320 : /[,;:][”"']?$/.test(revealedToken) ? 220 : 135;
-        nextRevealAt = now + delay;
       }
-      if (cursor < tokens.length) animationFrameRef.current = window.requestAnimationFrame(revealFrame);
+      if (!next.complete) animationFrameRef.current = window.requestAnimationFrame(revealFrame);
       else {
         animationFrameRef.current = null;
         onCompleteRef.current();
@@ -275,15 +283,15 @@ function StoryPassage({ text, animate, onComplete, onProgress }: { text: string;
       if (animationFrameRef.current !== null) window.cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     };
-  }, [animate, tokens]);
+  }, [animate, checkpoint]);
 
-  const complete = visibleTokens >= tokens.length;
+  const complete = !streaming && visibleTokens >= tokens.length;
   const revealAll = () => {
     if (complete) return;
-    if (animationFrameRef.current !== null) window.cancelAnimationFrame(animationFrameRef.current);
-    animationFrameRef.current = null;
-    setVisibleTokens(tokens.length);
-    onCompleteRef.current();
+    checkpoint.skipped = true;
+    const next = advanceStoryReveal(checkpoint, performance.now());
+    setVisibleTokens(next.visibleTokens);
+    if (next.complete) onCompleteRef.current();
   };
   return (
     <p
@@ -291,7 +299,7 @@ function StoryPassage({ text, animate, onComplete, onProgress }: { text: string;
       className={"story-passage " + (complete ? "is-complete" : "is-writing")}
       onClick={revealAll}
       title={complete ? undefined : "Tap to reveal the full passage"}
-      aria-label={text}
+      aria-label={tokens.slice(0, visibleTokens).join("")}
     >
       {tokens.slice(0, visibleTokens).map((token, index) => (
         <span
@@ -919,6 +927,7 @@ function Settings({ initial, onClose, onSaved, onOpenSetup }: SettingsProps) {
               <label><span>Profile model</span><input list="ollama-models" value={config.profileModel} onChange={(e) => update("profileModel", e.target.value)} placeholder="Defaults to chat model" /></label>
               <label className="settings-wide"><span>Vision model</span><input list="ollama-models" value={config.visionModel} onChange={(e) => update("visionModel", e.target.value)} placeholder="For reacting to your photos" /></label>
               <datalist id="ollama-models">{models.map((model) => <option value={model} key={model} />)}</datalist>
+              <label className="settings-wide"><span>Keep chat ready between replies</span><select value={config.chatKeepAliveMinutes ?? 15} onChange={e => update("chatKeepAliveMinutes", Number(e.target.value))}><option value={0}>Use Ollama’s setting</option><option value={5}>5 minutes</option><option value={15}>15 minutes</option><option value={30}>30 minutes</option><option value={60}>1 hour</option>{![0, 5, 15, 30, 60].includes(config.chatKeepAliveMinutes ?? 15) && <option value={config.chatKeepAliveMinutes}>{config.chatKeepAliveMinutes} minutes</option>}</select><small>Reduces loading delays after short breaks. The model uses memory while it stays ready; other tools may still cause it to reload.</small></label>
               <div className="settings-wide"><OllamaGpuCheck ollamaUrl={config.ollamaUrl} model={config.chatModel} /></div>
             </div>
           </section>
@@ -1564,6 +1573,7 @@ export function AniMessengerApp() {
   const [pendingPhoto, setPendingPhoto] = useState<PendingPhoto | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [typing, setTyping] = useState(false);
+  const [streamDraft, setStreamDraft] = useState<{ characterId: string; clientMessageId: string; text: string; story: boolean; reveal: StoryRevealState; onFirstVisible: () => void } | null>(null);
   const [capturingMoment, setCapturingMoment] = useState(false);
   const [typingSpeakerId, setTypingSpeakerId] = useState("");
   const [searching, setSearching] = useState(false);
@@ -1651,6 +1661,8 @@ export function AniMessengerApp() {
   const [conversationModeUpdating, setConversationModeUpdating] = useState(false);
   const [animatedStoryMessageId, setAnimatedStoryMessageId] = useState("");
   const storyRevealWaitersRef = useRef<Map<string, () => void>>(new Map());
+  const streamedStoryRevealsRef = useRef<Map<string, StoryRevealState>>(new Map());
+  const storyReplyArrivalsRef = useRef<Map<string, () => void>>(new Map());
   const [firstContactUpdating, setFirstContactUpdating] = useState<"start" | "reroll" | "">("");
   const [openingSceneGeneratingId, setOpeningSceneGeneratingId] = useState("");
   const [fullScreenImage, setFullScreenImage] = useState<LightboxState | null>(null);
@@ -1731,10 +1743,18 @@ export function AniMessengerApp() {
   }, [relationshipMilestones]);
 
   const active = threads.find((thread) => thread.id === activeId) ?? threads[0];
+  const activeStreamDraft = streamDraft?.characterId === active?.id
+    && active?.messages.some(message => message.id === streamDraft.clientMessageId) ? streamDraft : null;
   const journeyUnread = useJourneyActivity(active?.id, showProfile && profileTab === "journey");
   useEffect(() => { setMemoryScanStatus(""); }, [active?.id]);
   const firstContactPending = Boolean(active?.profile && active.firstContact?.status === "preview");
   const activeReadyForChat = Boolean(active?.profile && !firstContactPending);
+  useEffect(() => {
+    if (mode !== "chats" || !active?.id || !activeReadyForChat || !serviceReachable || !config?.chatModel) return;
+    if (window.innerWidth <= 760 && !mobileChatOpen) return;
+    return prepareChatOnActivity(() => window.innerWidth <= 760 && !mobileChatOpen
+      ? Promise.resolve({ status: "not_visible" }) : api.warmChat(active.id), undefined, composerRef.current);
+  }, [active?.id, activeReadyForChat, mode, mobileChatOpen, serviceReachable, config?.chatModel]);
   threadsRef.current = threads;
   const soundPreferences = { enabled: config?.soundEnabled ?? false, volume: config?.soundVolume ?? 0.35 };
   const sound = (cue: SoundCue, options?: { preview?: boolean; allowHidden?: boolean }) => playSound(cue, soundPreferences, options);
@@ -1782,6 +1802,12 @@ export function AniMessengerApp() {
     });
   }, [active?.memories, memoryKind, memorySearch, memorySort]);
   const visibleMessages = useMemo(() => active?.messages.slice(-visibleMessageLimit) ?? [], [active?.messages, visibleMessageLimit]);
+  useLayoutEffect(() => {
+    const scroll = scrollRef.current;
+    if (scroll && !streamDraft?.story && streamDraft?.characterId === active?.id && followLatestMessageRef.current) {
+      scroll.scrollTop = Math.max(0, scroll.scrollHeight - scroll.clientHeight);
+    }
+  }, [streamDraft, active?.id]);
   const hiddenMessageCount = Math.max(0, (active?.messages.length ?? 0) - visibleMessages.length);
   const selectedLightboxImage = fullScreenImage?.items[fullScreenImage.index];
   const filteredEmoji = useMemo(() => {
@@ -1793,6 +1819,8 @@ export function AniMessengerApp() {
   useEffect(() => {
     for (const finish of storyRevealWaitersRef.current.values()) finish();
     storyRevealWaitersRef.current.clear();
+    streamedStoryRevealsRef.current.clear();
+    storyReplyArrivalsRef.current.clear();
     setAnimatedStoryMessageId("");
     setMemoryDraft(null);
     setExpandedMemorySourceId("");
@@ -1815,6 +1843,8 @@ export function AniMessengerApp() {
   });
 
   const finishStoryReveal = (messageId: string) => {
+    streamedStoryRevealsRef.current.delete(messageId);
+    storyReplyArrivalsRef.current.delete(messageId);
     setAnimatedStoryMessageId((current) => current === messageId ? "" : current);
     storyRevealWaitersRef.current.get(messageId)?.();
   };
@@ -2232,11 +2262,12 @@ export function AniMessengerApp() {
         if (!Object.hasOwn(message, "delivery")) delete mergedMessage.delivery;
         messagesById.set(message.id, mergedMessage);
       }
+      const newestMessageIds = new Set(newestSnapshot.messages.map((message) => message.id));
       const orderedMessageIds = [
         ...newestSnapshot.messages.map((message) => message.id),
         ...(olderSnapshot?.messages || [])
           .map((message) => message.id)
-          .filter((id) => !newestSnapshot.messages.some((message) => message.id === id)),
+          .filter((id) => !newestMessageIds.has(id)),
       ];
       const mergedThread = {
         ...newestSnapshot,
@@ -2980,8 +3011,20 @@ export function AniMessengerApp() {
     setNotice("");
     try {
       let response;
+      let streamed = false;
+      let streamReveal = createStoryReveal();
+      const delivery = createReplyDelivery(active.conversationMode, () => sound("message-received"));
       try {
-        response = await api.chat(active.id, text, image, clientMessageId, focusSpeakerId);
+        response = await api.chat(active.id, text, image, clientMessageId, focusSpeakerId, delivery.streamDrafts ? (nextText) => {
+          if (!nextText) streamReveal = createStoryReveal();
+          if (nextText && !streamed) {
+            streamed = true;
+            setThreads(current => current.map(thread => thread.id === active.id
+              ? { ...thread, messages: thread.messages.map(message => message.id === clientMessageId ? { ...message, delivery: undefined } : message) }
+              : thread));
+          }
+          setStreamDraft(nextText ? { characterId: active.id, clientMessageId, text: nextText, story: true, reveal: streamReveal, onFirstVisible: delivery.firstVisible } : null);
+        } : undefined);
       } catch (reason) {
         setThreads((current) => current.map((thread) => thread.id === active.id
           ? { ...thread, messages: thread.messages.map((message) => message.id === clientMessageId ? { ...message, delivery: "failed" } : message) }
@@ -2999,6 +3042,8 @@ export function AniMessengerApp() {
           setNotice("AniMessenger's local service stopped responding. Your saved chats are safe; restart AniMessenger, then tap Retry beneath the message.");
         }
         return;
+      } finally {
+        setStreamDraft(null);
       }
       const relationshipUpdates = [response.thread, ...(response.relatedThreads || [])];
       const newMilestones = relationshipUpdates.flatMap((nextThread) => {
@@ -3027,6 +3072,10 @@ export function AniMessengerApp() {
         const cameoReplyIds = new Set(cameoReplies.map((reply) => reply.id));
         for (let index = 0; index < cameoReplies.length; index += 1) {
           const currentReply = cameoReplies[index];
+          const speakerDelivery = createReplyDelivery(active.conversationMode, () => sound("message-received"));
+          if (active.conversationMode === "story" && currentReply.narration) {
+            storyReplyArrivalsRef.current.set(currentReply.id, speakerDelivery.firstVisible);
+          }
           const revealFinished = active.conversationMode === "story" && currentReply.narration
             ? beginStoryReveal(currentReply.id)
             : null;
@@ -3036,7 +3085,8 @@ export function AniMessengerApp() {
             messages: response.thread.messages.filter((message) => !cameoReplyIds.has(message.id) || visibleReplyIds.has(message.id)),
           };
           mergeThread(stagedThread, activeIdRef.current === response.thread.id);
-          sound("message-received");
+          if (!currentReply.narration) speakerDelivery.firstVisible();
+          speakerDelivery.delivered();
           const nextReply = cameoReplies[index + 1];
           if (nextReply) {
             if (revealFinished) {
@@ -3051,9 +3101,20 @@ export function AniMessengerApp() {
         }
       } else {
         const onlyReply = cameoReplies[0] || response.reply;
-        if (active.conversationMode === "story" && onlyReply?.narration) setAnimatedStoryMessageId(onlyReply.id);
+        if (active.conversationMode === "story" && onlyReply?.narration) {
+          storyReplyArrivalsRef.current.clear();
+          storyReplyArrivalsRef.current.set(onlyReply.id, delivery.firstVisible);
+          if (streamed) {
+            streamedStoryRevealsRef.current.clear();
+            streamedStoryRevealsRef.current.set(onlyReply.id, streamReveal);
+          }
+          setAnimatedStoryMessageId(onlyReply.id);
+        }
         replaceThread(response.thread);
-        if (response.reply?.from === "character" || cameoReplies.length === 1) sound("message-received");
+        if (response.reply?.from === "character" || cameoReplies.length === 1) {
+          if (!onlyReply?.narration) delivery.firstVisible();
+          delivery.delivered();
+        }
       }
       if (response.imageWarning) setNotice("The reply was delivered, but its image was not started. " + response.imageWarning);
       if (response.replyWarning) setNotice(response.replyWarning);
@@ -3334,7 +3395,7 @@ export function AniMessengerApp() {
               return (
                 <button
                   key={character.id}
-                  className={"contact-row " + (activeId === thread?.id && mode === "chats" ? "active " : "") + (thread?.unreadCount ? "has-unread" : "")}
+                  className={"contact-row " + (mode === "discover" ? "catalog-result " : "") + (activeId === thread?.id && mode === "chats" ? "active " : "") + (thread?.unreadCount ? "has-unread" : "")}
                   aria-label={(mode === "discover" ? "Start a new chat with " : "Open chat with ") + characterDisplayName(character) + (thread?.unreadCount ? ", unread messages" : "")}
                   onClick={() => mode === "discover" ? void openCharacter(character) : thread && openThread(thread)}
                 >
@@ -3345,7 +3406,8 @@ export function AniMessengerApp() {
                   <span className="contact-copy">
                     <span className="contact-topline"><strong>{characterDisplayName(character)}</strong><span className="contact-status">{thread?.pinned && <i className="pinned-indicator" aria-label="Pinned chat">★</i>}<time>{mode === "chats" && last ? formatTime(last.time) : ""}</time></span></span>
                     <span className="series-label">{character.series}</span>
-                    <span className="message-preview">{mode === "discover" ? (character.tags.slice(0, 3).join(" · ") || "Research profile on first meeting") : (thread?.conversationMode === "story" ? visibleStoryPassage(last) : last?.text) || "Start a conversation"}</span>
+                    <span className="message-preview">{mode === "discover" ? (character.catalogDescription || character.tags.slice(0, 3).join(" · ") || "Research profile on first meeting") : (thread?.conversationMode === "story" ? visibleStoryPassage(last) : last?.text) || "Start a conversation"}</span>
+                    {mode === "discover" && <span className="catalog-source-label">Sources: {catalogSourceLabel(character)}</span>}
                   </span>
                   {mode === "discover" && <span className="chat-arrow">↗</span>}
                 </button>
@@ -3521,6 +3583,8 @@ export function AniMessengerApp() {
                         <StoryPassage
                           text={storyText}
                           animate={animatedStoryMessageId === message.id}
+                          resume={streamedStoryRevealsRef.current.get(message.id)}
+                          onFirstVisible={storyReplyArrivalsRef.current.get(message.id)}
                           onComplete={() => finishStoryReveal(message.id)}
                           onProgress={() => {
                             const scroll = scrollRef.current;
@@ -3624,7 +3688,21 @@ export function AniMessengerApp() {
               {active.firstContact?.openingImage?.status === "error" && openingSceneGeneratingId !== active.id && !active.messages.some((message) => message.imageOrigin === "opening_scene") && (
                 <button type="button" className="opening-scene-retry" onClick={() => void retryOpeningScene()}><RetryIcon /><span>Opening scene unavailable · Try again</span></button>
               )}
-              {typing && typingCharacter && (
+              {activeStreamDraft?.text && (
+                <div className={"message-line message-line--character" + (activeStreamDraft.story ? " has-narration story-passage-line" : "")} aria-busy="true">
+                  <div className="message-content">
+                    {activeStreamDraft.story ? <StoryPassage text={activeStreamDraft.text} animate streaming resume={activeStreamDraft.reveal} onFirstVisible={activeStreamDraft.onFirstVisible} onComplete={() => {}} onProgress={() => {
+                      const scroll = scrollRef.current;
+                      if (scroll && followLatestMessageRef.current) scroll.scrollTop = Math.max(0, scroll.scrollHeight - scroll.clientHeight);
+                    }} /> : <div className="message-primary">
+                      <Portrait character={active.character} />
+                      <div className="message-payload"><p className="bubble">{activeStreamDraft.text}</p></div>
+                    </div>}
+                    <div className="message-meta"><span className="delivery-state">Writing…</span></div>
+                  </div>
+                </div>
+              )}
+              {typing && typingCharacter && !activeStreamDraft?.text && (
                 <div className={"message-line message-line--character typing-line " + (typingCharacter.id !== active.character.id ? "message-line--guest" : "")} role="status" aria-label={characterDisplayName(typingCharacter) + " is typing"}>
                   <div className="message-content">
                     {active.conversationMode === "story" ? (
@@ -3845,7 +3923,7 @@ export function AniMessengerApp() {
                     <details className="dossier-disclosure dossier-outfit"><summary><span><b>Now wearing</b><small>{active.scene.outfit}</small></span><i aria-hidden="true">＋</i></summary><div className="dossier-disclosure-body"><p>{active.scene.outfit}</p><dl className="dossier-scene-facts"><div><dt>Activity</dt><dd>{active.scene.activity}</dd></div>{active.scene.posture && active.scene.posture !== "unknown" && <div><dt>Position</dt><dd>{active.scene.posture}</dd></div>}</dl>{active.scene.environment && <p className="dossier-environment">{active.scene.environment}</p>}</div></details>
                   </section>
                   <details className="dossier-disclosure dossier-voice"><summary><span><b>Voice & personality</b><small>{active.profile.persona.baselineVoice || active.profile.persona.speechStyle}</small></span><i aria-hidden="true">＋</i></summary><div className="dossier-disclosure-body"><p>{active.profile.persona.baselineVoice || active.profile.persona.speechStyle}</p>{active.profile.persona.mannerisms.length > 0 && <div className="dossier-detail-list"><small>Mannerisms</small><ul>{active.profile.persona.mannerisms.map((mannerism, index) => <li key={index}>{mannerism}</li>)}</ul></div>}</div></details>
-                  <details className="dossier-disclosure dossier-identity"><summary><span><b>Appearance & identity</b><small>{active.profile.visual.userOverrides || active.character.displayName ? "Your corrections are active" : "Researched character details"}</small></span><i aria-hidden="true">＋</i></summary><div className="dossier-disclosure-body"><p>{activeVisualIdentity.join(" · ") || "No visual details recorded."}</p><button className="dossier-inline-action" type="button" onClick={() => setShowIdentityEditor(true)}>Edit appearance & default outfit <span aria-hidden="true">↗</span></button></div></details>
+                  <details className="dossier-disclosure dossier-identity"><summary><span><b>Appearance & identity</b><small>{active.profile.visual.userOverrides || active.character.displayName ? "Your corrections are active" : active.profile.visual.grounding?.status === "limited" ? "Limited appearance references" : "Researched character details"}</small></span><i aria-hidden="true">＋</i></summary><div className="dossier-disclosure-body"><p>{activeVisualIdentity.join(" · ") || "No visual details recorded."}</p>{!active.profile.visual.userOverrides && active.profile.visual.grounding?.status === "limited" && <p>Appearance references are limited, so generated images may be approximate. You can add or correct recognizable details below.</p>}<button className="dossier-inline-action" type="button" onClick={() => setShowIdentityEditor(true)}>Edit appearance & default outfit <span aria-hidden="true">↗</span></button></div></details>
                   <small className="fan-note">Character interpretation is created locally from catalogue evidence, optional research, and your selected Ollama model.</small>
                 </div>
               ) : profileTab === "memories" ? (

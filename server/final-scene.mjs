@@ -32,14 +32,24 @@ function declaredSharedLocation(options) {
     if (future.test(clause) || negated.test(clause) || /\b(?:if|imagine|suppose|remember|yesterday)\b/i.test(clause)) continue;
     const match = clause.match(/^(?:\s*\[action:\s*)?\s*(we are|we're)\s+(?:(?:now|already|both|currently)\s+)*(?:(?:standing|sitting|seated|lying|kneeling|waiting|relaxing)\s+)?(?:in|inside|at)\s+(.+)$/i);
     if (!match) continue;
-    const label = match[2].split(/\s+(?:and|while|with|where|doing|shopping|trying)\b|,/i)[0].trim();
+    let label = match[2].split(/\s+(?:while|with|where|doing|shopping|trying)\b|,/i)[0].trim();
+    // "And" can join adjectives before the room noun. Only stop there once
+    // the preceding words already identify a place; otherwise the actual
+    // destination ("bright and spacious private quarters") gets discarded.
+    for (const conjunction of label.matchAll(/\s+and\s+/gi)) {
+      const prefix = label.slice(0, conjunction.index).trim();
+      if (classifyPlaceCandidate(prefix, clause).valid) {
+        label = prefix;
+        break;
+      }
+    }
     if (!classifyPlaceCandidate(label, clause).valid) continue;
     declaration = { value: label, quote: clause.trim(), source: "user", actor: "shared", phase: "current" };
   }
   return declaration;
 }
 
-function placeHasSourceAnchor(label, quote) {
+export function placeHasSourceAnchor(label, quote) {
   const words = normalize(label).match(/[\p{L}\p{N}'-]+/gu) || [];
   const specific = words.filter((word) => !anchorStop.has(word));
   const anchors = specific.length ? specific : words.filter((word) => !["the", "our", "a", "an", "in", "at", "inside", "outside"].includes(word));
@@ -86,14 +96,14 @@ export function applyFinalScene(existing, options = {}) {
   const next = { ...existing };
   const decisions = [];
   const accepted = {};
-  const sharedDeclaration = existing.presence === "together" ? declaredSharedLocation(options) : null;
+  const sharedDeclaration = options.respectSharedDeclaration !== false && existing.presence === "together" ? declaredSharedLocation(options) : null;
   for (const field of finalSceneFields) {
     const proposedValue = typeof proposed[field] === "string" ? proposed[field].trim() : "";
     const placeKey = value => normalize(value).replace(/^(?:the|a|an)\s+/, "");
     const candidate = field === "location" && sharedDeclaration
       ? placeKey(proposedValue) === placeKey(sharedDeclaration.value) ? proposedValue : sharedDeclaration.value
       : proposedValue;
-    if (!candidate || normalize(candidate) === normalize(existing[field])) continue;
+    if (!candidate || (!options.verifyUnchanged && !options.verifyFields?.includes(field) && normalize(candidate) === normalize(existing[field]))) continue;
     const declaration = field === "location" ? sharedDeclaration : null;
     const fieldEvidence = declaration || (groundedEvidence(evidence[field], options) ? evidence[field] :
       field === "location" ? completedArrivalEvidence(candidate, options, existing.presence === "together") : evidence[field]);
@@ -121,16 +131,21 @@ export function applyFinalScene(existing, options = {}) {
   if (accepted.presence) next.presence = accepted.presence.value;
   if (presenceCorrection.presenceAuthority === "deterministic" && presences.has(presenceCorrection.presence)) next.presence = presenceCorrection.presence;
   const location = accepted.location;
+  const locationChanged = location && normalize(location.value) !== normalize(existing.location);
   const userOnlyMove = location?.evidence.actor === "user" && next.presence !== "together";
+  if (userOnlyMove) decisions.find(decision => decision.field === "location").scope = "user";
   if (location && userOnlyMove) next.userLocation = location.value;
   else if (location) {
     next.location = location.value;
     next.locationOwner = next.presence === "together" || location.evidence.actor === "shared" ? "shared" : "character";
     next.locationEvidence = { source: location.evidence.source, kind: "final_scene", text: location.quote };
-    next.environment = accepted.environment?.value || environmentForLocation(location.value);
-    // Clear location-dependent staging when a move gives no replacement.
-    next.activity = accepted.activity?.value || `settling into ${location.value}`;
-    next.posture = accepted.posture?.value || "unknown";
+    if (locationChanged) {
+      next.environment = accepted.environment?.value || environmentForLocation(location.value);
+      // Clear location-dependent staging when a move gives no replacement.
+      next.activity = accepted.activity?.value || `settling into ${location.value}`;
+      next.posture = accepted.posture?.value || "unknown";
+      next.lighting = accepted.lighting?.value || "ambient light";
+    }
   }
   const rejectedLocation = decisions.some((decision) => decision.field === "location" && decision.status === "rejected");
   for (const decision of decisions) {
@@ -145,7 +160,7 @@ export function applyFinalScene(existing, options = {}) {
   }
   if (accepted.outfit) next.outfitEvidence = { source: accepted.outfit.evidence.source, kind: "final_scene", text: accepted.outfit.quote };
   if (accepted.environment && !rejectedLocation && !userOnlyMove) next.environmentEvidence = { source: accepted.environment.evidence.source, kind: "final_scene", text: accepted.environment.quote };
-  else if (location && !userOnlyMove) delete next.environmentEvidence;
+  else if (locationChanged && !userOnlyMove) delete next.environmentEvidence;
   if (correction.outfit) next.outfit = normalizeWardrobePrompt(correction.outfit);
   const userRemoval = explicitCharacterGarmentRemoval(options.userText, "user", options.characterName);
   const characterRemoval = explicitCharacterGarmentRemoval(options.characterText, "character", options.characterName);

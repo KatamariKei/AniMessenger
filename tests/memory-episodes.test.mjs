@@ -37,6 +37,7 @@ test("background extraction prioritizes ongoing source-linked episodes without e
   const original = globalThis.fetch;
   let calls = 0;
   globalThis.fetch = async (_, options) => {
+    if (String(_).endsWith("/api/ps")) return Response.json({ models: [] });
     calls++;
     const packet = JSON.parse(options.body);
     const input = JSON.parse(packet.messages.at(-1).content);

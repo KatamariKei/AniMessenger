@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { writeJsonAtomically } from "./atomic-json.mjs";
 import { dataDir } from "./config.mjs";
 import { mergeMemories, normalizeForgottenMemories, removeUnsupportedNamedMemories, rememberForgottenMemory } from "./memory.mjs";
 import { normalizeConversationMode } from "./narrative-mode.mjs";
@@ -15,6 +16,11 @@ const profilesDir = path.join(dataDir, "profiles");
 const uploadsDir = path.join(dataDir, "uploads");
 let threadCache = null;
 const threadWriteQueues = new Map();
+const legacyInstances = new Map();
+
+function conflict(message = "This conversation changed while the request was running. Please retry.") {
+  return Object.assign(new Error(message), { statusCode: 409 });
+}
 
 function safeId(value) {
   const id = String(value || "").replace(/[^a-zA-Z0-9()_.-]/g, "-").slice(0, 140);
@@ -27,8 +33,15 @@ async function readJson(filePath) {
 }
 
 async function writeJson(filePath, value) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, JSON.stringify(value, null, 2) + "\n", "utf8");
+  await writeJsonAtomically(filePath, value);
+}
+
+async function persistThread(key, next, current) {
+  next.storageInstanceId = current?.storageInstanceId || next.storageInstanceId || crypto.randomUUID();
+  next.storageRevision = Number(current?.storageRevision || 0) + 1;
+  await writeJson(path.join(threadsDir, key + ".json"), next);
+  if (threadCache) threadCache.set(key, next);
+  return next;
 }
 
 function enqueueThreadWrite(key, work) {
@@ -65,6 +78,8 @@ export function preserveNewerMemoryState(current, incoming) {
 
 function canonicalThread(thread) {
   if (!thread) return thread;
+  const key = safeId(thread.id);
+  if (!thread.storageInstanceId && !legacyInstances.has(key)) legacyInstances.set(key, crypto.randomUUID());
   const canonicalMessages = Array.isArray(thread.messages) ? thread.messages.map((message) => message?.from === "character"
     ? {
         ...message,
@@ -77,6 +92,8 @@ function canonicalThread(thread) {
     : thread.memories;
   return {
     ...thread,
+    storageInstanceId: thread.storageInstanceId || legacyInstances.get(key),
+    storageRevision: Number(thread.storageRevision || 0),
     ...normalizeRelationshipProgress(thread),
     ...recoverVerifiedDestinationEvidence(thread),
     ...(Array.isArray(canonicalMessages) ? { messages: canonicalMessages } : {}),
@@ -160,6 +177,7 @@ export async function deleteThread(id) {
     try {
       await fs.unlink(path.join(threadsDir, key + ".json"));
       if (threadCache) threadCache.delete(key);
+      legacyInstances.delete(key);
       return true;
     } catch (error) {
       if (error && error.code === "ENOENT") return false;
@@ -172,14 +190,32 @@ export async function saveThread(thread, options = {}) {
   const key = safeId(thread.id);
   return enqueueThreadWrite(key, async () => {
     const current = await currentStoredThread(key);
+    if ((!current && thread.storageInstanceId)
+      || (current && (thread.storageInstanceId !== current.storageInstanceId
+        || Number(thread.storageRevision || 0) !== Number(current.storageRevision || 0)))) throw conflict();
     const memoryState = preserveNewerMemoryState(current, thread);
     const progressionState = preserveNewerRelationshipProgress(current, thread);
     const achievementState = preserveNewerAchievementShadow(current, thread);
     const updatedAt = options.preserveUpdatedAt && thread.updatedAt ? thread.updatedAt : new Date().toISOString();
     const next = canonicalThread({ ...thread, ...memoryState, ...progressionState, ...achievementState, updatedAt });
-    await writeJson(path.join(threadsDir, key + ".json"), next);
-    if (threadCache) threadCache.set(key, next);
-    return next;
+    return persistThread(key, next, current);
+  });
+}
+
+// Apply bounded changes to the latest state while holding the per-thread queue.
+// expectedInstanceId prevents late jobs from attaching to a deleted/recreated chat.
+export async function updateThread(id, update, { expectedInstanceId, preserveUpdatedAt = false } = {}) {
+  const key = safeId(id);
+  return enqueueThreadWrite(key, async () => {
+    const current = await currentStoredThread(key);
+    if (!current || (expectedInstanceId && expectedInstanceId !== current.storageInstanceId)) {
+      throw conflict("That conversation was deleted or replaced while the request was running.");
+    }
+    const patch = await update(structuredClone(current));
+    if (!patch) return current;
+    const next = canonicalThread({ ...current, ...patch, id: current.id,
+      updatedAt: preserveUpdatedAt ? current.updatedAt : new Date().toISOString() });
+    return persistThread(key, next, current);
   });
 }
 
@@ -203,8 +239,7 @@ export async function mergeThreadMemoryCheckpoint(id, candidates, checkpoint = {
       updatedAt: current.updatedAt,
     });
     next.memoryHealthMetrics = recordMemoryReviewMetrics(current, next, candidates.length, now);
-    await writeJson(path.join(threadsDir, key + ".json"), next);
-    if (threadCache) threadCache.set(key, next);
+    await persistThread(key, next, current);
     return next;
   });
 }
@@ -219,8 +254,7 @@ export async function mergeThreadHistoricalMemories(id, candidates, complete = f
       ...(complete ? { memoryBackfilledAt: new Date().toISOString() } : {}),
       memoryRevision: Number(current.memoryRevision || 0) + 1 });
     if (candidates.length) next.memoryHealthMetrics = recordMemoryReviewMetrics(current, next, candidates.length);
-    await writeJson(path.join(threadsDir, key + ".json"), next);
-    if (threadCache) threadCache.set(key, next);
+    await persistThread(key, next, current);
     return { thread: next, added: Math.max(0, memories.length - (current.memories || []).length) };
   });
 }
@@ -252,8 +286,7 @@ export async function consolidateThreadMemories(id, plan) {
     }
     const next = canonicalThread({ ...current, memories: memories.filter(memory => !removed.has(memory.id)), forgottenMemories,
       memoryRevision: Number(current.memoryRevision || 0) + 1 });
-    await writeJson(path.join(threadsDir, key + ".json"), next);
-    if (threadCache) threadCache.set(key, next);
+    await persistThread(key, next, current);
     return next;
   });
 }
@@ -266,8 +299,7 @@ export async function reconsiderThreadDestinations(id) {
     const shadow = reconsiderDestinationShadow(current);
     if (shadow.achievementShadow.revision === Number(current.achievementShadow?.revision || 0)) return current;
     const next = canonicalThread({ ...current, ...shadow });
-    await writeJson(path.join(threadsDir, key + ".json"), next);
-    if (threadCache) threadCache.set(key, next);
+    await persistThread(key, next, current);
     return next;
   });
 }
@@ -280,8 +312,7 @@ export async function reconsiderThreadLaughter(id) {
     const shadow = reconsiderLaughterShadow(current);
     if (shadow.achievementShadow.revision === Number(current.achievementShadow?.revision || 0)) return current;
     const next = canonicalThread({ ...current, ...shadow });
-    await writeJson(path.join(threadsDir, key + ".json"), next);
-    if (threadCache) threadCache.set(key, next);
+    await persistThread(key, next, current);
     return next;
   });
 }
@@ -294,8 +325,7 @@ export async function awardDiscoveryBonuses(id, discoveryIds) {
     const progress = discoveryBondBonus(current, discoveryIds);
     if (progress.progressionRevision === Number(current.progressionRevision || 0)) return current;
     const next = canonicalThread({ ...current, ...progress });
-    await writeJson(path.join(threadsDir, key + ".json"), next);
-    if (threadCache) threadCache.set(key, next);
+    await persistThread(key, next, current);
     return next;
   });
 }
@@ -315,16 +345,17 @@ export async function recordThreadMemoryCheckpointError(id, error) {
       memoryRevision: Number(current.memoryRevision || 0) + 1,
       updatedAt: current.updatedAt,
     });
-    await writeJson(path.join(threadsDir, key + ".json"), next);
-    if (threadCache) threadCache.set(key, next);
+    await persistThread(key, next, current);
     return next;
   });
 }
 
 export async function createThread(character) {
-  const existing = await loadThread(character.id);
-  if (existing) return existing;
-  return saveThread({
+  const key = safeId(character.id);
+  return enqueueThreadWrite(key, async () => {
+    const existing = await currentStoredThread(key);
+    if (existing) return existing;
+    const next = canonicalThread({
     id: character.id,
     character,
     messages: [],
@@ -341,6 +372,8 @@ export async function createThread(character) {
       presence: "apart",
     },
     updatedAt: new Date().toISOString(),
+    });
+    return persistThread(key, next, null);
   });
 }
 

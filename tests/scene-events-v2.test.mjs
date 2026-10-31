@@ -17,6 +17,17 @@ test("natural bathing venues remain valid scene locations", () => {
   }
 });
 
+test("private rooms and their ordinary synonyms are inhabitable places", () => {
+  for (const location of ["her private chambers", "private quarters", "royal chamber", "the lounge", "private wing corridor"]) {
+    const place = classifyPlaceCandidate(location);
+    assert.equal(place.valid, true, location);
+    assert.equal(place.kind, "room", location);
+  }
+  for (const location of ["the velvet cushions", "the chair", "the door"]) {
+    assert.equal(classifyPlaceCandidate(location).valid, false, location);
+  }
+});
+
 test("an object interaction cannot become an enclosing location", () => {
   const result = evaluateSceneTurnV2(deck, {
     characterText: "Once they reached the cooler and poured themselves fresh drinks, Erica leaned against the railing.",

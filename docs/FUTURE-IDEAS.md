@@ -2,6 +2,16 @@
 
 This document tracks experimental work and intentionally deferred concepts.
 
+## Create a character from scratch
+
+Add a dedicated path for creating an original character without selecting an existing catalogue entry. The user can define the character directly, or start with a concept and ask the local model to help flesh it out before reviewing and saving it.
+
+The builder should cover name, adult age, background/world, personality, voice, appearance, default wardrobe and an opening scenario. User-authored details are the authority for this character; do not require external canon research or present invented details as researched facts. Keep original-character provenance distinct from catalogue/researched characters.
+
+Original characters should use the same conversation, memory, relationship tiers, scene/outfit continuity, portraits, image generation and gallery foundations as researched characters. Any original-character discoveries should follow the authored background and distinguish what the character knows from what the user has learned, rather than inventing public-source citations.
+
+This is a requested future feature, not an implemented capability. An original AniMessenger character could eventually serve as a recurring promotional character; current promotional material must demonstrate capabilities available in the actual build.
+
 ## Character-research waiting game
 
 Offer a tiny optional tap-to-jump runner, inspired by Chrome's offline Dino game, while a new character is being researched and prepared. It should work with touch and keyboard, stay responsive without using the local AI/GPU budget, and stop or dismiss cleanly when the profile is ready or setup needs attention. Keep the real preparation progress and any error visible; the game is a diversion, not a substitute for status or a reason to prolong setup.

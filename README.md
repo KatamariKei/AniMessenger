@@ -28,7 +28,7 @@ AniMessenger is available under the [MIT License](LICENSE). See the [changelog](
 
 ### [Download the latest Windows release](https://github.com/KatamariKei/AniMessenger/releases/latest)
 
-1. Download and extract `AniMessenger-Windows-v0.6.0.zip`.
+1. Download and extract `AniMessenger-Windows-v0.6.1.zip`.
 2. Run `Install-AniMessenger.cmd` from the extracted folder.
 3. Use the AniMessenger tray icon to open, start, stop, or check for updates.
 

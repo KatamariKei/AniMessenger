@@ -95,6 +95,7 @@ test("live semantic discovery review piggybacks on one memory request with exact
   let calls = 0;
   const exchange = revelationHistoryWindows(thread).flat();
   globalThis.fetch = async (_url, options) => {
+    if (String(_url).endsWith("/api/ps")) return Response.json({ models: [] });
     calls++;
     const packet = JSON.parse(options.body);
     assert.ok(packet.format.properties.discoveryMatches);

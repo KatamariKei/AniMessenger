@@ -257,6 +257,26 @@ const finalChatSceneSchema = {
   required: [...sceneSchema.required, "posture"],
 };
 
+// Foreground turns transmit changes only. Keep the full schema for image
+// reconciliation, which must explicitly account for each uncertain field.
+const chatScenePatchSchema = { ...finalChatSceneSchema, required: [] };
+const chatSceneEvidencePatchSchema = { ...sceneEvidenceSchema, required: [] };
+
+export const sceneReconciliationSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: { locationDisposition: { anyOf: [{ type: "string", enum: ["unchanged", "changed", "uncertain"] }, { type: "null" }] }, scene: finalChatSceneSchema, sceneEvidence: {
+    type: "object", additionalProperties: false,
+    properties: Object.fromEntries(Object.keys(sceneEvidenceSchema.properties).map(field => [field, {
+      anyOf: [{ type: "object", additionalProperties: false,
+        properties: { evidenceId: stringSchema, phase: { type: "string", enum: ["current", "planned", "negated"] }, actor: { type: "string", enum: ["user", "character", "shared"] } },
+        required: ["evidenceId", "phase", "actor"] }, { type: "null" }],
+    }])),
+    required: Object.keys(sceneEvidenceSchema.properties),
+  } },
+  required: ["locationDisposition", "scene", "sceneEvidence"],
+};
+
 export const characterChatSchema = {
   type: "object",
   additionalProperties: false,
@@ -264,13 +284,13 @@ export const characterChatSchema = {
     narration: nullableStringSchema,
     reply: stringSchema,
     relationshipDelta: { type: "integer", minimum: -2, maximum: 2 },
-    scene: finalChatSceneSchema,
-    sceneEvidence: sceneEvidenceSchema,
+    scene: chatScenePatchSchema,
+    sceneEvidence: chatSceneEvidencePatchSchema,
     shouldSendPhoto: { type: "boolean" },
     photoBrief: nullableStringSchema,
     photoOutfit: nullableStringSchema,
     photoMessage: nullableStringSchema,
-    memoryCandidates: { type: "array", items: memoryCandidateSchema },
+    memoryCandidates: { type: "array", maxItems: 0, items: memoryCandidateSchema },
     achievementSignals: {
       type: "array", maxItems: 5,
       items: {

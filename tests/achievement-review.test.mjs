@@ -137,6 +137,7 @@ test("semantic review piggybacks on one background memory request", async () => 
   const originalFetch = globalThis.fetch;
   let calls = 0;
   globalThis.fetch = async (_url, options) => {
+    if (String(_url).endsWith("/api/ps")) return Response.json({ models: [] });
     calls++;
     const body = JSON.parse(options.body);
     assert.ok(body.format.properties.memories);

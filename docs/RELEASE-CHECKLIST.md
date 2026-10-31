@@ -60,6 +60,20 @@ Run:
 
 Then inspect the candidate from a fresh directory before publishing anything.
 
+## 0.6.1 maintenance release candidate
+
+- [x] Summarize code-review fixes, speed improvements, Story delivery, scene continuity and catalogue identity changes in release notes.
+- [x] Bump package version and README download filename to 0.6.1.
+- [x] Prepare an isolated public-source candidate, excluding private data, local experiments/design previews and internal development notes.
+- [x] Pass clean-source privacy audit, TypeScript, 963 tests and production build.
+- [x] Build the Windows ZIP and audit its 134 packaged files.
+- [x] Match packaged application sources/workflows/assets against the clean candidate.
+- [x] Rehearse fresh installation and upgrades from v0.6.0 and v0.5.0, preserving six synthetic private files byte-for-byte.
+- [x] Verify default workflow, mapping and asset manifest are unchanged.
+- [x] Record candidate checksum and validation limits in [v0.6.1 validation](RELEASE-VALIDATION-0.6.1.md).
+- [x] User explicitly waived an additional 3090/manual second-PC test of this exact ZIP after reviewing the automated validation results.
+- [x] Obtain explicit approval to commit the reviewed source set, push, tag and publish the GitHub release.
+
 ## 0.6.0 release candidate
 
 - [x] Keep the bundled default image model and workflow unchanged.

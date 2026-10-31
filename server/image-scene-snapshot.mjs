@@ -5,6 +5,7 @@ import {
   isDetailedEnvironment,
 } from "./environment.mjs";
 import { classifyPlaceCandidate } from "./scene-events-v2.mjs";
+import { optionalSceneFields } from "./scene-verification.mjs";
 
 const roomNames = [
   "living room", "dining room", "locker room", "walk-in cooler", "walk-in freezer",
@@ -154,6 +155,7 @@ export function buildImageSceneSnapshot(scene = {}, brief = "") {
       location,
       environment,
       activity,
+      ...Object.fromEntries(optionalSceneFields.filter(field => scene?.verification?.omitted?.includes(field)).map(field => [field, ""])),
     },
     brief: briefResult.brief,
     issues,
