@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import { guestSceneForHost } from "./conversation-scene.mjs";
+import { addressedCameoSpeakers, isCameoConversationReply } from "../shared/cameo-address.mjs";
 
 export const GUEST_CAMEO_VERSION = 1;
 
@@ -63,14 +65,8 @@ export function routeCameoSpeakers({ text, host, guest, lastSpeakerId = "", focu
   const hostId = cleanId(host?.id);
   const guestId = cleanId(guest?.id);
   if (!hostId || !guestId) throw new Error("Guest routing requires a host and guest character.");
-  const hostMentioned = mentioned(text, host);
-  const guestMentioned = mentioned(text, guest);
-  const addressesGroup = /\b(?:both of you|you both|you two|either of you|everyone|all of you|what do (?:you two|you guys|all of you) think)\b/i.test(String(text || ""));
-  if ((hostMentioned && guestMentioned) || addressesGroup) {
-    return cleanId(lastSpeakerId) === hostId ? [guestId, hostId] : [hostId, guestId];
-  }
-  if (guestMentioned) return [guestId];
-  if (hostMentioned) return [hostId];
+  const addressed = addressedCameoSpeakers(text, { ...host, id: hostId }, { ...guest, id: guestId }, cleanId(lastSpeakerId));
+  if (addressed.length) return addressed;
   // A newly invited guest must get a chance to enter the conversation. Without
   // this, the host's first reply becomes the last-speaker focus and can strand
   // a silent guest indefinitely when the user addresses them descriptively.
@@ -82,9 +78,12 @@ export function routeCameoSpeakers({ text, host, guest, lastSpeakerId = "", focu
 }
 
 export function cameoInterjectionEligible({ text, host, guest, messages = [], image = false }) {
-  if (image || mentioned(text, host) || mentioned(text, guest)) return false;
+  if (image) return false;
   if (/\b(?:both of you|you both|you two|either of you|everyone|all of you|what do (?:you two|you guys|all of you) think)\b/i.test(String(text || ""))) return false;
   if (/\b(?:send|show|share|take|generate|make)\b.{0,28}\b(?:photo|picture|pic|image|selfie)\b/i.test(String(text || ""))) return false;
+  // A named participant takes the first turn; naming them does not silence
+  // the other participant. Keep the cooldown for unsolicited commentary only.
+  if (mentioned(text, host) || mentioned(text, guest)) return true;
   return !(messages || []).slice(-10).some((message) => message?.cameoInterjection);
 }
 
@@ -95,7 +94,7 @@ export function beginCameoSession({ hostThread, guestCharacter, guestProfile, lo
   return {
     id: "cameo-" + crypto.randomUUID(),
     version: GUEST_CAMEO_VERSION,
-    host: { character: structuredClone(hostThread.character), profile: structuredClone(hostThread.profile), relationship: Number(hostThread.relationship) || 8, scene: structuredClone(hostThread.scene || {}) },
+    host: { character: structuredClone(hostThread.character), profile: structuredClone(hostThread.profile), demeanor: hostThread.demeanor, relationship: Number(hostThread.relationship) || 8, scene: structuredClone(hostThread.scene || {}) },
     guest: { character: structuredClone(guestCharacter), profile: structuredClone(guestProfile), relationship: 8, scene: { outfit: guestProfile.visual?.defaultWardrobe || "default outfit", expression: "" } },
     scene: { ...structuredClone(hostThread.scene || {}), location, activity, presence: "together" },
     hostHistory: structuredClone((hostThread.messages || []).slice(-24)),
@@ -113,16 +112,17 @@ export function resumeCameoSession({ hostThread, guestCharacter, guestProfile, g
   const joinIndex = (hostThread.messages || []).findIndex((message) => message.id === cameo.activeGuest.joinedAtMessageId);
   const sharedStart = joinIndex >= 0 ? joinIndex + 1 : Math.max(0, (hostThread.messages || []).length - 28);
   const sharedMessages = structuredClone((hostThread.messages || []).slice(sharedStart));
-  const lastCharacterMessage = [...sharedMessages].reverse().find((message) => message.from === "character");
+  const lastCharacterMessage = sharedMessages.findLast(isCameoConversationReply);
   return {
     id: "cameo-" + cleanId(cameo.activeGuest.joinedAtMessageId || crypto.randomUUID()),
     version: GUEST_CAMEO_VERSION,
-    host: { character: structuredClone(hostThread.character), profile: structuredClone(hostThread.profile), relationship: Number(hostThread.relationship) || 8, scene: structuredClone(hostThread.scene || {}) },
+    host: { character: structuredClone(hostThread.character), profile: structuredClone(hostThread.profile), demeanor: hostThread.demeanor, relationship: Number(hostThread.relationship) || 8, scene: structuredClone(hostThread.scene || {}) },
     guest: {
       character: structuredClone(guestCharacter),
       profile: structuredClone(guestProfile),
       relationship: Number(guestThread?.relationship) || 8,
-      scene: structuredClone(guestThread?.scene || { outfit: guestProfile.visual?.defaultWardrobe || "default outfit", expression: "" }),
+      demeanor: guestThread?.demeanor,
+      scene: structuredClone(guestSceneForHost(guestThread,hostThread) || { outfit: guestProfile.visual?.defaultWardrobe || "default outfit", expression: "" }),
     },
     scene: { ...structuredClone(hostThread.scene || {}), presence: "together" },
     hostHistory: structuredClone((hostThread.messages || []).slice(0, Math.max(0, sharedStart - 1)).slice(-24)),
@@ -171,7 +171,8 @@ export function threadForCameoSpeaker(session, speakerId) {
     if (message.from === "user") return { ...message, text: "[User]: " + cleanText(message.text, 8000) };
     const messageSpeakerId = characterMessageSpeakerId(message, hostId);
     if (messageSpeakerId === cleanId(selected.character.id)) return { ...message, from: "character" };
-    return { ...message, from: "user", text: "[" + cleanText(other.profile.name || other.character.name, 100) + "]: " + cleanText(message.text, 8000) };
+    const passage = String(message.narration || message.text || "").trim().slice(0, 8000);
+    return { ...message, from: "user", text: passage ? "[" + cleanText(other.profile.name || other.character.name, 100) + "]: " + passage : "" };
   });
   const visibleMessages = cleanId(selected.character.id) === hostId
     ? [...structuredClone(session.hostHistory || []), ...sharedMessages]
@@ -181,6 +182,7 @@ export function threadForCameoSpeaker(session, speakerId) {
     id: "prototype-" + selected.character.id,
     character: structuredClone(selected.character),
     profile: structuredClone(selected.profile),
+    ...(selected.demeanor ? { demeanor: selected.demeanor } : {}),
     messages: visibleMessages,
     memories: [],
     relationship: selected.relationship,
@@ -210,13 +212,13 @@ export function cameoPromptContext(session, speakerId, options = {}) {
   return [
     "SHARED CAMEO SCENE: You are in the same conversation as " + otherName + " and the user.",
     "Reply only as " + cleanText(selected.profile.name || selected.character.name, 100) + ". Never write dialogue, actions, thoughts, or decisions for the other character or the user.",
-    "Lines labeled [" + otherName + "] are the other character speaking. Treat them as visible shared conversation, not as the user and not as your own prior dialogue.",
+    "Lines labeled [" + otherName + "] are the other character’s visible actions and/or speech. Treat them as established events and continue from the end of their contribution. Anything the user already staged, including arrivals and entrances, has happened once.",
     "Keep your voice distinct. You may respond to the other character, the user, or both, but do not summarize the entire scene and do not announce speaker labels in your reply.",
     groupTurnGuidance,
     options.interjection
       ? "You are adding an occasional interjection after the other character has already answered. Contribute one distinct, directly relevant thought in one or two concise sentences. Do not merely agree, restate, police, scold, or summarize what was just said. Set otherShouldRespond false."
       : options.allowInterjection
-        ? "TURN-TAKING: The other character may occasionally have a worthwhile brief contribution after you answer. Set otherShouldRespond true only when their distinct perspective is unusually relevant and a second bubble would materially improve this exact moment. Routine agreement, commentary, teasing, correction, supervision, scolding, or repeating your point does not qualify. Usually set it false."
+        ? "TURN-TAKING: Direct user address chooses who answers first, not who is allowed to participate. The other character can respond to YOU as well as the user. Set otherShouldRespond true when you directly ask, invite, or challenge them, or when an arrival or interaction gives them a meaningful immediate response. Otherwise set it true only when their distinct perspective materially advances this exact moment. Routine agreement, repetition, or unrelated commentary does not qualify. Usually set it false."
         : "Set otherShouldRespond false.",
     "This is a temporary encounter. Do not claim private knowledge about the other character's relationship with the user unless it was stated in this shared transcript.",
   ].filter(Boolean).join("\n");

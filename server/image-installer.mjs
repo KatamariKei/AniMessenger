@@ -5,6 +5,11 @@ import crypto from "node:crypto";
 import { imageAssetPath, validateImageAssetManifest, verifyInstalledImageAssets } from "./image-assets.mjs";
 
 const jobs = new Map();
+const civitaiOrigin = "https://civitai.com";
+
+function needsCivitaiToken(asset) {
+  return new URL(asset.source.downloadUrl).origin === civitaiOrigin;
+}
 
 export async function readImageAssetManifest(rootDirectory) {
   const filename = path.join(rootDirectory, "workflows", "animessenger-anima-assets.json");
@@ -190,10 +195,17 @@ export async function imagePackStatus(manifest, modelsDirectory) {
     modelsDirectory: directory,
     totalBytes: manifest.totalBytes,
     requiredDownloadBytes: manifest.assets.reduce((total, asset, index) => total + (checked[index].ok ? 0 : asset.bytes), 0),
+    requiresCivitaiToken: manifest.assets.some((asset, index) => !checked[index].ok && needsCivitaiToken(asset)),
     availableBytes: await availableBytes(directory),
     allInstalled: assets.every((asset) => asset.state === "installed"),
     assets,
   };
+}
+
+export function visualNovelAssetManifest(manifest) {
+  const assets = manifest.assets.filter(asset => ["anima-rgba-lora", "anima-rgba-vae"].includes(asset.id));
+  if (assets.length !== 2) throw new Error("The Visual Novel model manifest is incomplete.");
+  return { ...manifest, assets, totalBytes: assets.reduce((total, asset) => total + asset.bytes, 0) };
 }
 
 function publicJob(job) {
@@ -215,16 +227,17 @@ async function downloadAsset(job, asset, apiToken, repair) {
   const part = `${target}.animessenger.part`;
   await fsp.mkdir(path.dirname(target), { recursive: true });
   await fsp.rm(part, { force: true });
+  const protectedDownload = needsCivitaiToken(asset);
   const response = await fetch(asset.source.downloadUrl, {
     redirect: "follow",
     signal: job.controller.signal,
     headers: {
       "user-agent": "AniMessenger image setup",
-      ...(apiToken ? { authorization: `Bearer ${apiToken}` } : {}),
+      ...(protectedDownload ? { authorization: `Bearer ${apiToken}` } : {}),
     },
   });
   if (!response.ok || !response.body) {
-    if (response.status === 401 || response.status === 403) throw new Error(`Civitai rejected ${asset.filename}. Check the temporary access token and your account permissions.`);
+    if (protectedDownload && (response.status === 401 || response.status === 403)) throw new Error(`Civitai rejected ${asset.filename}. Check the temporary access token and your account permissions.`);
     throw new Error(`The provider returned ${response.status} while downloading ${asset.filename}.`);
   }
 
@@ -282,9 +295,10 @@ async function runInstall(job, manifest, selectedAssets, apiToken, repair) {
 
 export async function startImagePackInstall(manifest, { modelsDirectory, acceptedTerms, apiToken = "", repair = false } = {}) {
   if (acceptedTerms !== true) throw new Error("Review and accept the model providers' terms before downloading.");
-  if (manifest.authentication?.required && !String(apiToken || "").trim()) throw new Error("A Civitai access token is required for the recommended image pack.");
   const directory = await validateModelsDirectory(modelsDirectory);
   const status = await imagePackStatus(manifest, directory);
+  const token = String(apiToken || "").trim();
+  if (status.requiresCivitaiToken && !token) throw new Error("A Civitai access token is required for the remaining Civitai downloads.");
   const blocked = status.assets.filter((asset) => asset.state === "invalid");
   if (blocked.length && !repair) throw new Error("One or more model files are invalid. Enable repair to preserve and replace them.");
   const selectedAssets = manifest.assets.filter((asset) => status.assets.find((item) => item.id === asset.id)?.state !== "installed");
@@ -292,6 +306,12 @@ export async function startImagePackInstall(manifest, { modelsDirectory, accepte
   const required = selectedAssets.reduce((total, asset) => total + asset.bytes, 0);
   if (status.availableBytes !== null && status.availableBytes < Math.ceil(required * 1.05)) {
     throw new Error("There is not enough free space for the missing image files and download verification.");
+  }
+  const targetAssetIds = selectedAssets.map(asset => asset.id);
+  const active = [...jobs.values()].find(job => job.modelsDirectory === directory && ["queued", "downloading"].includes(job.status));
+  if (active) {
+    if (targetAssetIds.every(id => active.targetAssetIds.includes(id))) return publicJob(active);
+    throw new Error("An image-model download is already running for this folder. Let it finish before starting another.");
   }
   const job = {
     id: crypto.randomUUID(),
@@ -302,11 +322,12 @@ export async function startImagePackInstall(manifest, { modelsDirectory, accepte
     currentAssetId: "",
     currentFilename: "",
     installedAssetIds: [],
+    targetAssetIds,
     controller: new AbortController(),
     error: "",
   };
   jobs.set(job.id, job);
-  void runInstall(job, manifest, selectedAssets, String(apiToken || "").trim(), Boolean(repair));
+  void runInstall(job, manifest, selectedAssets, token, Boolean(repair));
   const timer = setTimeout(() => jobs.delete(job.id), 60 * 60 * 1000);
   timer.unref?.();
   return publicJob(job);

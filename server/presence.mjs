@@ -20,7 +20,7 @@ function explicitTogether(text) {
   const value = clean(text);
   if (!value) return false;
   return [
-    /\b(?:i(?:'m| am)|we(?:'re| are)) (?:already )?(?:right )?here\b/,
+    /\b(?:i(?:'m| am)|we(?:'re| are)) (?:already )?(?:right )?here\b(?!\s+(?:to|for)\b)/,
     /\b(?:i(?:'m| am)|we(?:'re| are)) (?:physically )?(?:with|beside|next to) you\b/,
     /\b(?:i(?:'m| am) )?(?:sitting|standing|lying|laying|kneeling) (?:right )?(?:next to|beside|in front of|behind) you\b/,
     /\b(?:i |we )?(?:sit|sat|move|walk|slide|lie|lay|stand) (?:down )?(?:next to|beside|over to|toward) (?:you|her|him|them)\b/,

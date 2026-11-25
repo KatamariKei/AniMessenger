@@ -17,10 +17,13 @@ const placeWords = value => normalized(value).replace(/\b[\p{L}\p{N}]+['’]s\b/
 // actual latest sources, including open-vocabulary proper place names.
 export function hasDifferentCurrentPlace(scene, input) {
   const established = new Set(placeWords(scene.location));
-  for (const text of Object.values(input.latestExchange)) {
+  for (const source of Object.values(input.latestExchange)) {
+    const text = source.replace(/\b(?:feel(?:s|ing)?|felt)\s+(?:(?:completely|quite|right|really|perfectly)\s+)?at home\b/gi, "");
     if (/\b(?:stepp?\w*|walk\w*|pass\w*|mov\w*|went|go(?:es)?|came|cross\w*)\s+(?:inside|into|through|across|past)\s+(?:(?:the|a|an|her|his|their|our)\s+)?(?:door(?:way)?|threshold|entrance)\b/i.test(text)) return true;
     for (const match of text.matchAll(/\b(?:(?:in|inside|within|into|at|through)\s+|(?:enter(?:ed|s)?|reach(?:ed|es)?)\s+)([^.!?;\n,]{1,180})/gi)) {
-      const label = cleanLocationLabel(match[1].split(/\s+(?:is|are|was|were|seems?|seemed|feels?|felt|with|while|where|as|has|had)\b/i)[0]);
+      const phrase = match[1].split(/\s+(?:is|are|was|were|seems?|seemed|feels?|felt|with|while|where|as|has|had)\b/i)[0];
+      // Lighting can describe an established room without introducing a destination.
+      const label = cleanLocationLabel(phrase.replace(/^(?:the\s+)?(?:(?:ambient|soft|dim|bright|warm|cool)\s+)*(?:light|glow)\s+(?:of|from)\s+/i, ""));
       if (!label || genericPlace.test(label) || !classifyPlaceCandidate(label, match[0]).valid) continue;
       const words = placeWords(label);
       if (words.length && !words.every(word => established.has(word))) return true;
@@ -60,6 +63,7 @@ export function sceneReviewInput(thread) {
     verifiedLocationCheckpoint,
     // Full latest visible sources are required for exact-quotation validation.
     latestExchange,
+    characterNarration: messages.at(-1) === character ? character?.narration : undefined,
     evidenceCatalog: sceneEvidenceCatalog(latestExchange),
     recentContext: messages.slice(-8).filter(message => message !== user && message !== character)
       .map(message => ({ from: message.from, text: textOf(message).slice(0, 1800) })),
@@ -97,7 +101,7 @@ export function validateSceneReview(scene, input, review) {
   }));
   const options = {
     modelScene: proposed, sceneEvidence: evidence,
-    userText: input.latestExchange.user, characterText: input.latestExchange.character,
+    userText: input.latestExchange.user, characterText: input.latestExchange.character, characterNarration: input.characterNarration,
     characterName: input.characterName, verifyUnchanged: true, respectSharedDeclaration: scope.has("location"),
   };
   let result = applyFinalScene(scene, options);

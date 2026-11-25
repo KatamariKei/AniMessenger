@@ -1,3 +1,4 @@
+import { useImmersiveNoticeOwner } from "./immersive-notice-owner";
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { api, AppConfig, DiscoveryUnlock, Thread } from "./api";
 import { playSound } from "./sound";
@@ -24,6 +25,7 @@ export function DiscoveryNotification({ thread, characterName, portrait, config,
   paused: boolean; onThreadUpdated: (thread: Thread) => void;
   onPendingChange?: (pending: boolean) => void;
 }) {
+  paused = useImmersiveNoticeOwner(thread.id) || paused;
   const [unlock, setUnlock] = useState<DiscoveryUnlock | null>(null);
   const instance = useRef(0);
   if (!instance.current) instance.current = ++nextInstance;

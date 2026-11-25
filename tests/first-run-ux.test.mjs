@@ -25,7 +25,7 @@ test("first-run setup treats Ollama as required and ComfyUI as optional", () => 
 });
 
 test("unavailable image controls are disabled or hidden while ComfyUI is offline", () => {
-  assert.match(app, /disabled=\{!activeReadyForChat \|\| !health\.comfy \|\| typing \|\| capturingMoment\}/);
+  assert.match(app, /disabled=\{!activeReadyForChat \|\| !health\.comfy \|\| typing \|\| conversationModeUpdating \|\| capturingMoment\}/);
   assert.match(app, /\{health\.comfy && <button[\s\S]*?className="avatar-refresh"/);
   assert.match(app, /if \(!active \|\| !health\.comfy \|\| typing \|\| capturingMoment\) return/);
 });

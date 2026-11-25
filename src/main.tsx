@@ -1,3 +1,4 @@
+import { ImmersiveNotifications } from "./ImmersiveNotifications";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { AniMessengerApp } from "./App";
@@ -11,7 +12,7 @@ import "./dossier-scroll.css";
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ErrorBoundary>
-      <AniMessengerApp />
+      {window.parent !== window && new URLSearchParams(location.search).has("notifications") ? <ImmersiveNotifications /> : <AniMessengerApp />}
     </ErrorBoundary>
   </StrictMode>,
 );

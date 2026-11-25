@@ -9,7 +9,7 @@ const app = fs.readFileSync(path.join(root, "src", "App.tsx"), "utf8");
 const css = fs.readFileSync(path.join(root, "app", "globals.css"), "utf8");
 
 test("the mobile app cannot inherit an iOS browser's restored outer page offset", () => {
-  assert.match(css, /\.site-frame\s*\{\s*position:\s*fixed;\s*inset:\s*0;/);
+  assert.match(css, /\.site-frame\s*\{\s*position:\s*fixed;/);
   assert.match(app, /window\.addEventListener\("pageshow", handlePageShow\)/);
   assert.match(app, /document\.addEventListener\("visibilitychange", handleVisibility\)/);
   assert.match(app, /window\.scrollTo\(\{ left: 0, top: 0, behavior: "auto" \}\)/);
@@ -18,5 +18,5 @@ test("the mobile app cannot inherit an iOS browser's restored outer page offset"
 test("the mobile app follows the visual viewport when an iOS keyboard pans it", () => {
   assert.match(app, /viewport\?\.offsetTop/);
   assert.match(app, /viewport\?\.offsetLeft/);
-  assert.match(css, /transform:\s*translate3d\(var\(--mobile-viewport-offset-left, 0px\), var\(--mobile-viewport-offset-top, 0px\), 0\)/);
+  assert.match(css, /\.site-frame\s*\{[^}]*inset:\s*var\(--mobile-viewport-offset-top, 0px\) auto auto var\(--mobile-viewport-offset-left, 0px\)/);
 });

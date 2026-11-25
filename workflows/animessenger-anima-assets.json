@@ -4,11 +4,15 @@
   "name": "AniMessenger Recommended ANIMA Image Pack",
   "workflow": "anima-recommended-api.json",
   "mapping": "anima-recommended-api.mapping.json",
-  "totalBytes": 5905499670,
+  "totalBytes": 6596716726,
   "providerTerms": [
     {
       "provider": "Civitai",
       "url": "https://civitai.com/content/tos"
+    },
+    {
+      "provider": "Hugging Face",
+      "url": "https://huggingface.co/terms-of-service"
     }
   ],
   "authentication": {
@@ -102,6 +106,34 @@
         "modelVersionId": 2961717,
         "pageUrl": "https://civitai.com/models/929497?modelVersionId=2961717",
         "downloadUrl": "https://civitai.com/api/download/models/2961717"
+      }
+    },
+    {
+      "id": "anima-rgba-lora",
+      "kind": "lora",
+      "required": true,
+      "filename": "anima_rgba_lora.safetensors",
+      "targetSubdirectory": "loras",
+      "bytes": 183604992,
+      "sha256": "47dabf912dd0ea7913ee7b0cca3257469399c94ae1432f959ed3ab6047bdca0c",
+      "source": {
+        "provider": "Hugging Face",
+        "pageUrl": "https://huggingface.co/localai0301/Anima-RGBA",
+        "downloadUrl": "https://huggingface.co/localai0301/Anima-RGBA/resolve/c1e34fb312d98af65db290fc5aba4dfb2f03f49b/anima_rgba_lora.safetensors"
+      }
+    },
+    {
+      "id": "anima-rgba-vae",
+      "kind": "vae",
+      "required": true,
+      "filename": "anima_rgba_vae.safetensors",
+      "targetSubdirectory": "vae",
+      "bytes": 507612064,
+      "sha256": "d113c0f48b8fe2b64c11fe7cbaa2f005e16db48d2b8e59f9171dd6da05650c4e",
+      "source": {
+        "provider": "Hugging Face",
+        "pageUrl": "https://huggingface.co/localai0301/Anima-RGBA",
+        "downloadUrl": "https://huggingface.co/localai0301/Anima-RGBA/resolve/c1e34fb312d98af65db290fc5aba4dfb2f03f49b/anima_rgba_vae.safetensors"
       }
     }
   ]

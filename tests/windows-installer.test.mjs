@@ -4,9 +4,59 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { bundledNode } from "../scripts/windows-runtime.mjs";
+import os from "node:os";
+import { execFileSync } from "node:child_process";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
+
+test("setup and uninstall tolerate recycled IDs without stopping unrelated or unidentified processes", { skip: process.platform !== "win32" }, () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "animessenger-process-records-"));
+  try {
+    const installer = read("installer/Install-AniMessenger.ps1");
+    const uninstaller = read("installer/Uninstall-AniMessenger.ps1");
+    const stopBlock = uninstaller.slice(uninstaller.indexOf('$trayPidFile ='), uninstaller.indexOf('if (-not $NoShortcuts)'));
+    const encoded = text => Buffer.from(text, "utf8").toString("base64");
+    const script = `
+$ErrorActionPreference = "Stop"
+$PrivateHome = '${temporary.replaceAll("'", "''")}'
+$InstallRoot = Join-Path $PrivateHome "app"
+New-Item -ItemType Directory -Path (Join-Path $PrivateHome "runtime") -Force | Out-Null
+$source = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded(installer)}'))
+$ast = [Management.Automation.Language.Parser]::ParseInput($source, [ref]$null, [ref]$null)
+$stop = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq "Stop-AniMessenger" }, $true)
+Invoke-Expression $stop.Extent.Text
+$uninstallStop = [scriptblock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded(stopBlock)}')))
+function Get-Process { param([int]$Id) if ($script:processPresent) { [pscustomobject]@{ Path = $script:reportedPath } } }
+function Stop-Process { param([int]$Id) $script:stopped += $Id }
+function Wait-Process { param([int]$Id) }
+foreach ($operation in @("setup", "uninstall")) {
+  foreach ($kind in @("tray", "server")) {
+    foreach ($scenario in @("owned", "foreign", "exited", "unreadable")) {
+      $record = Join-Path $PrivateHome ("runtime\\" + $kind + ".pid")
+      Set-Content -LiteralPath $record -Value "3456"
+      $script:stopped = @()
+      $script:processPresent = $scenario -ne "exited"
+      $script:reportedPath = if ($scenario -eq "owned") {
+        if ($kind -eq "tray") { Join-Path $InstallRoot "AniMessenger.Tray.exe" } else { Join-Path $InstallRoot "runtime\\node.exe" }
+      } elseif ($scenario -eq "foreign") { Join-Path $PrivateHome "unrelated.exe" } else { "" }
+      $failed = $false
+      try { if ($operation -eq "setup") { Stop-AniMessenger } else { & $uninstallStop } } catch { $failed = $true }
+      if ($failed -ne ($scenario -eq "unreadable")) { throw "$operation $kind $scenario - unexpected failure status" }
+      if ($script:stopped.Count -ne $(if ($scenario -eq "owned") { 1 } else { 0 })) { throw "$operation $kind $scenario - wrong process stopped" }
+      if ((Test-Path -LiteralPath $record) -ne ($scenario -eq "unreadable")) { throw "$operation $kind $scenario - wrong record cleanup" }
+      Remove-Item -LiteralPath $record -Force -ErrorAction SilentlyContinue
+    }
+  }
+}
+Write-Output "All process ownership checks passed."
+`;
+    const output = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true, timeout: 30000 });
+    assert.match(output, /All process ownership checks passed/);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
 
 test("the Windows package pins and verifies a private x64 Node runtime", () => {
   assert.match(bundledNode.version, /^24\.\d+\.\d+$/);

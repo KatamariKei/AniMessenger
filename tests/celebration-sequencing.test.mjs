@@ -32,6 +32,7 @@ test("an award arriving first waits for discovery dismissal, two seconds, then p
   };
   const jsx = (type, props) => ({ type, props });
   const modules = {
+    "./immersive-notice-owner": { useImmersiveNoticeOwner: () => false },
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "./api": { api: {

@@ -407,14 +407,14 @@ button { touch-action: manipulation; }
   /* iOS browsers can restore the document's old page offset when reopening a tab.
      AniMessenger has its own scroll regions, so pin the application itself to
      the visible viewport instead of allowing that outer offset to crop it. */
-  .site-frame { position: fixed; inset: 0; display: block; width: 100vw; height: var(--mobile-viewport-height, 100dvh); min-height: 0; transform: translate3d(var(--mobile-viewport-offset-left, 0px), var(--mobile-viewport-offset-top, 0px), 0); }
+  .site-frame { position: fixed; inset: var(--mobile-viewport-offset-top, 0px) auto auto var(--mobile-viewport-offset-left, 0px); display: block; width: 100vw; height: var(--mobile-viewport-height, 100dvh); min-height: 0; }
   .ambient { display: none; }
   .app-shell { display: block; width: 100vw; height: 100%; border: 0; border-radius: 0; background: #0f0b13; }
   .inbox-panel, .chat-panel { position: absolute; inset: 0; width: 100%; height: 100%; }
   .inbox-panel { border: 0; transition: transform .32s cubic-bezier(.2,.7,.2,1); }
   .chat-panel { z-index: 2; transform: translateX(100%); transition: transform .32s cubic-bezier(.2,.7,.2,1); }
   .app-shell.is-chat-open .inbox-panel { transform: translateX(-26%); }
-  .app-shell.is-chat-open .chat-panel { transform: translateX(0); }
+  .app-shell.is-chat-open .chat-panel { transform: none; }
   .back-button { display: grid; place-items: center; }
   .inbox-header { padding-top: calc(20px + env(safe-area-inset-top)); }
   .chat-header { padding-top: calc(10px + env(safe-area-inset-top)); }

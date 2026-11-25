@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { queueCharacterImage } from "../server/comfy.mjs";
 import { discoveryArtworkInstructions, discoveryArtworkSnapshot, discoveryArtworkSize, unlockedDiscovery } from "../server/discovery-artwork.mjs";
 import { createRevelationStore } from "../server/revelations.mjs";
 import { publicDiscoveries } from "../server/revelation-live.mjs";
@@ -32,6 +34,50 @@ test("art snapshot uses the discovery scene without mutating or inheriting live 
   assert.match(snapshot.brief, /3:2 landscape composition/);
   assert.match(snapshot.brief, /entire head and face visible/);
   assert.throws(() => discoveryArtworkSnapshot(thread, { brief: "test", scene: { outfit: "nude" } }));
+});
+
+test("discovery generation saves only the refined image and keeps ordinary images single pass", async t => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  let sent;
+  globalThis.fetch = async (_url, options) => {
+    sent = JSON.parse(options.body);
+    return new Response(JSON.stringify({ prompt_id: "hires-discovery" }));
+  };
+  const config = {
+    comfyUrl: "http://fixture",
+    comfyWorkflowFile: fileURLToPath(new URL("../workflows/anima-fast-standard-loras-api.json", import.meta.url)),
+    comfyMappingFile: fileURLToPath(new URL("../workflows/anima-fast-standard-loras-api.mapping.json", import.meta.url)),
+  };
+  const thread = { character, profile: { visual: { identity: ["brown hair"], signature: [], defaultWardrobe: "blue jacket" } }, scene: { outfit: "blue jacket" } };
+  const options = { ...discoveryArtworkSize, sceneAwareFraming: false, seed: 123, hiresFix: true };
+  await queueCharacterImage(config, thread, "School event", options);
+  const graph = sent.prompt;
+  const node = link => graph[link[0]];
+  const save = Object.values(graph).filter(n => n.class_type === "SaveImage");
+  assert.equal(save.length, 1);
+  const finalDecode = node(save[0].inputs.images);
+  const refine = node(finalDecode.inputs.samples);
+  assert.equal(refine.class_type, "KSampler");
+  assert.equal(refine.inputs.denoise, 0.5);
+  assert.equal(refine.inputs.seed, 123);
+  const encode = node(refine.inputs.latent_image);
+  const scale = node(encode.inputs.pixels);
+  assert.equal(encode.class_type, "VAEEncode");
+  assert.deepEqual(encode.inputs.vae, finalDecode.inputs.vae);
+  assert.equal(scale.class_type, "ImageScale");
+  assert.deepEqual([scale.inputs.width, scale.inputs.height, scale.inputs.upscale_method, scale.inputs.crop], [2304, 1536, "lanczos", "disabled"]);
+  const firstDecode = node(scale.inputs.image);
+  const firstSampler = node(firstDecode.inputs.samples);
+  assert.equal(firstSampler.inputs.denoise, 1);
+  assert.deepEqual(refine.inputs.model, firstSampler.inputs.model);
+  assert.deepEqual(refine.inputs.positive, firstSampler.inputs.positive);
+  assert.deepEqual(refine.inputs.negative, firstSampler.inputs.negative);
+  assert.deepEqual([graph["59"].inputs.width, graph["59"].inputs.height], [1536, 1024]);
+  assert.equal(sent.extra_data, undefined);
+  await queueCharacterImage(config, thread, "School event", { ...options, hiresFix: false });
+  assert.equal(Object.values(sent.prompt).filter(n => n.class_type === "KSampler").length, 1);
+  assert.ok(sent.extra_data.extra_pnginfo.workflow);
 });
 
 test("artwork persists across restart and concurrent discovery updates without leaking locked art", async t => {

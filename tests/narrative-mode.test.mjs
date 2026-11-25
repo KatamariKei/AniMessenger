@@ -148,7 +148,7 @@ test("the client exposes a persistent mode control and a typewritten prose surfa
   const app = fs.readFileSync(path.join(root, "src", "App.tsx"), "utf8");
   const api = fs.readFileSync(path.join(root, "src", "api.ts"), "utf8");
   const css = fs.readFileSync(path.join(root, "src", "local.css"), "utf8");
-  assert.match(app, /className=\{"conversation-mode-control/);
+  assert.match(app, /className="composer-mode" aria-pressed=\{selected\}/);
   assert.match(app, /function StoryPassage/);
   assert.match(app, /story-passage-line/);
   assert.match(app, /requestAnimationFrame/);
@@ -164,7 +164,7 @@ test("the client exposes a persistent mode control and a typewritten prose surfa
   assert.match(app, /await revealFinished/);
   assert.match(app, /onComplete=\{\(\) => finishStoryReveal\(message\.id\)\}/);
   assert.match(app, /!isStoryPassage && message\.from === "character"[\s\S]*?className="reaction-control"/);
-  assert.match(app, /const nextMode = active\.conversationMode === "story" \? "chat" : "story";\s*setReactionTarget\(null\)/);
+  assert.match(app, /const nextMode = view === "chat" \? "chat" : "story";\s*setReactionTarget\(null\)/);
   assert.doesNotMatch(app, /const renderedMessages/);
   assert.match(api, /setConversationMode/);
   assert.match(api, /conversation-mode/);

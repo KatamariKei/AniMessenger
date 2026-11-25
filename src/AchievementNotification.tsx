@@ -1,3 +1,4 @@
+import { useImmersiveNoticeOwner } from "./immersive-notice-owner";
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { api, AppConfig, Thread } from "./api";
 import { playSound } from "./sound";
@@ -15,6 +16,7 @@ export function AchievementNotification({ thread, characterName, portrait, confi
   thread: Thread; characterName: string; portrait: ReactNode; config: AppConfig | null;
   paused: boolean;
 }) {
+  paused = useImmersiveNoticeOwner(thread.id) || paused;
   const [unlocks, setUnlocks] = useState<Unlock[]>([]);
   const [visible, setVisible] = useState(!document.hidden);
   const [readyAt, setReadyAt] = useState<number | null>(null);

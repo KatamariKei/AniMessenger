@@ -25,9 +25,8 @@ test("the character dossier uses existing bust artwork and real character inform
   assert.match(app, /traits.slice\(0, 5\)/);
   assert.match(app, /dossier-hero-caption">\{\(active.profile.persona\?\.traits \|\| \[\]\)\.slice\(0, 3\)/);
   assert.match(app, /const openProfile = async \(\) => \{\s*if \(active\?\.summary\)/);
-  assert.match(app, /newestSnapshot.summary && olderSnapshot && !olderSnapshot.summary/);
-  assert.match(app, /active.scene.location/);
-  assert.match(app, /active.scene.outfit/);
+  assert.match(app, /threadSnapshots.merge\(existing, next\)/);
+  assert.match(app, /<DossierScene scene=\{active.scene\} \/>/);
   assert.match(css, /\.portrait:not\(\.portrait--sprite\)/);
 });
 
@@ -45,12 +44,13 @@ test("wide and mobile dossiers have distinct layouts and one bounded content scr
   assert.match(css, /grid-template-columns: minmax\(280px, .88fr\) minmax\(0, 1.12fr\)/);
   assert.match(css, /@media \(max-width: 760px\)/);
   assert.match(css, /grid-template-rows: auto auto minmax\(0, 1fr\)/);
-  assert.match(css, /:is\(\.profile-section, \.profile-memories, \.profile-gallery\)[\s\S]*?min-height: 0/);
-  assert.match(css, /\[data-profile-tab="memories"\][\s\S]*?min-height: 88px/);
+  assert.match(css, /:is\(\.profile-section, \.profile-memories, \.profile-gallery, \.profile-journey\)[^}]*min-height: 0/);
+  assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.character-dossier \.profile-hero \{[^}]*min-height: 126px/);
 });
 
 test("long profile details are disclosed accessibly rather than stacked in full", () => {
-  for (const name of ["dossier-outfit", "dossier-voice", "dossier-identity"]) assert.match(app, new RegExp(`<details className="dossier-disclosure ${name}"`));
+  for (const name of ["dossier-voice", "dossier-identity"]) assert.match(app, new RegExp(`<details className="dossier-disclosure ${name}"`));
+  assert.doesNotMatch(app, /dossier-outfit/);
   assert.match(app, /aria-controls="dossier-about-copy"/);
   assert.match(app, /className="dossier-chat-options"><summary aria-label="Chat options"/);
   assert.match(app, /className="dossier-edit" type="button" onClick=\{\(\) => setShowIdentityEditor\(true\)\}/);
@@ -74,7 +74,9 @@ test("disclosure headings stay anchored and the desktop gallery uses three colum
 
 test("Journey is a keyboard-accessible tab with honest preview and no spoiler slots", () => {
   assert.match(app, /profile-tab-journey.*role="tab"/);
-  assert.match(app, /const tabs = \["profile", "memories", "gallery", "journey"\]/);
+  const tabs = ["profile", "journey", "memories", "gallery"];
+  assert.match(app, new RegExp(`const tabs = \\[${tabs.map(tab => JSON.stringify(tab)).join(", ")}\\]`));
+  assert.deepEqual(Array.from(app.matchAll(/<button id="profile-tab-(\w+)"/g), match => match[1]), tabs);
   assert.match(journey, /role="tabpanel" aria-labelledby="profile-tab-journey"/);
   assert.match(journey, /Verified progress · rewards are still being tested/);
   assert.match(journey, /Target reached · awaiting reward activation/);

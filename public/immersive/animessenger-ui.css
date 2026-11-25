@@ -1,0 +1,108 @@
+/* Prototype adaptation of app/globals.css signal tokens and src/local.css,
+   character-dossier.css and user-dossier.css controls. Keep app CSS untouched. */
+:root {
+  --ink:#ece9e4; --soft:#b8bec0; --muted:#9a9da1; --night:#0e1113;
+  --accent-color:#43c7b8; --accent-bright:#7bd8cd;
+  --accent-rgb:67,199,184; --accent-contrast:#071311;
+  --line:rgba(232,237,239,.09); --surface:#1a1f23;
+  --mint:var(--accent-bright); --radius-sm:7px; --radius-md:9px; --radius-lg:12px;
+  font-family:"Segoe UI Variable","Segoe UI",system-ui,-apple-system,BlinkMacSystemFont,sans-serif;
+  -webkit-text-size-adjust:100%; text-size-adjust:100%;
+}
+body,button,input,select,textarea{font-family:inherit}
+button{touch-action:manipulation}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent-bright);outline-offset:3px}
+.ui-icon{display:block;flex:0 0 auto;width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+:root #stage h1,dialog h2,.dialog-header h2{font-family:inherit;font-weight:700;letter-spacing:-.035em;line-height:1.2}
+:root #stage h1{font-size:clamp(24px,1.5vw,54px);font-weight:650;color:#f2f6f7}
+.narrative{font-family:inherit;font-weight:400;color:var(--ink);letter-spacing:-.012em}
+:root #stage .reading-band{background:rgba(14,17,19,var(--panel-opacity))}
+:root #stage.solid-panel .reading-band{background:linear-gradient(90deg,transparent 0%,transparent 46%,#101518 48%,#101518 100%)}
+:root #stage .top-actions{gap:8px}
+:root #stage .top-actions button,:root #stage .bottom-bar>button,.art-notice button{
+  display:inline-flex;align-items:center;justify-content:center;gap:9px;
+  min-height:44px;margin:0;padding:10px 14px;border:1px solid var(--line);
+  border-radius:var(--radius-md);background:#1a1f23;color:#a6b0b4;
+  font-size:clamp(13px,.76vw,26px);font-weight:550;line-height:1.25;
+  box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none;
+  transition:background .15s ease,border-color .15s ease,color .15s ease;
+}
+:root #stage .top-actions button:hover,:root #stage .bottom-bar>button:hover,.art-notice button:hover{
+  border-color:rgba(var(--accent-rgb),.3);background:#1d2b2c;color:var(--accent-bright);
+}
+:root #stage .top-actions .icon-button,.close-button{
+  display:grid;place-items:center;flex:0 0 auto;width:44px;height:44px;min-height:44px;
+  padding:0;border:1px solid var(--line);border-radius:var(--radius-lg);
+  background:#20272b;color:#9aa4a8;line-height:1;
+}
+.icon-button .fullscreen-exit{display:none}
+.icon-button.is-fullscreen .fullscreen-enter{display:none}
+.icon-button.is-fullscreen .fullscreen-exit{display:block}
+:root #stage .bottom-bar>button{border-color:rgba(var(--accent-rgb),.24);background:#172a2b;color:var(--accent-bright)}
+:root #stage #composer{
+  min-height:56px;gap:10px;padding:5px 5px 5px 16px;border:1px solid rgba(232,237,239,.1);
+  border-radius:var(--radius-lg);background:#1a1f23;box-shadow:none;
+  backdrop-filter:none;-webkit-backdrop-filter:none;
+}
+:root #stage #composer:focus-within{border-color:rgba(var(--accent-rgb),.38);box-shadow:0 0 0 2px rgba(var(--accent-rgb),.07)}
+:root #stage #composer input{font-size:clamp(16px,.9vw,30px);padding:10px 0;color:#e4e2de;line-height:1.5}
+:root #stage #composer input::placeholder{color:#92999c}
+:root #stage #composer button{
+  display:grid;place-items:center;width:44px;height:44px;flex:0 0 44px;margin:0;padding:0;
+  border:1px solid transparent;border-radius:10px;background:var(--accent-color);
+  color:var(--accent-contrast);line-height:1;box-shadow:none;
+}
+:root #stage #composer button:hover{background:var(--accent-bright)}
+:root #stage #composer button .ui-icon{width:24px;height:24px;stroke-width:3}
+#composer small{color:#b3bbbe}
+.art-notice,.toast{border:1px solid var(--line);border-radius:var(--radius-lg);background:#181d20;color:var(--ink);box-shadow:0 8px 24px #0004}
+.art-notice{display:flex;align-items:center;gap:18px;padding:10px 12px 10px 18px;white-space:normal}
+.art-notice button{margin:0;color:var(--accent-bright);background:#17312f;border-color:rgba(var(--accent-rgb),.24)}
+dialog{width:min(560px,calc(100% - 36px));padding:28px;border:1px solid #ffffff12;border-radius:20px;background:#101518;color:var(--ink);box-shadow:0 24px 90px #0007}
+dialog::backdrop{background:rgba(5,8,10,.8);backdrop-filter:none;-webkit-backdrop-filter:none}
+.dialog-header{align-items:center;gap:24px;padding-bottom:22px;border-bottom:1px solid var(--line)}
+.dialog-header h2,dialog h2{font-size:28px}
+.eyebrow{font-size:10px;font-weight:650;letter-spacing:.14em;color:var(--accent-bright)}
+.close-button:hover{background:#283235;color:var(--ink);border-color:rgba(var(--accent-rgb),.3)}
+.settings-body{gap:20px}
+.settings-body>label{font-size:14px;font-weight:550;color:#c8d5d9}
+.settings-body output{font-size:13px;font-weight:500;color:var(--accent-bright)}
+.settings-body select{min-height:44px;padding:10px 12px;border:1px solid #ffffff18;border-radius:var(--radius-md);background:#191f22;color:#e1e9eb;font-size:14px;line-height:1.5}
+.settings-body input[type=range],.settings-body input[type=checkbox]{accent-color:var(--accent-bright)}
+.settings-body input[type=range]{min-height:24px;margin:0}
+.settings-body .check-label{min-height:24px;font-size:13px;font-weight:400;line-height:1.5;color:#c8d5d9}
+.settings-body input[type=checkbox]{flex:0 0 18px;width:18px;height:18px;margin:0}
+.settings-note,.history-note{font-size:12px;line-height:1.65;color:#98adb4}
+.reset-button,.resume-button{min-height:44px;padding:10px 16px;border:1px solid rgba(var(--accent-rgb),.3);border-radius:var(--radius-md);background:#163532;color:var(--accent-bright);font-size:14px;font-weight:600;line-height:1.4}
+.reset-button:hover,.resume-button:hover{background:#1b433e;border-color:rgba(var(--accent-rgb),.5)}
+.history-item{border-color:var(--line)}
+.history-item h3{color:var(--accent-bright)}
+.history-item p{font-size:16px;color:#e4e2de}
+.bond>span{color:#c9cccb}
+.bond-track{background:#292e31}
+@media(min-width:2400px){
+  :root #stage .top-actions button,:root #stage .bottom-bar>button{min-height:64px;padding:16px 22px;gap:14px}
+  :root #stage .top-actions .icon-button{width:64px;height:64px;min-height:64px;padding:0;border-radius:14px}
+  :root #stage .top-actions .ui-icon,:root #stage .bottom-bar>button .ui-icon{width:28px;height:28px}
+  :root #stage #composer{min-height:84px;padding:8px 8px 8px 24px;border-radius:16px}
+  :root #stage #composer button{width:64px;height:64px;flex-basis:64px;border-radius:12px}
+  :root #stage #composer button .ui-icon{width:32px;height:32px}
+}
+@media(max-width:800px){
+  :root #stage .topbar{left:6%;right:6%;top:18px}
+  :root #stage .top-actions{gap:7px}
+  :root #stage .top-actions button{font-size:12px;padding:10px 12px}
+  :root #stage .top-actions #fullscreen{display:grid}
+  :root #stage .top-actions .icon-button{width:44px;height:44px}
+  :root #stage .top-actions #settings-open .ui-icon{display:none}
+  :root #stage .bottom-bar{gap:12px}
+  :root #stage .bottom-bar>button{position:static;justify-self:end;min-height:36px;padding:7px 10px;font-size:12px}
+  :root #stage .bottom-bar>button .ui-icon{width:16px;height:16px}
+  :root #stage .reading-region{bottom:25%}
+  :root #stage .reading-band,:root #stage.solid-panel .reading-band{top:35%;bottom:21%;background:linear-gradient(180deg,#0e1113b3,#0e1113f5 30%,#0e1113f5)}
+  :root #stage #composer{min-height:54px}
+  :root #stage h1{font-size:26px}
+  dialog{padding:22px;max-height:90dvh}
+  .dialog-header h2,dialog h2{font-size:24px}
+}
+@media(prefers-contrast:more){:root{--line:rgba(255,255,255,.25)}#composer input::placeholder{color:#b7bec1}}

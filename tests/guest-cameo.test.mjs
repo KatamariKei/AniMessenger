@@ -38,6 +38,17 @@ test("routing favors direct address, group address, follow-ups, then the host", 
   assert.deepEqual(routeCameoSpeakers({ ...input, text: "This place is crowded." }), [hostCharacter.id]);
 });
 
+test("guest mentions in actions or in conversation do not turn one question into a group reply", () => {
+  const host = { id: "erica", name: "Erica Anderson" };
+  const guest = { id: "rin", name: "Rin" };
+  const route = (text) => routeCameoSpeakers({ host, guest, text, lastSpeakerId: guest.id });
+  assert.deepEqual(route("I'm glad, Rin! [action: I thank Erica for the drink] So, Rin... how are things?"), [guest.id]);
+  assert.deepEqual(route("Erica! What do you think I would convince Rin to do?"), [host.id]);
+  assert.deepEqual(route("Go ahead, Erica. Rin is curious."), [host.id]);
+  assert.deepEqual(route("Erica, what do you think? Rin, how about you?"), [host.id, guest.id]);
+  assert.deepEqual(route("[action: both of you sit down] Rin, are you playing tonight?"), [guest.id]);
+});
+
 test("the server keeps every guest speaker in the active conversation mode", async () => {
   const source = await import("node:fs/promises").then((fs) => fs.readFile(new URL("../server/index.mjs", import.meta.url), "utf8"));
   assert.match(source, /conversationMode:\s*working\.conversationMode/);
@@ -45,10 +56,16 @@ test("the server keeps every guest speaker in the active conversation mode", asy
   assert.match(source, /working\.conversationMode\s*===\s*"story"[\s\S]*?result\.narration\s*\|\|\s*result\.reply/);
 });
 
-test("interjections are occasional and never override explicit addressing or picture requests", () => {
+test("a named first speaker can hand off to the other participant without overriding routing or picture requests", () => {
   const input = { host: hostCharacter, guest: guestCharacter };
   assert.equal(cameoInterjectionEligible({ ...input, text: "That would make excellent crispy chips." }), true);
-  assert.equal(cameoInterjectionEligible({ ...input, text: "Jessie, what do you think?" }), false);
+  assert.equal(cameoInterjectionEligible({ ...input, text: "Jessie, what do you think?" }), true);
+  assert.deepEqual(routeCameoSpeakers({ ...input, text: "Jessie, what do you think?" }), [guestCharacter.id]);
+  const arrival = { host: { id: "mira", name: "Mira" }, guest: { id: "sora", name: "Sora" },
+    text: "[action: Sora arrives at Mira's workbench]", guestNeedsFirstTurn: true };
+  assert.deepEqual(routeCameoSpeakers(arrival), ["sora"]);
+  assert.equal(cameoInterjectionEligible(arrival), true);
+  assert.equal(cameoInterjectionEligible({ ...arrival, messages: [{ cameoInterjection: true }] }), true);
   assert.equal(cameoInterjectionEligible({ ...input, text: "What do you both think?" }), false);
   assert.equal(cameoInterjectionEligible({ ...input, text: "Send me another picture." }), false);
   assert.equal(cameoInterjectionEligible({ ...input, text: "That is interesting.", image: true }), false);
@@ -96,7 +113,21 @@ test("speaker-specific transcripts keep the other character distinct", () => {
   assert.match(finalStorySegment, /forward pressure/i);
   assert.match(finalStorySegment, /opportunity the user can naturally act on/i);
   assert.match(cameoPromptContext(session, guestCharacter.id, { allowInterjection: true }), /Usually set it false/i);
+  assert.match(cameoPromptContext(session, guestCharacter.id, { allowInterjection: true }), /respond to YOU as well as the user/);
   assert.match(cameoPromptContext(session, guestCharacter.id, { interjection: true }), /one or two concise sentences/i);
+});
+
+test("a second Story speaker receives the previous passage with its speaker label", () => {
+  let session = beginCameoSession({
+    hostThread: { character: hostCharacter, profile: profile(hostCharacter, "direct") },
+    guestCharacter,
+    guestProfile: profile(guestCharacter, "theatrical"),
+  });
+  session = appendCameoMessage(session, { from: "user", text: "What do you both think?" });
+  const narration = 'Misty set the glass down.\n\n"No, that was my idea," she said.';
+  session = appendCameoMessage(session, { from: "character", speakerId: hostCharacter.id, text: "", narration });
+  const messages = threadForCameoSpeaker(session, guestCharacter.id).messages;
+  assert.deepEqual(messages.map(message => message.text), ["[User]: What do you both think?", "[Misty]: " + narration]);
 });
 
 test("a resumed guest sees only the shared encounter while the host keeps recent private context", () => {

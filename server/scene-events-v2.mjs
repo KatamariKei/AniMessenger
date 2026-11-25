@@ -6,7 +6,7 @@ import {
   isRelativeLocation,
 } from "./environment.mjs";
 
-const placeWord = /\b(?:rental|apartment|house|home|room|kitchen|bedroom|bathroom|hall|hallway|lobby|office|classroom|school|campus|gym|locker room|arcade|restaurant|cafe|coffee shop|bar|club|store|shop|mall|park|garden|yard|courtyard|patio|porch|deck|street|road|station|airport|garage|car|train|bus|beach|pool|forest|woods|mountain|cave|castle|temple|church|hotel|hospital|library|museum|studio|theater|cinema|arena|stadium|rink|field|court|wing|estate|building|facility|base|headquarters|ship|boat|island|city|town|village|observatory|laboratory|workshop|warehouse|rooftop|balcony|terrace|shoreline)\b/i;
+const placeWord = /\b(?:rental|apartment|house|home|room|kitchen|bedroom|bathroom|hall|hallway|lobby|office|classroom|school|campus|gym|locker room|arcade|restaurant|cafe|coffee shop|bar|club|store|shop|mall|park|gardens?|yard|courtyard|patio|porch|deck|street|road|station|airport|garage|car|train|bus|beach|pool|forest|woods|mountain|cave|castle|temple|church|hotel|hospital|library|museum|studio|theater|cinema|arena|stadium|rink|field|court|wing|estate|building|facility|base|headquarters|ship|boat|island|city|town|village|observatory|laboratory|workshop|warehouse|rooftop|balcony|terrace|shoreline)\b/i;
 const objectWord = /^(?:(?:the|a|an)\s+)?(?:cooler|refrigerator|fridge|freezer|table|chair|sofa|couch|bed|door|gate|window|counter|barrel|cabinet|shelf|locker|box|crate|bag|bottle|glass|cup|jukebox|railing)\b/i;
 const inhabitableObject = /\b(?:walk[- ]in cooler|walk[- ]in freezer|vehicle interior|inside (?:the )?(?:car|train|bus|ship|boat))\b/i;
 const actionTail = /\s+(?:and(?: then)?|then)\s+(?:(?:i|we|you|she|he|they|the character)\s+)?(?:poured?|grabbed?|opened?|closed?|drank|drinks?|sat|stood|looked?|checked?|searched?|ordered?|started?|began|smiled?|laughed?|talked?|ate|held|leaned?|walked?|moved?|turned?)\b.*$/i;
@@ -97,7 +97,7 @@ export function classifyPlaceCandidate(input = "", evidence = "") {
   if (words.length > 12) return { valid: false, label, kind: "unknown", reason: "destination_too_long" };
   const kind = /\b(?:bedroom|bathroom|kitchen|classroom|office|room|hall|hallway|lobby|laboratory|workshop|entryway|foyer|vestibule|mudroom|basement|attic|chambers?|quarters|lounge|corridor|walk[- ]in)\b/i.test(label)
     ? "room"
-    : /\b(?:deck|patio|porch|yard|garden|courtyard|balcony|rooftop|beach|forest|woods|mountain|field|street|shoreline|driveway)\b/i.test(label)
+    : /\b(?:deck|patio|porch|yard|gardens?|courtyard|balcony|rooftop|beach|forest|woods|mountain|field|street|shoreline|driveway)\b/i.test(label)
       ? "outdoor_area"
       : /\b(?:car|train|bus|ship|boat)\b/i.test(label)
         ? "vehicle_interior"
@@ -137,6 +137,10 @@ function eventFromLegacy(event, channel, order, messageId) {
   };
 }
 
+export function isApproximatePosture(text) {
+  return /\b(?:almost|nearly|practically|virtually|about to|started to)\s+(?:\w+\s+){0,2}(?:stand(?:s|ing)?|stood|rose|rise|sit(?:s|ting)?|sat|lie|lay|kneel|crouch|get(?:s|ting)? up)\b/i.test(text);
+}
+
 function postureCandidate(match, definition, channel, order, messageId, subjectOverride = "") {
   const { posture, activity = null, eyes = null, supportCapture = 0, defaultSupport = "" } = definition;
   const subject = subjectOverride || match[1];
@@ -144,7 +148,7 @@ function postureCandidate(match, definition, channel, order, messageId, subjectO
     ? match[supportCapture]
     : match[0].match(/\b(?:on|against|beside|near|in|into|onto)\s+(?:(?:her|his|their|the|a|an)\s+)?([\p{L}\p{N}'’-]+(?:\s+[\p{L}\p{N}'’-]+){0,2}?)(?=\s+(?:and|while|as)\b|[,.!?;]|$)/iu)?.[1] || defaultSupport;
   const timing = temporalFor(match[0]);
-  const accepted = timing.temporal === "current" && timing.modality === "asserted";
+  const accepted = timing.temporal === "current" && timing.modality === "asserted" && !isApproximatePosture(match[0]);
   const offset = Math.max(0, Number(match.index) || 0);
   return {
     id: `candidate-${channel}-posture-${order}-${offset}`,

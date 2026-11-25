@@ -12,10 +12,13 @@ import { createSingleFlight } from "./single-flight.mjs";
 import { performanceMetrics } from "./performance-metrics.mjs";
 import { checkCharacterCatalog, enrichCharacterCatalog, searchCharacterCatalog } from "./character-catalog.mjs";
 import { checkComfy, diagnoseComfy, fetchComfyImage, generationStatus, listComfyDiffusionModels, queueCharacterImage } from "./comfy.mjs";
+import { visualNovelBlock } from "../shared/visual-novel-availability.mjs";
+import { isCameoConversationReply } from "../shared/cameo-address.mjs";
 import { profilePortraitRequest } from "./portrait-style.mjs";
 import { describeUserPortrait } from "./ollama.mjs";
 import { normalizeUserProfile } from "./user-profile.mjs";
 import { recoverClientTurn } from "./chat-recovery.mjs";
+import { recordGuestScene, threadForOwnConversation } from "./conversation-scene.mjs";
 import { appHomeDir, dataDir, readConfig, rootDir, writeConfig } from "./config.mjs";
 import { applyDisplayName } from "./display-name.mjs";
 import { createMemoryScanJobs } from "./memory-scan-jobs.mjs";
@@ -42,14 +45,14 @@ import { researchCharacter } from "./research.mjs";
 import { discoveryResearchNeedsRefresh, loadResearchCache, researchCacheFingerprint, saveResearchCache } from "./research-cache.mjs";
 import { awardDiscoveryBonuses, consolidateThreadMemories, createThread, deleteThread, listThreads, listThreadSummaries, loadProfile, loadThread, mergeThreadHistoricalMemories, mergeThreadMemoryCheckpoint, recordThreadMemoryCheckpointError, readLocalAsset, saveProfile, saveThread, saveUpload } from "./store.mjs";
 import { applyVisualOverrides, assertVisualEditOwner, effectiveVisual, preserveVisualOverrides } from "./visual-overrides.mjs";
-import { cancelImagePackInstall, detectComfyModelsDirectories, imagePackInstallStatus, imagePackStatus, prepareComfyOutputDirectory, readImageAssetManifest, startImagePackInstall } from "./image-installer.mjs";
+import { cancelImagePackInstall, detectComfyModelsDirectories, imagePackInstallStatus, imagePackStatus, prepareComfyOutputDirectory, readImageAssetManifest, startImagePackInstall, visualNovelAssetManifest } from "./image-installer.mjs";
 import { isWardrobePlaceholder, normalizeWardrobePrompt, photoOutfitUpdate, stabilizeWardrobePrompt, wardrobeChangeIsEstablished, wardrobeDescriptionRequested } from "./wardrobe.mjs";
 import { capturedMomentBrief } from "./moment-capture.mjs";
 import { keyVisualPhotoBrief, visualEventOpportunity, verifiedOutfitChange } from "./visual-event.mjs";
 import { mergeScene, previewSceneForUserTurn, reduceSceneTurn } from "./scene-state.mjs";
 import { sceneShadowMetrics } from "./scene-events-v2.mjs";
 import { finalSceneMetrics } from "./scene-evaluation.mjs";
-import { activateFirstContact, firstContactCanChange, firstContactPreviewMatches, insertOpeningSceneMessage, openingSceneBrief, openingSceneJobMatches, rejectedOpeningHistory } from "./first-contact.mjs";
+import { activateFirstContact, firstContactCanChange, firstContactPreviewMatches, insertOpeningSceneMessage, openingSceneBrief, openingSceneJobMatches, profilePreparationPatch, rejectedOpeningHistory } from "./first-contact.mjs";
 import { narrativeTurnText, normalizeConversationMode } from "./narrative-mode.mjs";
 import { dossierPassages } from "./character-dossier.mjs";
 import { generateCharacterRevelations, refineCharacterDiscoveryClues, generateDiscoveryArtworkPrompt, reviewAchievementCandidates, reviewHistoricalDiscoveries } from "./ollama.mjs";
@@ -63,10 +66,13 @@ import { fillDiscoverySlots } from "./discovery-retry.mjs";
 import { reviewFocusedDiscoveries } from "./discovery-review.mjs";
 import { createAutomaticDiscoveryPreparation } from "./discovery-preparation.mjs";
 import { userPortraitRequest } from "./user-profile.mjs";
+import { configureImmersive, makeLiveServer as makeImmersiveServer } from "./immersive/live-server.mjs";
 
 const reconcileImageScene = createImageSceneResolver({ review: reviewSceneForImage, load: loadThread, update: updateThread });
 const port = Number(process.env.PORT || 5174);
 const host = process.env.HOST || "127.0.0.1";
+await configureImmersive(`http://127.0.0.1:${port}`, dataDir);
+const immersiveServer = makeImmersiveServer({ trusted: true, reconcileScene: reconcileImageScene });
 const serveDist = process.argv.includes("--serve-dist");
 const standalone = Boolean(process.env.ANIMESSENGER_HOME && serveDist);
 const managedDevelopment = process.env.ANIMESSENGER_DEV_MANAGED === "1";
@@ -268,7 +274,7 @@ function scheduleDiscoveryArt() {
       await revelationStore.save(thread.character, { historyReview: { artwork: { [job.discoveryId]: { status: "preparing" } } } }, { historyThreadId: thread.id });
       const draft = await generateDiscoveryArtworkPrompt(config, thread, discovery);
       const snapshot = discoveryArtworkSnapshot(thread, draft);
-      const image = await queueCharacterImage(config, snapshot.thread, snapshot.brief, { ...discoveryArtworkSize, sceneAwareFraming: false, negative: "nudity, nude, topless, sexual activity, cropped head, face out of view" });
+      const image = await queueCharacterImage(config, snapshot.thread, snapshot.brief, { ...discoveryArtworkSize, hiresFix: true, sceneAwareFraming: false, negative: "nudity, nude, topless, sexual activity, cropped head, face out of view" });
       await rememberImageJob(image.promptId, { kind: "discovery_artwork", characterId: thread.id, storageInstanceId: thread.storageInstanceId, discoveryId: job.discoveryId, appended: false });
       await revelationStore.save(thread.character, { historyReview: { artwork: { [job.discoveryId]: { status: "generating", promptId: image.promptId } } } }, { historyThreadId: thread.id });
     } catch {
@@ -788,6 +794,10 @@ async function checkProactiveOutreach(config, activeCharacterId) {
 }
 
 async function handleApi(request, response, url) {
+  if (request.method === "GET" && url.pathname === "/api/immersive/compute") {
+    sendJson(response, 200, { busy: foregroundRequests > 0 || ollamaRequestsActive() || activeMemoryCheckpoints.size > 0 });
+    return true;
+  }
   if (request.method === "GET" && url.pathname === "/api/performance") {
     sendJson(response, 200, performanceMetrics.snapshot());
     return true;
@@ -841,6 +851,22 @@ async function handleApi(request, response, url) {
     }, 150).unref();
     return true;
   }
+  if (request.method === "GET" && url.pathname === "/api/immersive/availability") {
+    const comfy = await checkComfy(config);
+    sendJson(response, 200, { comfy, message: visualNovelBlock(config, comfy) });
+    return true;
+  }
+  if (request.method === "GET" && url.pathname === "/api/immersive/models") {
+    const manifest = await readImageAssetManifest(rootDir);
+    let modelsDirectory = config.comfyModelsDir?.trim();
+    if (!modelsDirectory) {
+      const candidates = await detectComfyModelsDirectories({ outputDirectory: config.comfyOutputDir, projectRoot: rootDir, manifest });
+      modelsDirectory = candidates[0] || "";
+    }
+    const status = modelsDirectory ? await imagePackStatus(visualNovelAssetManifest(manifest), modelsDirectory) : null;
+    sendJson(response, 200, { status, modelsDirectory });
+    return true;
+  }
   if (request.method === "GET" && url.pathname === "/api/health") {
     const [ollama, comfy, animadex] = await Promise.all([checkOllama(config), checkComfy(config), checkCharacterCatalog(config)]);
     sendJson(response, 200, { ok: true, ollama, comfy, animadex });
@@ -888,7 +914,7 @@ async function handleApi(request, response, url) {
   if (request.method === "POST" && url.pathname === "/api/image-assets/status") {
     const body = await jsonBody(request);
     const manifest = await readImageAssetManifest(rootDir);
-    sendJson(response, 200, await imagePackStatus(manifest, body.modelsDirectory || config.comfyModelsDir));
+    sendJson(response, 200, await imagePackStatus(body.scope === "visual-novel" ? visualNovelAssetManifest(manifest) : manifest, body.modelsDirectory || config.comfyModelsDir));
     return true;
   }
   if (request.method === "POST" && url.pathname === "/api/image-assets/install") {
@@ -898,7 +924,7 @@ async function handleApi(request, response, url) {
     }
     const body = await jsonBody(request);
     const manifest = await readImageAssetManifest(rootDir);
-    sendJson(response, 202, await startImagePackInstall(manifest, body));
+    sendJson(response, 202, await startImagePackInstall(body.scope === "visual-novel" ? visualNovelAssetManifest(manifest) : manifest, body));
     return true;
   }
   const imageInstallMatch = /^\/api\/image-assets\/install\/([^/]+)$/.exec(url.pathname);
@@ -1142,7 +1168,7 @@ async function handleApi(request, response, url) {
     const id = decodeURIComponent(getThreadMatch[1]);
     const thread = await loadThread(id);
     if (!thread) throw new Error("That conversation no longer exists.");
-    sendJson(response, 200, { thread });
+    sendJson(response, 200, { thread:threadForOwnConversation(thread) });
     return true;
   }
   const deleteThreadMatch = /^\/api\/threads\/([^/]+)$/.exec(url.pathname);
@@ -1438,27 +1464,38 @@ async function handleApi(request, response, url) {
     sendJson(response, 200, { promptId: job.promptId });
     return true;
   }
+  const demeanorMatch = /^\/api\/threads\/([^/]+)\/demeanor$/.exec(url.pathname);
+  if (request.method === "PATCH" && demeanorMatch) {
+    const body = await jsonBody(request);
+    const demeanor = typeof body.demeanor === "string" ? body.demeanor.trim() : null;
+    if (demeanor === null || demeanor.length > 500) {
+      sendJson(response, 400, { error: "Enter a demeanor note of up to 500 characters." });
+      return true;
+    }
+    const thread = await updateThread(decodeURIComponent(demeanorMatch[1]), current =>
+      demeanor === (current.demeanor || "") ? null : { demeanor: demeanor || undefined },
+    { expectedInstanceId: body.expectedStorageInstanceId, preserveUpdatedAt: true });
+    sendJson(response, 200, { thread });
+    return true;
+  }
   const memoriesMatch = /^\/api\/threads\/([^/]+)\/memories$/.exec(url.pathname);
   if (request.method === "POST" && memoriesMatch) {
     const id = decodeURIComponent(memoriesMatch[1]);
     const body = await jsonBody(request);
     const thread = await loadThread(id);
     if (!thread) throw new Error("That conversation no longer exists.");
-    const text = String(body.text || "").replace(/\s+/g, " ").trim();
-    if (text.length < 8 || text.length > 500) throw new Error("Write a complete memory between 8 and 500 characters.");
-    const memories = addManualMemory(thread.memories, {
-      text,
-      kind: body.kind,
-      importance: body.importance,
-      eventAt: body.eventAt,
-    });
-    const added = memories.find((memory) => !thread.memories?.some((existing) => existing.id === memory.id)) || memories.find((memory) => memory.userEdited && memory.text === text);
-    sendJson(response, 200, { thread: await saveThread({
-      ...thread,
-      memories,
-      forgottenMemories: added ? allowForgottenMemory(thread.forgottenMemories, added) : thread.forgottenMemories,
-      memoryRevision: Number(thread.memoryRevision || 0) + 1,
-    }) });
+    let alreadySaved;
+    const updated = await updateThread(id, current => {
+      const result = addManualMemory(current.memories, { text: body.text, kind: body.kind, importance: body.importance, eventAt: body.eventAt });
+      alreadySaved = result.alreadySaved;
+      if (alreadySaved) return null;
+      return {
+        memories: result.memories,
+        forgottenMemories: allowForgottenMemory(current.forgottenMemories, result.saved),
+        memoryRevision: Number(current.memoryRevision || 0) + 1,
+      };
+    }, { expectedInstanceId: thread.storageInstanceId });
+    sendJson(response, 200, { thread: updated, alreadySaved });
     return true;
   }
   if (request.method === "GET" && url.pathname === "/api/memories/health") {
@@ -1538,16 +1575,12 @@ async function handleApi(request, response, url) {
     const generatedFirstContact = shouldCreateOpening
       ? await generateFirstContactScenario(config, current.character, profile, body.force ? rejectedOpeningHistory(current.firstContact) : [], (modelCall) => reportCreation(body.character.id, "opening", "", { modelCall }))
       : current.firstContact;
-    const baseScene = generatedFirstContact?.status === "preview"
-      ? generatedFirstContact.scene
-      : current.scene.outfit === "default outfit"
-        ? { ...current.scene, outfit: effectiveVisual(profile).defaultWardrobe }
-        : current.scene;
-    const scene = stabilizeSceneWardrobe(baseScene, profile, current.character);
-    const firstContact = generatedFirstContact?.status === "preview"
-      ? { ...generatedFirstContact, scene }
-      : generatedFirstContact;
-    const thread = await saveThread({ ...current, profile, scene, ...(firstContact ? { firstContact } : {}) });
+    const thread = await updateThread(current.id, latest => {
+      const patch = profilePreparationPatch(latest, current, profile, generatedFirstContact, shouldCreateOpening);
+      const scene = stabilizeSceneWardrobe(patch.scene, patch.profile, latest.character);
+      return { ...patch, scene, ...(patch.firstContact?.status === "preview"
+        ? { firstContact: { ...patch.firstContact, scene } } : {}) };
+    }, { expectedInstanceId: current.storageInstanceId });
     let avatarJob;
     if (!thread.character.avatarUrl && config.comfyWorkflowFile && config.comfyMappingFile) {
       try {
@@ -1557,7 +1590,7 @@ async function handleApi(request, response, url) {
       }
     }
     reportCreation(body.character.id, "complete");
-    return { profile, thread, ...(avatarJob ? { avatarJob: { promptId: avatarJob.promptId } } : {}) };
+    return { profile: thread.profile, thread, ...(avatarJob ? { avatarJob: { promptId: avatarJob.promptId } } : {}) };
     } catch (error) {
       reportCreation(body.character.id, "error", error instanceof Error ? error.message : String(error));
       throw error;
@@ -1570,7 +1603,7 @@ async function handleApi(request, response, url) {
     const body = await jsonBody(request);
     if (!body.characterId) throw new Error("Choose a character first.");
     assertVisualEditOwner(body.characterId, body.draftCharacterId);
-    const thread = await loadThread(body.characterId);
+    const thread = threadForOwnConversation(await loadThread(body.characterId));
     const cached = await loadProfile(body.characterId);
     const source = cached || thread?.profile;
     if (!source) throw new Error("Build the character profile before editing its visual identity.");
@@ -1645,6 +1678,7 @@ async function handleApi(request, response, url) {
     const onDraft = body.stream === true ? enableChatStream(response, progressionResponseReplacer) : undefined;
     const requestedInstanceId = (await loadThread(body.characterId))?.storageInstanceId;
     if (!requestedInstanceId) throw new Error("That conversation does not exist yet.");
+    if (body.expectedStorageInstanceId && body.expectedStorageInstanceId !== requestedInstanceId) throw Object.assign(new Error("That conversation was deleted or replaced. Choose it again."), { statusCode: 409 });
     return runChatTurn(body.characterId, async () => {
     let thread = await loadThread(body.characterId);
     if (!thread || thread.storageInstanceId !== requestedInstanceId) {
@@ -1656,6 +1690,7 @@ async function handleApi(request, response, url) {
       thread = { ...thread, profile };
     }
     thread = { ...thread, profile: enforceAdultCharacterProfile(thread.profile) };
+    thread = threadForOwnConversation(thread);
     const clientMessageId = String(body.clientMessageId || "").trim();
     const recoveredTurn = recoverClientTurn(thread.messages, clientMessageId);
     const existingIndex = recoveredTurn.index;
@@ -1707,7 +1742,7 @@ async function handleApi(request, response, url) {
         lastSpeakerId: session.lastSpeakerId,
         focusSpeakerId: body.focusSpeakerId,
         guestNeedsFirstTurn: !session.messages.some((message) =>
-          message.from === "character" && message.speakerId === guestThread.character.id
+          isCameoConversationReply(message) && message.speakerId === guestThread.character.id
         ),
       });
       const initialSpeakerCount = speakerIds.length;
@@ -1776,6 +1811,7 @@ async function handleApi(request, response, url) {
             characterName: speakerThread.profile?.name || speakerThread.character?.name,
             userText: String(body.text || ""),
             characterText: narrativeTurnText(result),
+            characterNarration: result.narration,
             modelScene: {
               ...result.scene,
               ...(photoOutfit && !result.sceneEvidence ? { outfit: photoOutfit } : {}),
@@ -1814,7 +1850,7 @@ async function handleApi(request, response, url) {
           } else {
             guestParticipated = true;
             const progression = progressRelationship(nextGuestThread, result.relationshipDelta, userMessage.id);
-            nextGuestThread = {
+            nextGuestThread = recordGuestScene({
               ...nextGuestThread,
               ...progression,
               ...evaluateAchievementShadow(nextGuestThread, {
@@ -1823,12 +1859,11 @@ async function handleApi(request, response, url) {
                 userText: String(body.text || ""), characterText: narrativeTurnText(result),
               }, result.achievementSignals),
               memories: mergeMemories(nextGuestThread.memories, [...result.memoryCandidates, ...guaranteedMemories], userMessage.id, new Date(), { forgottenMemories: nextGuestThread.forgottenMemories, messages: nextGuestThread.messages }),
-              scene: stabilizeSceneWardrobe(
+            }, working, stabilizeSceneWardrobe(
                 threadForCameoSpeaker(session, guestThread.character.id).scene,
                 guestProfile,
                 guestThread.character,
-              ),
-            };
+              ));
             session.guest.relationship = progression.relationship;
           }
           if (allowInterjection && speakerIndex === 0 && result.otherShouldRespond) {
@@ -1980,6 +2015,7 @@ async function handleApi(request, response, url) {
         characterName: working.profile?.name || working.character?.name,
         userText: String(body.text || ""),
         characterText: narrativeTurnText(result),
+        characterNarration: result.narration,
         modelScene,
         deterministicPatch: correctedSceneCue,
         presencePatch: turnPresenceCue,
@@ -2080,6 +2116,7 @@ async function handleApi(request, response, url) {
     const body = await jsonBody(request);
     let thread = await loadThread(body.characterId);
     if (!thread?.profile) throw new Error("Build the character profile before asking for a picture.");
+    thread = threadForOwnConversation(thread);
     thread = (await reconcileImageScene(config, thread)).thread;
     const job = await queueCharacterImage(config, thread, String(body.brief || ""));
     await rememberImageJob(job.promptId, {
@@ -2097,6 +2134,7 @@ async function handleApi(request, response, url) {
     const body = await jsonBody(request);
     let thread = await loadThread(body.characterId);
     if (!thread?.profile) throw new Error("Build the character profile before capturing a moment.");
+    thread = threadForOwnConversation(thread);
     if (!normalizeCameoState(thread.cameo, thread.character.id)?.activeGuest) thread = (await reconcileImageScene(config, thread)).thread;
     const imageJobs = [];
     const participants = [{ speakerId: thread.character.id, imageThread: thread }];
@@ -2198,6 +2236,11 @@ const server = http.createServer(async (request, response) => {
     if (!access.allowed) { sendJson(response, 403, { error: "This website is not allowed to access AniMessenger." }); return; }
     if (access.origin) { response.setHeader("access-control-allow-origin", access.origin); response.setHeader("vary", "Origin"); }
     const url = new URL(request.url || "/", "http://" + request.headers.host);
+    if (url.pathname === "/immersive" || url.pathname.startsWith("/immersive/")) {
+      request.url = request.url.replace(/^\/immersive\/?/, "/");
+      immersiveServer.emit("request", request, response);
+      return;
+    }
     foreground = request.method === "POST" && url.pathname.startsWith("/api/");
     if (foreground) {
       foregroundRequests++;

@@ -34,3 +34,35 @@ test("thread updates retain concurrent changes and reject stale or deleted conve
     assert.equal((await loadThread(original.id)).character.name,'Replacement');`;
   assert.doesNotThrow(() => execFileSync(process.execPath, ["--input-type=module", "-e", code], { env: { ...process.env, ANIMESSENGER_HOME: home }, timeout: 15000 }));
 });
+
+test("slow profile preparation survives housekeeping while preserving newer scenes and rejecting recreated chats", async t => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "animessenger-profile-race-"));
+  t.after(() => fs.rm(home, { recursive: true, force: true }));
+  const store = new URL("../server/store.mjs", import.meta.url).href;
+  const firstContact = new URL("../server/first-contact.mjs", import.meta.url).href;
+  const code = `import assert from 'node:assert/strict';
+    import {createThread,loadThread,saveThread,updateThread,deleteThread} from ${JSON.stringify(store)};
+    import {profilePreparationPatch} from ${JSON.stringify(firstContact)};
+    const original=await createThread({id:'preparing',name:'Synthetic'});
+    const profile={name:'Synthetic',visual:{defaultWardrobe:'blue coat'}};
+    const opening={status:'preview',generatedAt:'new',scene:{...original.scene,location:'observatory',outfit:'blue coat'}};
+    await updateThread(original.id,()=>({proactive:{version:2,nextAt:null},unreadCount:0,pinned:true,conversationMode:'story'}));
+    await assert.rejects(saveThread({...original,profile,firstContact:opening}),{statusCode:409});
+    const ready=await updateThread(original.id,latest=>profilePreparationPatch(latest,original,profile,opening,true),{expectedInstanceId:original.storageInstanceId});
+    assert.equal(ready.profile.name,'Synthetic'); assert.equal(ready.firstContact.generatedAt,'new');
+    assert.equal(ready.scene.location,'observatory'); assert.equal(ready.proactive.version,2);
+    assert.equal(ready.pinned,true); assert.equal(ready.conversationMode,'story');
+    const newerOpening={...opening,generatedAt:'rerolled',scene:{...opening.scene,location:'garden'}};
+    const rerolled=await updateThread(original.id,()=>({firstContact:newerOpening,scene:newerOpening.scene}));
+    const preserved=await updateThread(original.id,latest=>profilePreparationPatch(latest,ready,profile,opening,true),{expectedInstanceId:original.storageInstanceId});
+    assert.equal(preserved.firstContact.generatedAt,'rerolled'); assert.equal(preserved.scene.location,'garden');
+    await updateThread(original.id,latest=>({messages:[{id:'started',from:'user',text:'We are in the library.'}],firstContact:{...latest.firstContact,status:'started'},scene:{...latest.scene,location:'library'}}));
+    const started=await updateThread(original.id,latest=>profilePreparationPatch(latest,rerolled,profile,opening,true),{expectedInstanceId:original.storageInstanceId});
+    assert.equal(started.messages.length,1); assert.equal(started.scene.location,'library'); assert.equal(started.firstContact.status,'started');
+    await deleteThread(original.id);
+    const replacement=await createThread({id:original.id,name:'Replacement'});
+    await assert.rejects(updateThread(original.id,latest=>profilePreparationPatch(latest,original,profile,opening,true),{expectedInstanceId:original.storageInstanceId}),{statusCode:409});
+    assert.equal((await loadThread(original.id)).storageInstanceId,replacement.storageInstanceId);
+    assert.equal((await loadThread(original.id)).profile,undefined);`;
+  assert.doesNotThrow(() => execFileSync(process.execPath, ["--input-type=module", "-e", code], { env: { ...process.env, ANIMESSENGER_HOME: home }, timeout: 15000 }));
+});

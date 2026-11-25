@@ -15,6 +15,10 @@ const garmentWord = /\b(?:t[- ]?shirt|tee|shirt|tank(?: top)?|top|blouse|sweater
 const garmentTerm = "(?:t[- ]?shirt|tee|shirt|tank(?: top)?|top|blouse|sweater|hoodie|cardigan|dress|gown|robe|towel|uniform|suit|jumpsuit|bodysuit|swimsuit|bikini|lingerie|underwear|bra|panties|pajamas?|shorts|pants|trousers|jeans|leggings|skirt|jacket|coat|apron|armor|attire|outfit|clothes|clothing|gear|shoes?|boots?|heels?|loafers?|trainers?|sneakers?|sandals?|slippers?|socks?|stockings?|thigh-highs?|gloves?|tie|necktie|ribbon|scarf|choker|necklace|jewelry)";
 const futureWardrobe = /\b(?:will|would|might|maybe|tomorrow|plan(?:ning)? to|want(?:ing)? to|going to|about to|should|could|(?:i|you|she|he|they)['’]ll)\b/i;
 
+export function conditionalWardrobeAction(text = "") {
+  return /\b(?:if|unless|whoever)\b[^.!?;]*\b(?:take\w*|remov\w*|chang\w*|wear\w*|put\w*)\b|\b(?:the )?loser\s+(?:takes? off|removes?|changes?|wears?|puts? on)\b/i.test(text);
+}
+
 function cleanWardrobeCandidate(value = "") {
   const candidate = String(value || "")
     .replace(/\s+/g, " ")
@@ -99,15 +103,16 @@ export function inferWardrobeEvent(text = "", source = "user", characterName = "
   const subject = wardrobeSubject(characterName);
 
   const removal = normalized.match(new RegExp(
-    `\\b(?:take(?:s|n|ing)?\\s+off|remove(?:s|d|ing)?|slip(?:s|ped|ping)?\\s+out\\s+of|shrug(?:s|ged|ging)?\\s+off|peel(?:s|ed|ing)?\\s+off|discard(?:s|ed|ing)?)\\s+(?:(?:her|his|their|the|a|an|my|your)\\s+)?([^.!?;]{0,150}?\\b${garmentTerm}\\b(?:\\s+(?:and|,)\\s+[^.!?;]{0,90}?\\b${garmentTerm}\\b)*)`,
+    `\\b(?:(?:take(?:s|n)?|taking|took)\\s+off|remove(?:s|d|ing)?|slip(?:s|ped|ping)?\\s+out\\s+of|shrug(?:s|ged|ging)?\\s+off|peel(?:s|ed|ing)?\\s+off|discard(?:s|ed|ing)?)\\s+(?:(?:her|his|their|the|a|an|my|your)\\s+)?([^.!?;]{0,150}?\\b${garmentTerm}\\b(?:\\s+(?:and|,)\\s+[^.!?;]{0,90}?\\b${garmentTerm}\\b)*)`,
     "i",
   )) || normalized.match(new RegExp(
-    `\\b(?:take(?:s|n|ing)?)\\s+(?:(?:her|his|their|the|a|an|my|your)\\s+)?([^.!?;]{0,120}?\\b${garmentTerm}\\b)\\s+off\\b`,
+    `\\b(?:take(?:s|n)?|taking|took)\\s+(?:(?:her|his|their|the|a|an|my|your)\\s+)?([^.!?;]{0,120}?\\b${garmentTerm}\\b)\\s+off\\b`,
     "i",
   ));
   if (removal?.[1]) {
     const lead = normalized.slice(Math.max(0, (removal.index || 0) - 45), removal.index || 0);
-    if (!futureWardrobe.test(lead)) {
+    const clause = normalized.slice(0, (removal.index || 0) + removal[0].length).split(/[.!?;]/).at(-1);
+    if (!futureWardrobe.test(lead) && !conditionalWardrobeAction(clause)) {
       const phrase = removal[1];
       const broad = /\b(?:all (?:her|his|their|my|your)?\s*(?:clothes|clothing)|everything|clothes|clothing|outfit|attire)\b/i.test(phrase);
       const removedGarments = broad
@@ -252,6 +257,10 @@ export function isWardrobePlaceholder(outfit = "") {
 
 export function wardrobeChangeIsEstablished(...values) {
   return values.some((value) => Boolean(inferWardrobeEvent(value)));
+}
+
+export function wardrobeTransitionMentioned(...values) {
+  return values.some(value => wardrobeTransition.test(String(value || "")));
 }
 
 export function replaceWardrobePlaceholders(text = "", outfit = "") {

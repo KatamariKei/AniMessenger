@@ -59,6 +59,14 @@ async function boot(app, home, expectedThreads) {
     assert.match(page, /assets\/index-/);
     const asset = page.match(/src="([^"]+\.js)"/)[1];
     assert.equal((await fetch(url + asset)).status, 200);
+    const viewer = await (await fetch(url + "/immersive/")).text();
+    assert.match(viewer, /live\.js/);
+    for (const file of ["live.js", "live.css", "character-layout.mjs", "live-reading.mjs"]) {
+      assert.equal((await fetch(url + "/immersive/" + file)).status, 200, "Missing Visual Novel asset: " + file);
+    }
+    const availability = await (await fetch(url + "/api/immersive/availability")).json();
+    assert.equal(availability.comfy, false);
+    assert.match(availability.message, /ComfyUI/);
     const result = await (await fetch(url + "/api/threads")).json();
     assert.equal(result.threads.length, expectedThreads);
     if (expectedThreads) {
@@ -70,7 +78,7 @@ async function boot(app, home, expectedThreads) {
       const account = await (await fetch(url + "/api/achievements/tally", { method: "POST" })).json();
       assert.equal(account.points, 10);
     }
-    return { standalone: true, frontend: true, threads: expectedThreads, sharedModulesLoaded: true };
+    return { standalone: true, frontend: true, visualNovelAssets: true, offlineGuidance: true, threads: expectedThreads, sharedModulesLoaded: true };
   } finally {
     if (child.exitCode === null) { child.kill(); await new Promise(resolve => child.once("exit", resolve)); }
     await fs.writeFile(path.join(home, "rehearsal-server.log"), logs);
@@ -83,7 +91,18 @@ extract(zip, candidate);
 const audit = execFileSync(process.execPath, [path.join(root, "scripts", "release-audit.mjs")], { cwd: candidate, encoding: "utf8" }).trim();
 const freshApp = inside(path.join(sandbox, "fresh-app"));
 const freshHome = inside(path.join(sandbox, "fresh-home"));
+async function seedRecycledProcessRecords(home) {
+  // This rehearsal process is unrelated to the isolated app installation.
+  // A stale record must not cause setup to stop it or abort the update.
+  await fs.mkdir(path.join(home, "runtime"), { recursive: true });
+  for (const name of ["tray.pid", "server.pid"]) await fs.writeFile(path.join(home, "runtime", name), String(process.pid));
+}
+async function assertRecycledProcessRecordsCleared(home) {
+  for (const name of ["tray.pid", "server.pid"]) await assert.rejects(fs.access(path.join(home, "runtime", name)), { code: "ENOENT" });
+}
+await seedRecycledProcessRecords(freshHome);
 install(candidate, freshApp, freshHome);
+await assertRecycledProcessRecordsCleared(freshHome);
 assert.equal(JSON.parse(await fs.readFile(path.join(freshApp, "release.json"), "utf8")).version, version);
 await fs.access(path.join(freshApp, "shared", "achievements.json"));
 // Block optional external services during the rehearsal.
@@ -119,18 +138,29 @@ for (const [relative, contents] of Object.entries(fixtures)) {
   await fs.mkdir(path.dirname(file), { recursive: true });
   await fs.writeFile(file, contents);
 }
+await seedRecycledProcessRecords(upgradeHome);
 const operation = install(candidate, upgradeApp, upgradeHome);
+await assertRecycledProcessRecordsCleared(upgradeHome);
 assert.match(operation, /Update complete/);
 for (const [relative, contents] of Object.entries(fixtures)) assert.equal(await fs.readFile(path.join(upgradeHome, relative), "utf8"), contents, relative + " changed during installation");
 await fs.access(path.join(upgradeApp, "shared", "achievements.json"));
 const upgrade = await boot(upgradeApp, upgradeHome, 1);
-const modelFiles = ["anima-recommended-api.json", "anima-recommended-api.mapping.json", "animessenger-anima-assets.json"];
-for (const file of modelFiles) {
+for (const file of ["anima-recommended-api.json", "anima-recommended-api.mapping.json"]) {
   assert.deepEqual(await fs.readFile(path.join(candidate, "support", "workflows", file)),
     await fs.readFile(path.join(baseline, "support", "workflows", file)), "Default model asset changed: " + file);
 }
+const manifestFile = path.join("support", "workflows", "animessenger-anima-assets.json");
+const baselineManifest = JSON.parse(await fs.readFile(path.join(baseline, manifestFile), "utf8"));
+const candidateManifest = JSON.parse(await fs.readFile(path.join(candidate, manifestFile), "utf8"));
+for (const asset of baselineManifest.assets) {
+  assert.deepEqual(candidateManifest.assets.find(item => item.id === asset.id), asset, "Existing model asset changed: " + asset.id);
+}
+const addedImageAssets = candidateManifest.assets.filter(asset => !baselineManifest.assets.some(previous => previous.id === asset.id)).map(asset => asset.filename);
+assert.ok(addedImageAssets.includes("anima_rgba_lora.safetensors"));
+assert.ok(addedImageAssets.includes("anima_rgba_vae.safetensors"));
 const report = { version, baselineVersion, audit, fresh, upgrade, privateFilesPreservedByteForByte: Object.keys(fixtures).length,
-  defaultWorkflowAndAssetsUnchangedFrom: baselineVersion,
+  recycledProcessRecordsRecovered: true,
+  defaultWorkflowAndExistingAssetsUnchangedFrom: baselineVersion, addedImageAssets,
   zipSha256: crypto.createHash("sha256").update(await fs.readFile(zip)).digest("hex"),
   manualDesktopMobileAndSecondPC: "not tested by this automated rehearsal" };
 await fs.writeFile(path.join(sandbox, "report.json"), JSON.stringify(report, null, 2));

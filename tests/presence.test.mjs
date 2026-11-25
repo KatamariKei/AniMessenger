@@ -15,6 +15,14 @@ test("arrival and shared physical actions establish co-presence", () => {
   assert.equal(inferPresenceCue("[action: I pull her into a hug.]", "apart").presence, "together");
 });
 
+test("being here to chat or offer support does not imply a physical arrival", () => {
+  const thread = { scene: { presence: "apart" }, messages: [] };
+  for (const text of ["I'm here to chat with you.", "I’m right here for you."]) {
+    assert.deepEqual(presenceSceneCue(thread, text), { presence: "apart" });
+  }
+  assert.equal(inferPresenceCue("I'm here at your door.", "apart").presence, "together");
+});
+
 test("scene cues distinguish explicit presence evidence from a carried saved state", () => {
   const apartThread = { character: { name: "Erica" }, scene: { presence: "apart" }, messages: [] };
   assert.deepEqual(presenceSceneCue(apartThread, "I wonder what she's doing."), { presence: "apart" });

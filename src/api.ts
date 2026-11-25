@@ -202,8 +202,11 @@ export type CharacterJourney = {
 
 export type Thread = {
   id: string;
+  storageInstanceId?: string;
+  storageRevision?: number;
   character: AnimaCharacter;
   profile?: CharacterProfile;
+  demeanor?: string;
   firstContact?: FirstContactScenario;
   messages: Message[];
   memories?: CharacterMemory[];
@@ -369,6 +372,7 @@ export type ImagePackStatus = {
   modelsDirectory: string;
   totalBytes: number;
   requiredDownloadBytes: number;
+  requiresCivitaiToken: boolean;
   availableBytes: number | null;
   allInstalled: boolean;
   assets: ImagePackAssetStatus[];
@@ -419,6 +423,8 @@ export const api = {
   acknowledgeAchievement: (id: string, awardId: string) => request(`/api/threads/${encodeURIComponent(id)}/achievements/unlocks`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: [awardId] }) }),
   tallyAchievements: () => request<{ points: number; earnedCount: number; achievements: { title: string; characterName: string; points: number; earnedAt: string }[] }>("/api/achievements/tally", { method: "POST" }),
   health: () => request<{ ok: boolean; ollama: boolean; comfy: boolean; animadex: boolean }>("/api/health"),
+  immersiveAvailability: () => request<{ comfy: boolean; message: string }>("/api/immersive/availability"),
+  visualNovelModels: () => request<{ status: ImagePackStatus | null; modelsDirectory: string }>("/api/immersive/models", undefined, 120000),
   runtime: () => request<{ standalone: boolean; mode: "installed" | "development" | "unmanaged"; canShutdown: boolean }>("/api/runtime"),
   shutdown: () => request<{ ok: boolean }>("/api/runtime/shutdown", { method: "POST" }),
   config: () => request<AppConfig>("/api/config"),
@@ -457,12 +463,12 @@ export const api = {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ modelsDirectory }),
   }),
-  imagePackStatus: (modelsDirectory: string) => request<ImagePackStatus>("/api/image-assets/status", {
+  imagePackStatus: (modelsDirectory: string, scope?: "visual-novel") => request<ImagePackStatus>("/api/image-assets/status", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ modelsDirectory }),
+    body: JSON.stringify({ modelsDirectory, scope }),
   }, 120000),
-  installImagePack: (options: { modelsDirectory: string; acceptedTerms: boolean; apiToken?: string; repair?: boolean }) => request<ImageInstallJob>("/api/image-assets/install", {
+  installImagePack: (options: { modelsDirectory: string; acceptedTerms: boolean; apiToken?: string; repair?: boolean; scope?: "visual-novel" }) => request<ImageInstallJob>("/api/image-assets/install", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(options),
@@ -505,6 +511,11 @@ export const api = {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ mode }),
   }),
+  setDemeanor: (characterId: string, demeanor: string, expectedStorageInstanceId?: string) => request<{ thread: Thread }>(`/api/threads/${encodeURIComponent(characterId)}/demeanor`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ demeanor, expectedStorageInstanceId }),
+  }),
   inviteGuest: (characterId: string, guestCharacterId: string) => request<{ thread: Thread; guest: AnimaCharacter }>(`/api/threads/${encodeURIComponent(characterId)}/guest`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -524,7 +535,7 @@ export const api = {
   forgetMemory: (characterId: string, memoryId: string) => request<{ thread: Thread }>(`/api/threads/${encodeURIComponent(characterId)}/memories/${encodeURIComponent(memoryId)}`, {
     method: "DELETE",
   }),
-  addMemory: (characterId: string, memory: Pick<CharacterMemory, "text" | "kind" | "importance"> & { eventAt?: string | null }) => request<{ thread: Thread }>(`/api/threads/${encodeURIComponent(characterId)}/memories`, {
+  addMemory: (characterId: string, memory: Pick<CharacterMemory, "text" | "kind" | "importance"> & { eventAt?: string | null }) => request<{ thread: Thread; alreadySaved: boolean }>(`/api/threads/${encodeURIComponent(characterId)}/memories`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(memory),

@@ -68,6 +68,9 @@ test("live reviews reuse the chat model and ask for core meaning rather than eve
   globalThis.fetch = async (_url, options) => {
     const body = JSON.parse(options.body);
     assert.equal(body.model, "already-loaded-chat");
+    if (body.format.properties.checks) return Response.json({ message: { content: JSON.stringify({ checks: [
+      { index: 0, supported: true, confidence: .99, characterQuote: match.characterQuote },
+    ] }) } });
     assert.match(body.messages[0].content, /partial explanations|distinctive core/);
     assert.match(body.messages[0].content, /exact source quotes/);
     assert.equal(body.options.num_predict, 800);

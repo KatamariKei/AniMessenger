@@ -13,6 +13,7 @@ test("streamed drafts precede persistence; retries, disconnects and deletions re
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "animessenger-stream-"));
   let child, mode = "hold", modelCalls = 0;
   const held = [];
+  const modelPrompts = [];
   const passage = 'Mira looks toward the garden. "The path is clear," she says.';
   const output = JSON.stringify({ narration: passage, relationshipDelta: 0, scene: {}, sceneEvidence: {}, memoryCandidates: [], shouldSendPhoto: false, achievementSignals: [] });
   const mock = http.createServer(async (request, response) => {
@@ -22,6 +23,7 @@ test("streamed drafts precede persistence; retries, disconnects and deletions re
     if (request.url === "/api/ps") return json({ models: [{ name: "synthetic", context_length: 65536 }] });
     if (request.url !== "/api/chat") return json({});
     modelCalls++;
+    modelPrompts.push(body.messages.map(message => message.content).join("\n"));
     assert.equal(body.stream, true);
     response.writeHead(200, { "content-type": "application/x-ndjson" });
     response.write(JSON.stringify({ message: { content: output.slice(0, 40) } }) + "\n");
@@ -70,6 +72,15 @@ test("streamed drafts precede persistence; retries, disconnects and deletions re
     async function rest() { const events = []; let event; while ((event = await next())) events.push(event); return events; }
     return { next, rest, reader };
   };
+  const original = await saved();
+  const demeanorUrl = "/api/threads/stream/demeanor";
+  const note = "Speak with a warm, understated wit.";
+  const demeanorResponse = await call(demeanorUrl, { demeanor: note, expectedStorageInstanceId: original.storageInstanceId }, "PATCH");
+  assert.equal(demeanorResponse.status, 200);
+  const demeanorThread = (await demeanorResponse.json()).thread;
+  assert.equal(demeanorThread.demeanor, note);
+  assert.equal(demeanorThread.updatedAt, original.updatedAt);
+  assert.deepEqual(demeanorThread.memories, original.memories);
   const first = await open("client-stream");
   let draft; do { draft = await first.next(); } while (draft?.type === "draft" && !draft.text);
   assert.equal(draft.type, "draft"); assert.match(draft.text, /Mira/);
@@ -80,15 +91,22 @@ test("streamed drafts precede persistence; retries, disconnects and deletions re
   assert.equal(completed.payload.reply.narration, passage);
   assert.equal((await (await duplicate).json()).reply.id, completed.payload.reply.id);
   assert.equal(modelCalls, 1);
+  assert.match(modelPrompts[0], /USER'S DEMEANOR NOTE: "Speak with a warm, understated wit\."/);
+  assert.match(modelPrompts[0], /CORE: A patient gardener\./);
+  assert.match(modelPrompts[0], /add nuance to the character’s established voice and personality/);
   assert.equal((await saved()).messages.length, 2);
   const metrics = await (await call("/api/performance", undefined, "GET")).json();
   assert.ok(metrics.recent.some(row => row.kind === "chat" && Number.isFinite(row.firstTextMs)));
 
+  const clearDemeanor = await call(demeanorUrl, { demeanor: "", expectedStorageInstanceId: original.storageInstanceId }, "PATCH");
+  assert.equal(clearDemeanor.status, 200);
+  assert.equal((await saved()).demeanor, undefined);
   mode = "drop";
   const broken = await open("client-broken");
   const failed = await broken.rest();
   assert.ok(failed.some(event => event.type === "error"));
   assert.ok(!failed.some(event => event.type === "complete"));
+  assert.doesNotMatch(modelPrompts[1], /USER'S DEMEANOR NOTE/);
   assert.equal((await saved()).messages.filter(message => message.from === "character").length, 1);
   mode = "complete";
   const retry = await open("client-broken");

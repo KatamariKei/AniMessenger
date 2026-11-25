@@ -20,6 +20,8 @@ For the complete local workflow, an NVIDIA GPU with **12 GB of VRAM is the recom
 
 On a fresh computer without a configured ComfyUI installation, setup defaults to **Add images later**. This produces a complete chat-first installation instead of treating optional image generation as a blocker. The image guide remains available from Settings.
 
+For transparent character artwork in Visual Novel, the recommended image pack installs `anima_rgba_lora.safetensors` in `models/loras` and `anima_rgba_vae.safetensors` in `models/vae`. If images are already configured, opening AniMessenger on the host computer automatically checks the saved ComfyUI models folder and offers to download any missing Visual Novel files. Review their source pages and accept their terms, then download directly in the prompt. Choose **Later** to continue chatting; selecting Visual Novel offers the download again. ComfyUI does not need to be running to install these files.
+
 ## Download and install
 
 Download the Windows ZIP from the repository's [latest GitHub release](https://github.com/KatamariKei/AniMessenger/releases/latest), then:

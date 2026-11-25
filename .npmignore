@@ -10,6 +10,7 @@ work/
 .git/
 .github/
 .codex/
+.codex-temp/
 .agents/
 .release-audit/
 .runtime-cache/

@@ -1,0 +1,14 @@
+import React from 'react';import {createRoot} from 'react-dom/client';
+import {ImmersiveNotifications} from '../../src/ImmersiveNotifications';
+import {DiscoveryNotification} from '../../src/DiscoveryNotification';import {AchievementNotification} from '../../src/AchievementNotification';import {api} from '../../src/api';
+import '../../app/globals.css';import '../../src/local.css';
+let advanced=0;let discovery=true,achievement=true;window.addEventListener('message',e=>{if(e.origin===location.origin&&e.source===parent&&e.data==='fixture:advance')advanced=Date.now();});
+const thread:any={id:'notice-fixture',storageInstanceId:'fixture',character:{id:'notice-fixture',name:'Test character'},messages:[],relationship:30,scene:{},profile:{},relationshipMilestones:[]};
+api.thread=async()=>{return {thread:{...thread,relationshipMilestones:advanced?[{id:'test-tier-'+advanced,label:'Friend'}]:[]}};};
+api.config=async()=>({soundEnabled:false} as any);
+api.discoveryUnlocks=async()=>({unlocks:discovery?[{id:'fixture-discovery-v2',discoveryId:'test',title:'Test discovery',bondReward:5}]:[]});
+api.acknowledgeDiscoveryUnlock=async()=>{discovery=false;return {unlocks:[]};};
+api.achievementUnlocks=async()=>({unlocks:achievement?[{id:'fixture-award-v2',title:'Test achievement',points:10}]:[]});
+api.acknowledgeAchievement=async()=>{achievement=false;return {} as any;};
+const normal=new URLSearchParams(location.search).get('mode')==='normal';
+createRoot(document.getElementById('root')!).render(normal?<><DiscoveryNotification thread={thread} characterName="Test character" portrait={<span/>} config={null} paused={false} onThreadUpdated={()=>{}}/><AchievementNotification thread={thread} characterName="Test character" portrait={<span/>} config={null} paused={false}/></>:<ImmersiveNotifications/>);

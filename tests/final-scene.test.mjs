@@ -6,6 +6,30 @@ import { buildImagePrompt } from "../server/identity.mjs";
 
 const initial = { location: "restaurant", environment: "wooden tables and warm lamps", activity: "having dinner", posture: "seated", outfit: "blue dress", presence: "together", revision: 3 };
 
+test("ordinary narration commits a verified named venue even with stale or missing structured location evidence", () => {
+  const existing = { ...initial, characterLocation: initial.location, userLocation: "workshop", presence: "apart",
+    verification: { pending: ["location"] } };
+  const narration = "While Alex worked at the studio, Mira was in her element at the Copper Lantern. She moved through the bar and set down a glass.";
+  for (const location of [undefined, existing.location, "a different restaurant"]) {
+    const scene = reduceSceneTurn(existing, { characterName: "Mira Vale", characterText: narration, characterNarration: narration, modelScene: { location }, sceneEvidence: {} });
+    assert.equal(scene.characterLocation, "the Copper Lantern");
+    assert.equal(scene.userLocation, "workshop");
+    assert.equal(scene.presence, "apart");
+    assert.equal(scene.environment, "bar interior");
+    assert.equal(scene.verification.pending.includes("location"), false);
+  }
+  for (const characterText of [
+    'Mira said, "I am inside the Copper Lantern."',
+    "Mira was on her way to the Copper Lantern.",
+    "Yesterday Mira was in her element at the Copper Lantern.",
+    "Mira was not at the Copper Lantern.",
+    "Mira was at the Copper Lantern. She walked out of the bar.",
+    "Alex was at the Copper Lantern.",
+  ]) {
+    assert.equal(reduceSceneTurn(existing, { characterName: "Mira Vale", characterText, characterNarration: characterText, sceneEvidence: {} }).location, existing.location, characterText);
+  }
+});
+
 test("a private-quarters scene commits the room and lounging pose together for artwork", () => {
   const characterText = "Mira is inside her private quarters. Obsidian pillars surround a lounge with red velvet cushions. Mira reclines across the cushions.";
   const evidence = quote => ({ quote, source: "character", actor: "character", phase: "current" });
@@ -173,6 +197,40 @@ test("final pose supersedes intermediate standing", () => {
   assert.match(sceneContinuityCheckpoint(result.scene), /posture=seated/);
   const prompt = buildImagePrompt({ visual: { identity: [], signature: [] } }, { name: "Erica" }, result.scene);
   assert.match(prompt, /Erica is seated/i);
+});
+
+test("a seated character stays seated through ordinary dialogue and can explicitly stand", () => {
+  const quiet = "Erica grinned and picked up the remote.";
+  for (const posture of ["unknown", "standing"]) {
+    const next = reduceSceneTurn(initial, { characterText: quiet, modelScene: { posture }, sceneEvidence: { posture: proof(quiet, "character") } });
+    assert.equal(next.posture, "seated");
+  }
+  const approximate = "Erica practically stood up on the couch, her glass held high in excitement.";
+  for (const quote of [approximate, "stood up on the couch"]) {
+    const next = reduceSceneTurn(initial, { characterText: approximate, modelScene: { posture: "standing" }, sceneEvidence: { posture: proof(quote, "character") } });
+    assert.equal(next.posture, "seated");
+  }
+  const rise = "Erica stood up to get a drink.";
+  const next = reduceSceneTurn(initial, { characterText: rise, modelScene: { posture: "standing" }, sceneEvidence: { posture: proof(rise, "character") } });
+  assert.equal(next.posture, "standing");
+});
+
+test("a named action corrects the character's posture until a completed change", () => {
+  const standing = { ...initial, posture: "standing" };
+  const userText = "[action: Erica is sitting down, but cheering at the screen]";
+  const characterName = "Erica Anderson";
+  const characterText = "She practically stood up on the couch, her glass held high in excitement.";
+  const next = reduceSceneTurn(standing, { userText, characterName, characterText, modelScene: { posture: "standing" }, sceneEvidence: { posture: proof("stood up on the couch", "character") } });
+  assert.equal(next.posture, "seated");
+  const stood = reduceSceneTurn(standing, { userText, characterName, characterText: "She stood up and picked up the remote.", modelScene: {}, sceneEvidence: {} });
+  assert.equal(stood.posture, "standing");
+});
+
+test("generic home references preserve an established residence", () => {
+  const existing = { ...initial, location: "living room in the modern urban townhouse" };
+  const narration = "She was still in the living room.";
+  const next = reduceSceneTurn(existing, { characterText: narration, modelScene: { location: "living room" }, sceneEvidence: { location: proof(narration, "character") } });
+  assert.equal(next.location, existing.location);
 });
 
 test("future plans and negated moves do not change the current scene", () => {

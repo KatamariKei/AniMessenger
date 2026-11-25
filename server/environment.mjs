@@ -374,7 +374,7 @@ export function environmentForLocation(location) {
   if (/\b(?:cave|cavern|underground chamber)\b/i.test(place)) {
     return "A rocky cave chamber with irregular stone walls, uneven ground, shadowed recesses, and a visible passage deeper inside.";
   }
-  if (/\bgarden\b/i.test(place)) {
+  if (/\bgardens?\b/i.test(place)) {
     return "A detailed garden with layered plants, flowers, pathways, and setting-appropriate architecture.";
   }
   if (/\b(?:beach|shore)\b/i.test(place)) {

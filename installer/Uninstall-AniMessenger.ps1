@@ -24,8 +24,10 @@ if (Test-Path -LiteralPath $trayPidFile) {
     if ($trayProcess -and $trayPath -eq $expectedTray) {
       Stop-Process -Id $trayPid -Force -ErrorAction SilentlyContinue
       Wait-Process -Id $trayPid -Timeout 5 -ErrorAction SilentlyContinue
-    } elseif ($trayProcess) {
+    } elseif ($trayProcess -and -not $trayPath) {
       throw "AniMessenger found an unexpected process using its saved tray ID. Close AniMessenger and run uninstall again."
+    } elseif ($trayProcess) {
+      Write-Host "Clearing an old AniMessenger tray record. The unrelated process was left running."
     }
   }
   Remove-Item -LiteralPath $trayPidFile -Force -ErrorAction SilentlyContinue
@@ -42,8 +44,10 @@ if (Test-Path -LiteralPath $pidFile) {
     if ($process -and $processPath -eq $expectedNode) {
       Stop-Process -Id $serverPid -Force -ErrorAction SilentlyContinue
       Wait-Process -Id $serverPid -Timeout 5 -ErrorAction SilentlyContinue
-    } elseif ($process) {
+    } elseif ($process -and -not $processPath) {
       throw "AniMessenger found an unexpected process using its saved runtime ID. Close AniMessenger manually and run uninstall again."
+    } elseif ($process) {
+      Write-Host "Clearing an old AniMessenger service record. The unrelated process was left running."
     }
   }
   Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue

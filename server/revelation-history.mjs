@@ -16,8 +16,14 @@ export function revelationHistoryWindows(thread, budget = 9000) {
     if (!turn.user.id || !turn.replies.length) continue;
     for (const reply of turn.replies) {
       if (!reply.id) continue;
-      const messages = [turn.user, reply].map(message => ({ id: message.id, role: message.from,
-        text: [message.narration, message.text].filter(Boolean).join("\n").slice(0, message.from === "user" ? 3000 : 5000) }));
+      const messages = [turn.user, reply].map(message => {
+        // Story displays the narrative instead of the legacy reply field.
+        // Hidden dialogue must never count as a fact the user discovered.
+        const text = thread.conversationMode === "story" && message.from === "character"
+          ? String(message.narration || "").trim() || String(message.text || "").trim()
+          : [message.narration, message.text].filter(Boolean).join("\n");
+        return { id: message.id, role: message.from, text: text.slice(0, message.from === "user" ? 3000 : 5000) };
+      });
       if (messages.some(message => !message.text)) continue;
       const exchange = { userId: turn.user.id, messages };
       const length = JSON.stringify(exchange).length;

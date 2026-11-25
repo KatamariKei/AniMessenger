@@ -20,7 +20,7 @@ export function withSceneVerification(previous, scene, decisions = []) {
   for (const decision of decisions) {
     if (!sceneStateFields.includes(decision.field) || decision.scope === "user") continue;
     if (decision.status === "accepted") { pending.delete(decision.field); omitted.delete(decision.field); }
-    else if (!["user_state_not_character_state", "user_move_not_character_staging", "invalid_presence", "invalid_posture"].includes(decision.reason)) pending.add(decision.field);
+    else if (!["user_state_not_character_state", "user_move_not_character_staging", "invalid_presence", "invalid_posture", "conditional_outfit"].includes(decision.reason)) pending.add(decision.field);
   }
   return { ...scene, verification: { version: 1, status: pending.size ? "needs_review" : "verified", pending: sceneStateFields.filter(field => pending.has(field)), ...(omitted.size ? { omitted: [...omitted] } : {}) } };
 }

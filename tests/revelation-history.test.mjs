@@ -39,6 +39,26 @@ test("history windows preserve exchanges, exclude guests and unpaired messages, 
   assert.ok(huge.every(window => JSON.stringify(window).length < 9000));
 });
 
+test("Story discovery evidence excludes hidden reply text and never borrows a guest's disclosure", () => {
+  const storyThread = { ...thread, conversationMode: "story", messages: [
+    ...thread.messages,
+    { id: "guest-enters", from: "user", text: "[action: A visitor enters the workshop]" },
+    { id: "guest-arrives", from: "character", speakerId: "other", narration: "The guest waves. My grandmother taught me to repair clocks.", text: "" },
+  ] };
+  const exchanges = revelationHistoryWindows(storyThread).flat();
+  assert.equal(exchanges.length, 1);
+  assert.equal(exchanges[0].messages[1].text, "She smiles.");
+  assert.deepEqual(validateHistoricalDiscoveries([definition], exchanges, { matches: [match] }, { live: true }), []);
+  assert.deepEqual(validateHistoricalDiscoveries([definition], exchanges, { matches: [{ ...match, userId: "guest-enters", characterMessageId: "guest-arrives" }] }, { live: true }), []);
+  // The same words qualify when the host actually says them on screen.
+  const visible = { ...storyThread, messages: storyThread.messages.map(message => message.id === "reply"
+    ? { ...message, narration: 'She smiles. "My grandmother taught me to repair clocks."' } : message) };
+  assert.equal(validateHistoricalDiscoveries([definition], revelationHistoryWindows(visible).flat(), { matches: [match] }, { live: true }).length, 1);
+  // Legacy Story messages without narration still display their text.
+  const legacy = { ...thread, conversationMode: "story", messages: thread.messages.map(message => ({ ...message, narration: "" })) };
+  assert.equal(validateHistoricalDiscoveries([definition], revelationHistoryWindows(legacy).flat(), { matches: [match] }).length, 1);
+});
+
 test("confirmed history requires exact same-exchange user and correct-character evidence", () => {
   const window = revelationHistoryWindows(thread)[0];
   assert.equal(validateHistoricalDiscoveries([definition], window, { matches: [match] }).length, 1);
@@ -99,6 +119,9 @@ test("semantic history review uses only local transcript and handles no-match un
     calls++;
     assert.equal(url, "http://local-test/api/chat");
     const packet = JSON.parse(options.body);
+    if (packet.format.properties.checks) return Response.json({ message: { content: JSON.stringify({ checks: [
+      { index: 0, supported: true, confidence: .99, characterQuote: match.characterQuote },
+    ] }) } });
     assert.match(packet.messages[0].content, /user guesses alone/i);
     assert.match(packet.messages[0].content, /uncertain guesses still mean no match/);
     assert.doesNotMatch(packet.messages.at(-1).content, /"guest"/);
@@ -110,6 +133,6 @@ test("semantic history review uses only local transcript and handles no-match un
     assert.equal((await reviewHistoricalDiscoveries(config, character, [definition], window)).length, 1);
     assert.deepEqual(await reviewHistoricalDiscoveries(config, character, [definition], window), []);
     assert.deepEqual(await reviewHistoricalDiscoveries(config, character, [], window), []);
-    assert.equal(calls, 2);
+    assert.equal(calls, 3);
   } finally { globalThis.fetch = original; }
 });

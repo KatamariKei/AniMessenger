@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeJsonAtomically } from "./atomic-json.mjs";
 import { normalizeUserProfile } from "./user-profile.mjs";
+import { bundledComfyMapping, bundledComfyWorkflow, defaultComfyUrl } from "../shared/visual-novel-availability.mjs";
 
 export const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const appHomeDir = process.env.ANIMESSENGER_HOME
@@ -26,12 +27,12 @@ export const defaultConfig = {
   ollamaThinking: false,
   chatKeepAliveMinutes: 15,
   animadexUrl: "https://animadex.net",
-  comfyUrl: "http://127.0.0.1:8188",
+  comfyUrl: defaultComfyUrl,
   comfyOutputDir: "",
   comfyModelsDir: "",
   comfyDiffusionModel: "",
-  comfyWorkflowFile: "workflows/anima-recommended-api.json",
-  comfyMappingFile: "workflows/anima-recommended-api.mapping.json",
+  comfyWorkflowFile: bundledComfyWorkflow,
+  comfyMappingFile: bundledComfyMapping,
   globalPositivePrompt: "masterpiece, best quality, amazing quality, very aesthetic, amazing detail, sensitive, absurdres, newest, highres, year 2025, score_9, score_8, SOLO",
   globalNegativePrompt: "worst quality, low quality, score_1, score_2, score_3, blurry, jpeg artifacts, sepia, low quality, worst quality, blurry, bad anatomy, extra limbs, deformed, watermark, text, signature, artifacts, hands, copyrights name, jpeg_artifacts, scan_artifacts, bad hands, missing fingers, extra digit, fewer digits, artistic error, ye-pop, deviantart, logo, patreon logo, 3D",
   researchEnabled: true,

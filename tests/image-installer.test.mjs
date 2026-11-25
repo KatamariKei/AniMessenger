@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import http from "node:http";
-import { comfyOutputDirectoryFromSystemStats, detectComfyModelsDirectories, ensureStandardComfyOutputDirectory, imagePackInstallStatus, imagePackStatus, prepareComfyOutputDirectory, startImagePackInstall, validateModelsDirectory } from "../server/image-installer.mjs";
+import { comfyOutputDirectoryFromSystemStats, detectComfyModelsDirectories, ensureStandardComfyOutputDirectory, imagePackInstallStatus, imagePackStatus, prepareComfyOutputDirectory, startImagePackInstall, validateModelsDirectory, visualNovelAssetManifest } from "../server/image-installer.mjs";
 
 function tinyManifest(body = "abc") {
   return {
@@ -27,6 +27,31 @@ function tinyManifest(body = "abc") {
     }],
   };
 }
+
+test("the Visual Novel upgrade scans only its two models and excludes original pack downloads", async context => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "animessenger-vn-models-"));
+  context.after(() => fs.rm(root, { recursive: true, force: true }));
+  const models = path.join(root, "models");
+  await fs.mkdir(path.join(models, "loras"), { recursive: true });
+  const asset = tinyManifest().assets[0];
+  const manifest = {
+    ...tinyManifest(),
+    assets: [
+      { ...asset, id: "anima-rgba-lora", filename: "rgba-lora.safetensors" },
+      { ...asset, id: "anima-rgba-vae", filename: "rgba-vae.safetensors", targetSubdirectory: "vae", kind: "vae" },
+      { ...asset, id: "base-model", source: { ...asset.source, downloadUrl: "https://civitai.com/api/download/models/1" } },
+    ],
+  };
+  const subset = visualNovelAssetManifest(manifest);
+  assert.equal(subset.assets.length, 2);
+  assert.equal(subset.totalBytes, 6);
+  await fs.writeFile(path.join(models, "loras", "rgba-lora.safetensors"), "abc");
+  const status = await imagePackStatus(subset, models);
+  assert.equal(status.requiredDownloadBytes, 3);
+  assert.equal(status.requiresCivitaiToken, false);
+  assert.equal(status.assets.find(item => item.id === "anima-rgba-lora").state, "installed");
+  assert.equal(status.assets.find(item => item.id === "anima-rgba-vae").state, "missing");
+});
 
 test("model-folder validation only accepts an existing folder named models", async (context) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "animessenger-models-"));
@@ -118,12 +143,55 @@ test("downloads cannot start until provider terms are accepted", async () => {
   await assert.rejects(startImagePackInstall(tinyManifest(), { modelsDirectory: "", acceptedTerms: false }), /accept/);
 });
 
+test("two upgrade prompts share the same download instead of writing the same file concurrently", async context => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "animessenger-shared-download-"));
+  context.after(() => fs.rm(root, { recursive: true, force: true }));
+  const models = path.join(root, "models");
+  await fs.mkdir(models);
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  let requests = 0;
+  const server = http.createServer(async (_request, response) => {
+    requests++;
+    await held;
+    response.writeHead(200, { "content-length": "3" });
+    response.end("abc");
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise(resolve => server.close(resolve)));
+  const manifest = tinyManifest();
+  manifest.assets[0].source.downloadUrl = `http://127.0.0.1:${server.address().port}/model`;
+  const options = { modelsDirectory: models, acceptedTerms: true };
+  let started;
+  try {
+    const jobs = await Promise.all([startImagePackInstall(manifest, options), startImagePackInstall(manifest, options)]);
+    started = jobs[0];
+    assert.equal(jobs[0].id, jobs[1].id);
+    const other = structuredClone(manifest);
+    other.assets[0].id = "different-model";
+    other.assets[0].filename = "different.safetensors";
+    await assert.rejects(startImagePackInstall(other, options), /already running/);
+  } finally {
+    release();
+    if (started) {
+      for (let attempt = 0; attempt < 100 && ["queued", "downloading"].includes(imagePackInstallStatus(started.id).status); attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+    }
+  }
+  assert.equal(imagePackInstallStatus(started.id).status, "complete");
+  assert.equal(requests, 1);
+  assert.equal(await fs.readFile(path.join(models, "loras", "test.safetensors"), "utf8"), "abc");
+});
+
 test("a download is streamed, checksum-verified, and moved into the mapped folder", async (context) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "animessenger-download-"));
   context.after(() => fs.rm(root, { recursive: true, force: true }));
   const models = path.join(root, "models");
   await fs.mkdir(models);
-  const server = http.createServer((_request, response) => {
+  const authorizationHeaders = [];
+  const server = http.createServer((request, response) => {
+    authorizationHeaders.push(request.headers.authorization);
     response.writeHead(200, { "content-type": "application/octet-stream", "content-length": "3" });
     response.end("abc");
   });
@@ -131,13 +199,20 @@ test("a download is streamed, checksum-verified, and moved into the mapped folde
   context.after(() => new Promise((resolve) => server.close(resolve)));
   const address = server.address();
   const manifest = tinyManifest();
+  manifest.assets[0].source.downloadUrl = "https://civitai.com/api/download/models/1";
+  await assert.rejects(startImagePackInstall(manifest, { modelsDirectory: models, acceptedTerms: true }), /Civitai access token/);
   manifest.assets[0].source.downloadUrl = `http://127.0.0.1:${address.port}/test.safetensors`;
-  const started = await startImagePackInstall(manifest, { modelsDirectory: models, acceptedTerms: true, apiToken: "temporary-test-token" });
-  let result = started;
-  for (let attempt = 0; attempt < 50 && ["queued", "downloading"].includes(result.status); attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    result = imagePackInstallStatus(started.id);
+  assert.equal((await imagePackStatus(manifest, models)).requiresCivitaiToken, false);
+  for (const [filename, apiToken] of [["test.safetensors", ""], ["second.safetensors", "temporary-test-token"]]) {
+    manifest.assets[0].filename = filename;
+    const started = await startImagePackInstall(manifest, { modelsDirectory: models, acceptedTerms: true, apiToken });
+    let result = started;
+    for (let attempt = 0; attempt < 50 && ["queued", "downloading"].includes(result.status); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      result = imagePackInstallStatus(started.id);
+    }
+    assert.equal(result.status, "complete");
+    assert.equal(await fs.readFile(path.join(models, "loras", filename), "utf8"), "abc");
   }
-  assert.equal(result.status, "complete");
-  assert.equal(await fs.readFile(path.join(models, "loras", "test.safetensors"), "utf8"), "abc");
+  assert.deepEqual(authorizationHeaders, [undefined, undefined]);
 });

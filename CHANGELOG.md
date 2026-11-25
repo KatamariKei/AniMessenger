@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.0 — 2026-11-25
+
+- Add Visual Novel mode with layered character and environment artwork, cinematic reading, artwork view, and saved presentation settings.
+- Add optional high-resolution background upscaling and include transparent-character LoRA and VAE downloads in guided image setup.
+- Refine the mobile composer, conversation mode controls, fullscreen behavior, and Visual Novel entry transitions.
+- Reorganize the character dossier and current-scene panel. Add editable character demeanor and clearer memory feedback.
+- Improve narrative location recovery, time-of-day grounding, expression and pose selection, and background venue continuity.
+- Preserve the current narrative when a generated photo arrives, and prevent replaying the previous passage while waiting for a reply.
+- Keep guest Story turns in sequence with complete speaker context and improved direct-address routing. A named first speaker can invite a relevant response from the other participant.
+- Recognize discoveries only from the displayed Story passage, and defer discovery and achievement notifications until reply delivery finishes.
+- Independently verify that discovery evidence actually conveys the claimed fact before live, historical, or memory reviews can award it. Reject unrelated real quotations and failed verification checks.
+- Finish character preparation against the latest conversation state so background housekeeping cannot cause a false opening-stage conflict during slow research.
+- Verify uncertain scene details before Visual Novel generates replacement artwork, recovering completed outfit changes and specific surroundings instead of drawing stale clothing against a vague location.
+- Display valid Visual Novel character artwork regardless of transparency. Remove alpha-based rejection and automatic regeneration; recover older rejected outputs without another generation.
+- Keep the saved Visual Novel outfit through ordinary walking and conversation without demanding a new clothing description. Still review an actual wardrobe transition or explicit outfit-description request.
+- Give Visual Novel specific setup and offline guidance, and style model suggestions to match the interface.
+- Fix touch selection in the Ollama model picker so mobile Setup fields retain the selected model.
+- Let Windows setup and uninstall clear stale process records when an ID has been reused by a confirmed unrelated program, without stopping that program.
+- Automatically offer missing Visual Novel model downloads on the host computer, using the existing ComfyUI folder without navigating through Settings.
+
+Guest encounters use Chat and Story in this release. Two-character Visual Novel presentation is planned for a later update.
+
+Visual Novel image generation can be slow, particularly when switching between local text and image models or generating both character and background layers. Faster image workflows and managed setup are planned for a future release.
+
 ## 0.6.1 — 2026-10-30
 
 - Protect the local API with Host/origin checks and narrowly scoped browser access instead of wildcard CORS. This does not replace authenticated remote access.

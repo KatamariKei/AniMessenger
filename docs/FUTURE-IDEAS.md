@@ -2,6 +2,18 @@
 
 This document tracks experimental work and intentionally deferred concepts.
 
+## After 0.7 — model workload and writing quality
+
+Audit the combined writing and bookkeeping request for redundant or conflicting instructions. Compare the current request with a shorter version across several consecutive turns using the same character and scene. Evaluate prose quality, continuity, successful state updates, and response time together. Start with Gemma and assess benefits across models before considering additional model calls or model-specific tuning.
+
+## After 0.7 — guests in Visual Novel
+
+Design desktop and mobile guest flows before implementation. Explore one shared background with independently generated character layers, speaker attribution and sequential passages, guest entry and dismissal, failed-artwork recovery, and preservation of each character's personal state. Validate the reading and screen-composition experience before adding two-character Visual Novel support.
+
+## After 0.7 — visual experience, setup and performance
+
+Visual Novel ships in 0.7 with layered character and background artwork. Future work should address generation speed, selective artwork reuse, and a simpler installation and first-run experience. Managed ComfyUI, faster image workflows, a starter companion, and revised navigation need a separate product brief and hardware benchmarks before implementation. The existing optional ComfyUI setup remains the 0.7 release behavior.
+
 ## Create a character from scratch
 
 Add a dedicated path for creating an original character without selecting an existing catalogue entry. The user can define the character directly, or start with a concept and ask the local model to help flesh it out before reviewing and saving it.
@@ -11,6 +23,29 @@ The builder should cover name, adult age, background/world, personality, voice, 
 Original characters should use the same conversation, memory, relationship tiers, scene/outfit continuity, portraits, image generation and gallery foundations as researched characters. Any original-character discoveries should follow the authored background and distinguish what the character knows from what the user has learned, rather than inventing public-source citations.
 
 This is a requested future feature, not an implemented capability. An original AniMessenger character could eventually serve as a recurring promotional character; current promotional material must demonstrate capabilities available in the actual build.
+
+## Better first meetings and opening adventures
+
+Rework the initial scene offered after character research, especially the **Try another opening** experience. Some current openings suit the character, while others feel like interchangeable premises or repeated combinations of sheltering from rain, train-station encounters and portal/contact devices. This is a separate quality improvement to the existing first-contact feature, not a request to implement it immediately.
+
+### First experiment — November 2, 2026
+
+The user approved a bounded change to the existing model call: use more relevant existing dossier evidence, generate a character-grounded situation and remove the rotating generic reroll directions. Keep the current UI, avoid additional research/model passes and leave setting research for a separate decision. Functional checks pass; live quality and 3090 latency remain to be evaluated. Subsequent ideas below are directions, not authorization to add controls or background research.
+
+### Intended experience
+
+- Let researched personality, interests, responsibilities, world and voice shape why this character is here, what they are doing and why a conversation could begin. The premise should reveal something about them before the user replies.
+- Prefer a concrete character-led situation and a natural conversational hook. Avoid openings that would work equally well after swapping in almost any other character's name.
+- Make rerolls offer meaningfully different situations, activities, contact methods and reasons to engage, rather than paraphrasing the same setup or mechanically rotating generic categories. Track rejected concepts, not only repeated words or location names.
+- Treat rain shelters, transit stops and magical connections as possibilities when they fit, rather than default framing devices. Do not force a portal merely to justify the messenger interface, or invent setting lore as if it were researched canon.
+- Keep openings accessible and playable. Give the user room to choose their response without assigning their thoughts, dialogue, identity, consequential actions or an existing relationship.
+- Preserve the preview/accept flow and carry the accepted location, surroundings, clothing, presence and opening dialogue consistently into the first chat and optional image. Rerolls must not leak rejected scenes into the accepted conversation.
+
+### Quality checks before implementation is considered complete
+
+Review several successive openings for multiple contrasting characters, including niche and fan-created characters. Check character specificity, recognizably different premises, natural opening dialogue, user agency and agreement between the preview, first exchange and image. Existing rejection-history and similarity checks are useful foundations, but do not by themselves establish variety or quality.
+
+This item was captured November 1, 2026 from the user's recollection of an earlier discussion and current testing. The exact earlier exchange has not been located. Improving opening quality does not authorize rewriting established chats.
 
 ## Character-research waiting game
 

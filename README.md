@@ -18,6 +18,10 @@ Chats, profiles, memories, relationship state, and settings stay in local files 
 
 Guest chats allow one researched character to join an existing conversation. Private chats remain separate storylines: the guest sees only the shared encounter, while each character retains their own profile, voice, relationship, and earlier private history. Turn-taking follows direct address and conversational focus, with restrained character-driven interjections. Both participants can inspect an attached photo, send separate solo images, and carry meaningful relationship progress plus a bounded shared-event memory back into their private chat.
 
+**New in 0.7: Visual Novel mode** presents Story conversations with separate character artwork and backgrounds, cinematic reading, artwork view, and desktop and mobile presentation controls. It requires a configured, running ComfyUI installation and the two Anima-RGBA character models. Existing image users are offered the missing model downloads automatically when opening AniMessenger on the host computer. Guests use Chat and Story in this release.
+
+Visual Novel can generate both a character layer and a background, so image updates may take time even on capable GPUs. Faster image workflows are planned for a future update.
+
 > AniMessenger is currently a pre-release project. Back up the `data/` folder before testing major changes.
 
 AniMessenger is available under the [MIT License](LICENSE). See the [changelog](CHANGELOG.md) for the current update. Before contributing or reporting a problem, review the [contribution guide](CONTRIBUTING.md), [privacy notes](PRIVACY.md), [content notice](CONTENT-NOTICE.md), and [security policy](SECURITY.md).
@@ -28,7 +32,7 @@ AniMessenger is available under the [MIT License](LICENSE). See the [changelog](
 
 ### [Download the latest Windows release](https://github.com/KatamariKei/AniMessenger/releases/latest)
 
-1. Download and extract `AniMessenger-Windows-v0.6.1.zip`.
+1. Download and extract `AniMessenger-Windows-v0.7.0.zip`.
 2. Run `Install-AniMessenger.cmd` from the extracted folder.
 3. Use the AniMessenger tray icon to open, start, stop, or check for updates.
 
@@ -153,7 +157,7 @@ The guided installer:
 - requires a Civitai account access token for the protected downloads, keeps it in memory for the active download only, and never writes it to AniMessenger settings;
 - starts model downloads only from AniMessenger on the host computer, not from the unencrypted phone/LAN testing view.
 
-The current recommended pack is approximately 5.91 GB. Downloads can be cancelled; already completed and verified files remain installed so setup can resume later.
+The recommended pack is approximately 6.60 GB. It includes the [Anima-RGBA models](https://huggingface.co/localai0301/Anima-RGBA) for transparent character artwork in Visual Novel. If images are already configured, AniMessenger checks for the two new files (691 MB) when opened on the host computer and offers their download directly. Review the source pages and accept their terms, then download into your existing ComfyUI models folder. No Civitai token is needed. You can choose **Later**; selecting Visual Novel offers the download again. Verified files remain installed if you cancel.
 
 Validate the bundled manifest itself:
 

@@ -238,10 +238,14 @@ function safeOutputFolder(value) {
   return (clean || "Unknown Character").slice(0, 80);
 }
 
-export function characterImageOutputPrefix(thread, now = new Date()) {
+export function characterImageOutputFolder(thread) {
   const characterName = thread?.character?.name || thread?.profile?.name || "Unknown Character";
+  return ["AniMessenger", safeOutputFolder(characterName)].join("/");
+}
+
+export function characterImageOutputPrefix(thread, now = new Date()) {
   const date = now.toISOString().slice(0, 10);
-  return ["AniMessenger", safeOutputFolder(characterName), date, "ANIMA"].join("/");
+  return [characterImageOutputFolder(thread), date, "ANIMA"].join("/");
 }
 
 function resolveCompanionFile(mappingFile, companionFile) {
@@ -274,6 +278,31 @@ export function imageGenerationSeed(seed) {
   if (seed === undefined) return Math.floor(Math.random() * 2147483647);
   if (!Number.isInteger(seed) || seed < 0 || seed > 2147483647) throw new Error("The image comparison seed must be an integer from 0 to 2147483647.");
   return seed;
+}
+
+export function appendImageHiresFix(workflow, mapping, { width, height, denoise = 0.5 }) {
+  const sampler = workflow[mapping.fields?.seed?.node_id];
+  const save = workflow[mapping.fields?.filename_prefix?.node_id];
+  const decoded = save?.inputs?.images;
+  const decode = workflow[decoded?.[0]];
+  if (sampler?.class_type !== "KSampler" || save?.class_type !== "SaveImage"
+    || decode?.class_type !== "VAEDecode" || !decode.inputs.vae || !Array.isArray(decoded)) {
+    throw new Error("Discovery high-resolution artwork requires a standard KSampler, VAEDecode and SaveImage workflow.");
+  }
+  const add = (name, class_type, inputs) => {
+    let id = name;
+    while (workflow[id]) id += "_";
+    workflow[id] = { class_type, inputs };
+    return [id, 0];
+  };
+  const pixels = add("discovery_scale", "ImageScale", {
+    image: decoded, upscale_method: "lanczos", width, height, crop: "disabled",
+  });
+  const latent = add("discovery_encode", "VAEEncode", { pixels, vae: decode.inputs.vae });
+  const refined = add("discovery_refine", "KSampler", {
+    ...structuredClone(sampler.inputs), latent_image: latent, denoise,
+  });
+  save.inputs.images = add("discovery_decode", "VAEDecode", { samples: refined, vae: decode.inputs.vae });
 }
 
 export async function queueCharacterImage(config, thread, brief = "", overrides = {}) {
@@ -339,6 +368,15 @@ export async function queueCharacterImage(config, thread, brief = "", overrides 
     });
   }
 
+  if (overrides.hiresFix) {
+    appendImageHiresFix(workflow, mapping, {
+      width: Math.round(width * 1.5 / 8) * 8,
+      height: Math.round(height * 1.5 / 8) * 8,
+    });
+    // The original editor graph omits the added pass. The PNG still contains
+    // ComfyUI's complete executed API prompt, which can reproduce both passes.
+    uiWorkflow = null;
+  }
   const requestBody = {
     prompt: workflow,
     client_id: "animessenger-" + crypto.randomUUID(),

@@ -41,7 +41,7 @@ test("a newly stated named favorite replaces its older value", () => {
 });
 
 test("automatic preference updates cannot overwrite a manual correction", () => {
-  const manual = addManualMemory([], {
+  const { memories: manual } = addManualMemory([], {
     kind: "preference",
     text: "The user's favorite drink is jasmine tea.",
     importance: 4,
@@ -80,7 +80,7 @@ test("a manual correction supersedes a conflicting automatic fact", () => {
   const automatic = mergeMemories([], [
     { kind: "user_fact", text: "The user's height is 70 inches.", keywords: ["height"], importance: 3 },
   ]);
-  const corrected = addManualMemory(automatic, {
+  const { memories: corrected } = addManualMemory(automatic, {
     kind: "user_fact",
     text: "The user's height is 72 inches.",
     importance: 4,
@@ -381,6 +381,30 @@ test("manual memories are never automatically evicted to satisfy the capacity ta
   assert.equal(retainMemories(manual, 1).length, 3);
 });
 
+test("adding a manual memory to a full collection saves it and keeps older history", () => {
+  const routine = Array.from({ length: 240 }, (_, index) => ({
+    id: `routine-${index}`, kind: "shared_event", text: `Routine event number ${index}.`, importance: 1,
+  }));
+  const input = { kind: "preference", text: "Always has a thermos to hand" };
+  const result = addManualMemory(routine, input);
+  assert.equal(result.memories.length, 241);
+  assert.equal(result.memories.filter(memory => memory.archived).length, 1);
+  assert.ok(result.memories.some(memory => memory.id === result.saved.id && memory.userEdited && !memory.archived));
+  const curated = routine.map(memory => ({ ...memory, userEdited: true }));
+  assert.equal(addManualMemory(curated, input).memories.filter(memory => !memory.archived).length, 241);
+});
+
+test("manual notes survive automatic review and repeat submits reuse the same note", () => {
+  const input = { kind: "user_fact", text: "The place we always go to" };
+  const first = addManualMemory([], input);
+  const repeat = addManualMemory(first.memories, input);
+  assert.equal(repeat.alreadySaved, true);
+  assert.equal(repeat.saved.id, first.saved.id);
+  const second = addManualMemory(first.memories, { ...input, text: "The place we always go to is near the coast." });
+  assert.equal(second.alreadySaved, false);
+  assert.deepEqual(new Set(mergeMemories(second.memories, []).map(memory => memory.id)), new Set([first.saved.id, second.saved.id]));
+});
+
 test("detailed future plans cannot be promoted to completed trips", () => {
   const candidates = automaticMemoryCandidates([{
     kind: "shared_event",
@@ -404,7 +428,7 @@ test("a future plan becomes a shared event only with explicit user completion ev
 });
 
 test("manual memories are durable and automatic extraction cannot overwrite the correction", () => {
-  const added = addManualMemory([], {
+  const { memories: added } = addManualMemory([], {
     kind: "shared_event",
     text: "Alex gave Nagatoro the nickname Purple Llama during their arcade visit.",
     importance: 4,

@@ -90,7 +90,7 @@ test("discovery bonuses grant exactly five once, bypass ordinary slowdown, and p
   assert.doesNotMatch(JSON.stringify(first, progressionResponseReplacer), /discoveryAwardIds|bondScore/);
 });
 
-test("live semantic discovery review piggybacks on one memory request with exact evidence", async () => {
+test("memory discovery proposals require independent verification of their exact evidence", async () => {
   const original = globalThis.fetch;
   let calls = 0;
   const exchange = revelationHistoryWindows(thread).flat();
@@ -98,6 +98,9 @@ test("live semantic discovery review piggybacks on one memory request with exact
     if (String(_url).endsWith("/api/ps")) return Response.json({ models: [] });
     calls++;
     const packet = JSON.parse(options.body);
+    if (packet.format.properties.checks) return Response.json({ message: { content: JSON.stringify({ checks: [
+      { index: 0, supported: true, confidence: .99, characterQuote: thread.messages[1].text },
+    ] }) } });
     assert.ok(packet.format.properties.discoveryMatches);
     assert.match(packet.messages[0].content, /never outside knowledge|never outside|never outside knowledge/i);
     return new Response(JSON.stringify({ message: { content: JSON.stringify({ memories: [], discoveryMatches: [{
@@ -109,7 +112,7 @@ test("live semantic discovery review piggybacks on one memory request with exact
     const result = await extractIncrementalMemories({ ollamaUrl: "http://fixture", chatModel: "test" }, thread, { messages: thread.messages }, {
       achievementReviewBatch: [], discoveryDefinitions: [definition], discoveryExchanges: exchange,
     });
-    assert.equal(calls, 1);
+    assert.equal(calls, 2);
     assert.deepEqual(result.memories, []);
     assert.equal(result.discoveryMatches[0].origin, "live_chat");
   } finally { globalThis.fetch = original; }

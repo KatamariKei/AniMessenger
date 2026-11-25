@@ -1,18 +1,23 @@
+import { useImmersiveNoticeOwner } from "./immersive-notice-owner";
 import { ChangeEvent, FormEvent, TouchEvent as ReactTouchEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, AnimaCharacter, AppConfig, CharacterMemory, ComfyDiagnostics, ImageInstallJob, ImagePackStatus, MemoryScanJob, Message, OllamaDownloadOption, OllamaGpuDiagnostics, OllamaInstallJob, Thread } from "./api";
 import { playSound, primeSoundSystem, SoundCue } from "./sound";
 import relationshipTiers from "../shared/relationship-tiers.json";
+import { bundledComfyMapping as BUNDLED_COMFY_MAPPING, bundledComfyWorkflow as BUNDLED_COMFY_WORKFLOW, visualNovelBlock } from "../shared/visual-novel-availability.mjs";
+import { addressedCameoSpeakers, isCameoConversationReply } from "../shared/cameo-address.mjs";
 import { CharacterJourney } from "./CharacterJourney";
 import { DiscoveryNotification } from "./DiscoveryNotification";
 import { AchievementNotification } from "./AchievementNotification";
 import { MemoryHealthPanel } from "./MemoryHealthPanel";
 import { useJourneyActivity } from "./useJourneyActivity";
 import { UserPortraitEditor } from "./UserPortraitEditor";
+import { ModelPicker } from "./ModelPicker";
 import { advanceStoryReveal, createStoryReveal, StoryRevealState, updateStoryReveal } from "./story-reveal";
 import { createReplyDelivery } from "./reply-delivery";
 import { prepareChatOnActivity } from "./chat-warmup";
 import { catalogSourceLabel } from "./catalog-display";
+import { createThreadSnapshotMerger } from "./thread-snapshots";
 
 const accentPalette = ["#a8e6c6", "#61e8df", "#ef9caa", "#ff8d76", "#d5d0c7", "#d7a57c", "#bda4ff"];
 const emojiCatalog = [
@@ -50,8 +55,6 @@ const emojiCatalog = [
 ] as const;
 const RECENT_EMOJI_KEY = "animessenger-recent-emoji";
 const SETUP_COMPLETE_KEY = "animessenger-setup-complete-v1";
-const BUNDLED_COMFY_WORKFLOW = "workflows/anima-recommended-api.json";
-const BUNDLED_COMFY_MAPPING = "workflows/anima-recommended-api.mapping.json";
 const quickReactions = [
   { value: "👍", label: "Thumbs up" },
   { value: "❤️", label: "Heart" },
@@ -87,35 +90,18 @@ function messageSpeakerCharacter(message: Message, host: Thread, threads: Thread
   return threads.find((thread) => thread.character.id === message.speakerId)?.character || host.character;
 }
 
-function characterAddressAliases(character: AnimaCharacter) {
-  const full = characterDisplayName(character).replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
-  return [...new Set([full, ...full.split(/\s+/).filter((part) => part.length >= 3)])].filter(Boolean);
-}
-
-function textAddressesCharacter(text: string, character: AnimaCharacter) {
-  const value = text.toLowerCase();
-  return characterAddressAliases(character).some((alias) => {
-    const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return new RegExp("(^|[^a-z0-9])" + escaped + "([^a-z0-9]|$)", "i").test(value);
-  });
-}
-
 function anticipatedCameoSpeakerId(thread: Thread, guest: Thread | undefined, text: string) {
   if (!guest || !thread.cameo?.activeGuest) return thread.character.id;
   const hostId = thread.character.id;
   const guestId = guest.character.id;
-  const lastCharacterMessage = [...thread.messages].reverse().find((message) => message.from === "character");
-  const lastSpeakerId = lastCharacterMessage?.speakerId || (lastCharacterMessage ? hostId : "");
-  const hostMentioned = textAddressesCharacter(text, thread.character);
-  const guestMentioned = textAddressesCharacter(text, guest.character);
-  const groupAddress = /\b(?:both of you|you both|you two|either of you|everyone|all of you|what do (?:you two|you guys|all of you) think)\b/i.test(text);
-  if ((hostMentioned && guestMentioned) || groupAddress) return lastSpeakerId === hostId ? guestId : hostId;
-  if (guestMentioned) return guestId;
-  if (hostMentioned) return hostId;
   const joinedAtMessageId = thread.cameo.activeGuest.joinedAtMessageId;
   const joinIndex = thread.messages.findIndex((message) => message.id === joinedAtMessageId);
-  const sharedMessages = thread.messages.slice(joinIndex >= 0 ? joinIndex + 1 : 0);
-  const guestHasSpoken = sharedMessages.some((message) => message.from === "character" && message.speakerId === guestId);
+  const sharedReplies = thread.messages.slice(joinIndex >= 0 ? joinIndex + 1 : -28).filter(isCameoConversationReply);
+  const lastReply = sharedReplies.at(-1);
+  const lastSpeakerId = lastReply?.speakerId || (lastReply ? hostId : "");
+  const [addressed] = addressedCameoSpeakers(text, thread.character, guest.character, lastSpeakerId);
+  if (addressed) return addressed;
+  const guestHasSpoken = sharedReplies.some((message) => message.speakerId === guestId);
   if (!guestHasSpoken) return guestId;
   if (lastSpeakerId === hostId || lastSpeakerId === guestId) return lastSpeakerId;
   return hostId;
@@ -210,17 +196,14 @@ function SettingsIcon() {
   );
 }
 
-function GuestIcon() {
-  return (
+function ConversationModeIcon({ mode }: { mode: "chat" | "story" | "visual-novel" }) {
+  if (mode === "visual-novel") return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="8" cy="8" r="3" />
-      <path d="M2.8 19c.5-3.3 2.2-5 5.2-5s4.7 1.7 5.2 5" />
-      <path d="M18 8v6M15 11h6" />
+      <path d="M7 3h13a1 1 0 0 1 1 1v12" />
+      <rect x="3" y="7" width="14" height="14" rx="2" />
+      <path d="m3 18 5-5 3 3 2-2 4 4" />
     </svg>
   );
-}
-
-function ConversationModeIcon({ mode }: { mode: "chat" | "story" }) {
   return mode === "story" ? (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M3.5 5.5c3.2-.8 5.9-.2 8.5 1.7v12c-2.6-1.9-5.3-2.5-8.5-1.7Z" />
@@ -286,6 +269,7 @@ function StoryPassage({ text, animate, streaming = false, resume, onFirstVisible
   }, [animate, checkpoint]);
 
   const complete = !streaming && visibleTokens >= tokens.length;
+  const visibleText = complete ? text : tokens.slice(0, visibleTokens).join("");
   const revealAll = () => {
     if (complete) return;
     checkpoint.skipped = true;
@@ -299,9 +283,9 @@ function StoryPassage({ text, animate, streaming = false, resume, onFirstVisible
       className={"story-passage " + (complete ? "is-complete" : "is-writing")}
       onClick={revealAll}
       title={complete ? undefined : "Tap to reveal the full passage"}
-      aria-label={tokens.slice(0, visibleTokens).join("")}
+      aria-label={animate ? visibleText : undefined}
     >
-      {tokens.slice(0, visibleTokens).map((token, index) => (
+      {!animate ? visibleText : tokens.slice(0, visibleTokens).map((token, index) => (
         <span
           aria-hidden="true"
           className="story-token"
@@ -471,10 +455,14 @@ type ImagePackInstallerProps = {
   outputDirectory?: string;
   onModelsDirectoryChange: (value: string) => void;
   onOutputDirectoryChange: (value: string) => void;
+  scope?: "visual-novel";
+  initialStatus?: ImagePackStatus;
+  onReady?: (status: ImagePackStatus) => void;
+  onBusy?: (busy: boolean) => void;
 };
 
-function ImagePackInstaller({ modelsDirectory, outputDirectory = "", onModelsDirectoryChange, onOutputDirectoryChange }: ImagePackInstallerProps) {
-  const [status, setStatus] = useState<ImagePackStatus | null>(null);
+function ImagePackInstaller({ modelsDirectory, outputDirectory = "", onModelsDirectoryChange, onOutputDirectoryChange, scope, initialStatus, onReady, onBusy }: ImagePackInstallerProps) {
+  const [status, setStatus] = useState<ImagePackStatus | null>(initialStatus || null);
   const [job, setJob] = useState<ImageInstallJob | null>(null);
   const [checking, setChecking] = useState(false);
   const [detecting, setDetecting] = useState(false);
@@ -488,9 +476,10 @@ function ImagePackInstaller({ modelsDirectory, outputDirectory = "", onModelsDir
     setChecking(true);
     setError("");
     try {
-      const nextStatus = await api.imagePackStatus(directory);
+      const nextStatus = await api.imagePackStatus(directory, scope);
       setStatus(nextStatus);
-      if (!outputDirectory.trim()) {
+      if (nextStatus.allInstalled) onReady?.(nextStatus);
+      if (!scope && !outputDirectory.trim()) {
         const prepared = await api.prepareComfyOutputDirectory(nextStatus.modelsDirectory);
         onOutputDirectoryChange(prepared.outputDirectory);
       }
@@ -522,6 +511,7 @@ function ImagePackInstaller({ modelsDirectory, outputDirectory = "", onModelsDir
   };
 
   useEffect(() => {
+    if (initialStatus) return;
     if (modelsDirectory.trim()) void scan(modelsDirectory);
     else void detect();
   }, []);
@@ -535,7 +525,11 @@ function ImagePackInstaller({ modelsDirectory, outputDirectory = "", onModelsDir
         setJob(next);
         if (next.status === "complete") await scan(next.modelsDirectory);
       }).catch((reason) => {
-        if (!stopped) setError(reason instanceof Error ? reason.message : "Download progress could not be read.");
+        if (!stopped) {
+          setError(reason instanceof Error ? reason.message : "Download progress could not be read.");
+          setJob(null);
+          onBusy?.(false);
+        }
       });
     }, 900);
     return () => {
@@ -547,8 +541,11 @@ function ImagePackInstaller({ modelsDirectory, outputDirectory = "", onModelsDir
   const install = async () => {
     setError("");
     try {
-      setJob(await api.installImagePack({ modelsDirectory, acceptedTerms, apiToken, repair }));
+      onBusy?.(true);
+      const started = await api.installImagePack({ modelsDirectory, acceptedTerms, apiToken, repair, scope });
+      setJob(started);
     } catch (reason) {
+      onBusy?.(false);
       setError(reason instanceof Error ? reason.message : "The image pack download could not start.");
     }
   };
@@ -563,12 +560,13 @@ function ImagePackInstaller({ modelsDirectory, outputDirectory = "", onModelsDir
   };
 
   const active = Boolean(job && ["queued", "downloading"].includes(job.status));
+  useEffect(() => { onBusy?.(active); }, [active]);
   const repairNeeded = Boolean(status?.assets.some((asset) => asset.state === "invalid"));
   const progress = job?.totalBytes ? Math.min(100, Math.round((job.completedBytes / job.totalBytes) * 100)) : 0;
   return (
     <section className="image-pack-installer" aria-label="Recommended image files">
       <div className="image-pack-heading">
-        <span><strong>Recommended image files</strong><small>Five verified files · {formatFileSize(status?.totalBytes || 5905499670)} total</small></span>
+        <span><strong>{scope ? "Visual Novel character models" : "Recommended image files"}</strong><small>{status ? `${status.assets.length} files · ${formatFileSize(status.totalBytes)} total` : "Includes Visual Novel character artwork models"}</small></span>
         <button type="button" onClick={() => void detect()} disabled={detecting || active}>{detecting ? "Looking…" : "Find folder"}</button>
       </div>
       <label className="image-pack-folder">
@@ -576,15 +574,15 @@ function ImagePackInstaller({ modelsDirectory, outputDirectory = "", onModelsDir
         <div><input value={modelsDirectory} onChange={(event) => { onModelsDirectoryChange(event.target.value); setStatus(null); }} placeholder="Example: C:\ComfyUI\models" disabled={active} /><button type="button" onClick={() => void scan()} disabled={!modelsDirectory.trim() || checking || active}>{checking ? "Checking…" : "Scan"}</button></div>
         <small>Contains ComfyUI's diffusion_models, text_encoders, VAE, and LoRA folders.</small>
       </label>
-      {outputDirectory.trim() && <p className="image-pack-output-ready"><i /><span><strong>Finished-images folder ready</strong><small>{outputDirectory}</small></span></p>}
-      <details className="image-pack-custom-output">
+      {!scope && outputDirectory.trim() && <p className="image-pack-output-ready"><i /><span><strong>Finished-images folder ready</strong><small>{outputDirectory}</small></span></p>}
+      {!scope && <details className="image-pack-custom-output">
         <summary>Use a custom ComfyUI output folder</summary>
         <label className="image-pack-folder">
           <span>Custom finished-images folder</span>
           <input value={outputDirectory} onChange={(event) => onOutputDirectoryChange(event.target.value)} placeholder="Example: C:\ComfyUI\output" disabled={active} />
           <small>AniMessenger normally creates and selects the standard <b>output</b> folder beside ComfyUI's models folder automatically.</small>
         </label>
-      </details>
+      </details>}
 
       {status && (
         <div className={`image-pack-summary ${status.allInstalled ? "ready" : ""}`} aria-live="polite">
@@ -596,12 +594,12 @@ function ImagePackInstaller({ modelsDirectory, outputDirectory = "", onModelsDir
       {status && !status.allInstalled && (
         <>
           <details className="image-pack-files">
-            <summary>Review the five files and source pages</summary>
+            <summary>Review the model files and source pages</summary>
             <ul>{status.assets.map((asset) => <li key={asset.id} className={`is-${asset.state}`}><i /><span><strong>{asset.filename}</strong><small>{asset.state === "installed" ? "Verified" : asset.state === "invalid" ? "Needs repair" : `${formatFileSize(asset.bytes)} · Missing`}</small></span><a href={asset.pageUrl} target="_blank" rel="noreferrer">Source</a></li>)}</ul>
           </details>
           <label className="image-pack-terms"><input type="checkbox" checked={acceptedTerms} onChange={(event) => setAcceptedTerms(event.target.checked)} disabled={active} /><span>I reviewed the linked model pages and agree to the providers’ current terms.</span></label>
           {repairNeeded && <label className="image-pack-terms warning"><input type="checkbox" checked={repair} onChange={(event) => setRepair(event.target.checked)} disabled={active} /><span>Preserve invalid files as backups, then download verified replacements.</span></label>}
-          <div className="image-pack-token"><strong>Civitai access token required</strong><p>Civitai requires an account token for this pack. AniMessenger uses it for this download only and never saves it.</p><label><span>Temporary access token</span><input type="password" value={apiToken} onChange={(event) => setApiToken(event.target.value)} autoComplete="off" disabled={active} /></label><a href="https://civitai.com/user/account" target="_blank" rel="noreferrer">Open Civitai account settings</a></div>
+          {status.requiresCivitaiToken && <div className="image-pack-token"><strong>Civitai access token required</strong><p>AniMessenger uses the token for the remaining Civitai downloads and never saves it.</p><label><span>Temporary access token</span><input type="password" value={apiToken} onChange={(event) => setApiToken(event.target.value)} autoComplete="off" disabled={active} /></label><a href="https://civitai.com/user/account" target="_blank" rel="noreferrer">Open Civitai account settings</a></div>}
         </>
       )}
 
@@ -611,9 +609,57 @@ function ImagePackInstaller({ modelsDirectory, outputDirectory = "", onModelsDir
       {job?.status === "error" && <p className="image-pack-message error">{job.error}</p>}
       {error && <p className="image-pack-message error">{error}</p>}
 
-      {status && !status.allInstalled && !active && <button type="button" className="image-pack-install" onClick={() => void install()} disabled={!acceptedTerms || !apiToken.trim() || (repairNeeded && !repair)}>{repairNeeded ? "Repair and download files" : `Download ${formatFileSize(status.requiredDownloadBytes)}`}</button>}
+      {status && !status.allInstalled && !active && <button type="button" className="image-pack-install" onClick={() => void install()} disabled={!acceptedTerms || (status.requiresCivitaiToken && !apiToken.trim()) || (repairNeeded && !repair)}>{repairNeeded ? "Repair and download files" : `Download ${formatFileSize(status.requiredDownloadBytes)}`}</button>}
     </section>
   );
+}
+
+function VisualNovelModelSetup({ initial, status, directory, onSaved, onClose }: {
+  initial: AppConfig;
+  status?: ImagePackStatus;
+  directory: string;
+  onSaved: (config: AppConfig) => void;
+  onClose: () => void;
+}) {
+  const card = useRef<HTMLElement>(null);
+  const [modelsDirectory, setModelsDirectory] = useState(directory);
+  const [busy, setBusy] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [error, setError] = useState("");
+  useDialogFocus(card);
+  useEffect(() => {
+    const close = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) onClose();
+    };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [busy, onClose]);
+  const finish = async (checked: ImagePackStatus) => {
+    try {
+      if (checked.modelsDirectory !== initial.comfyModelsDir) {
+        // Read the latest settings so another tab's edits survive the update.
+        const latest = await api.config();
+        onSaved(await api.saveConfig({ ...latest, comfyModelsDir: checked.modelsDirectory }));
+      }
+      setReady(true);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The models are installed, but the folder could not be saved. Try again.");
+    }
+  };
+  return <div className="setup-layer vn-model-setup-layer" role="dialog" aria-modal="true" aria-labelledby="vn-model-setup-title">
+    <article ref={card} className="settings-card vn-model-setup" tabIndex={-1}>
+      <p className="eyebrow">Visual Novel</p>
+      <h2 id="vn-model-setup-title">{ready ? "Ready for your next scene." : "Add the character artwork models."}</h2>
+      <p>Visual Novel uses two additional files for transparent character artwork. Download the missing files directly into your ComfyUI models folder.</p>
+      <ImagePackInstaller modelsDirectory={modelsDirectory} outputDirectory={initial.comfyOutputDir}
+        onModelsDirectoryChange={value => { setModelsDirectory(value); setReady(false); setError(""); }} onOutputDirectoryChange={() => undefined}
+        scope="visual-novel" initialStatus={status} onBusy={setBusy} onReady={checked => void finish(checked)} />
+      {error && <p className="form-error" role="alert">{error}</p>}
+      <footer className="vn-model-setup-actions">
+        <button type="button" onClick={onClose} disabled={busy}>{ready ? "Done" : "Later"}</button>
+      </footer>
+    </article>
+  </div>;
 }
 
 function OllamaGpuCheck({ ollamaUrl, model }: { ollamaUrl: string; model: string }) {
@@ -923,10 +969,9 @@ function Settings({ initial, onClose, onSaved, onOpenSetup }: SettingsProps) {
           <section className="settings-section" hidden={tab !== "setup"}>
             <div className="settings-section-heading"><h3>Local AI models</h3><p>Chat drives conversation. Profile builds personalities. Vision looks at photos you attach.</p></div>
             <div className="settings-grid">
-              <label><span>Chat model</span><input list="ollama-models" value={config.chatModel} onChange={(e) => update("chatModel", e.target.value)} placeholder="Choose an Ollama model" /></label>
-              <label><span>Profile model</span><input list="ollama-models" value={config.profileModel} onChange={(e) => update("profileModel", e.target.value)} placeholder="Defaults to chat model" /></label>
-              <label className="settings-wide"><span>Vision model</span><input list="ollama-models" value={config.visionModel} onChange={(e) => update("visionModel", e.target.value)} placeholder="For reacting to your photos" /></label>
-              <datalist id="ollama-models">{models.map((model) => <option value={model} key={model} />)}</datalist>
+              <ModelPicker label="Chat model" value={config.chatModel} models={models} onChange={value => update("chatModel", value)} placeholder="Choose an Ollama model" />
+              <ModelPicker label="Profile model" value={config.profileModel} models={models} onChange={value => update("profileModel", value)} placeholder="Defaults to chat model" />
+              <ModelPicker label="Vision model" value={config.visionModel} models={models} onChange={value => update("visionModel", value)} placeholder="For reacting to your photos" wide />
               <label className="settings-wide"><span>Keep chat ready between replies</span><select value={config.chatKeepAliveMinutes ?? 15} onChange={e => update("chatKeepAliveMinutes", Number(e.target.value))}><option value={0}>Use Ollama’s setting</option><option value={5}>5 minutes</option><option value={15}>15 minutes</option><option value={30}>30 minutes</option><option value={60}>1 hour</option>{![0, 5, 15, 30, 60].includes(config.chatKeepAliveMinutes ?? 15) && <option value={config.chatKeepAliveMinutes}>{config.chatKeepAliveMinutes} minutes</option>}</select><small>Reduces loading delays after short breaks. The model uses memory while it stays ready; other tools may still cause it to reload.</small></label>
               <div className="settings-wide"><OllamaGpuCheck ollamaUrl={config.ollamaUrl} model={config.chatModel} /></div>
             </div>
@@ -1556,13 +1601,107 @@ function DossierAbout({ summary, traits }: { summary: string; traits: string[] }
     return () => observer.disconnect();
   }, [summary]);
   return <section className={"profile-about dossier-about " + (expanded ? "is-expanded" : "")}>
-    <header><small>About</small>{clipped && <button type="button" aria-expanded={expanded} aria-controls="dossier-about-copy" onClick={() => setExpanded(value => !value)}>{expanded ? "Show less" : "Read more"}</button>}</header>
+    <header><h3>About</h3>{clipped && <button type="button" aria-expanded={expanded} aria-controls="dossier-about-copy" onClick={() => setExpanded(value => !value)}>{expanded ? "Show less" : "Read more"}</button>}</header>
     <p ref={copyRef} id="dossier-about-copy">{summary}</p>
     {traits.length > 0 && <ul className="dossier-traits" aria-label="Personality traits">{traits.slice(0, 5).map((trait, index) => <li key={index}>{trait}</li>)}</ul>}
   </section>;
 }
 
+function DossierDemeanor({ thread, onSaved }: { thread: Thread; onSaved: (thread: Thread) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
+  const note = thread.demeanor || "";
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (saving || draft === null || draft.trim() === note) return;
+    setSaving(true);
+    setError("");
+    try {
+      const result = await api.setDemeanor(thread.id, draft, thread.storageInstanceId);
+      onSaved(result.thread);
+      setDraft(null);
+      setStatus(result.thread.demeanor ? "Demeanor saved." : "Demeanor cleared.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The demeanor note could not be saved.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <section className="dossier-demeanor" aria-labelledby="dossier-demeanor-title">
+    <header>
+      <h4 id="dossier-demeanor-title">Demeanor</h4>
+      {draft === null && <button type="button" className="dossier-demeanor-edit" onClick={() => { setDraft(note); setStatus(""); }}>{note ? "Edit note" : "Add note"}</button>}
+    </header>
+    {draft === null ? <p className={note ? "dossier-demeanor-note" : ""}>{note || "Add a quirk or clarify this character’s existing voice."}</p> :
+      <form onSubmit={save}>
+        <textarea autoFocus value={draft} maxLength={500} onChange={event => setDraft(event.target.value)} aria-labelledby="dossier-demeanor-title" aria-describedby="dossier-demeanor-help" placeholder="Warm and a little playful, especially when texting." />
+        <p id="dossier-demeanor-help">This note adds nuance to the existing personality. Leave it blank to remove the extra guidance.</p>
+        {error && <p className="dossier-demeanor-error" role="alert">{error}</p>}
+        <div className="dossier-demeanor-actions">
+          <button type="button" onClick={() => { setDraft(null); setError(""); }} disabled={saving}>Cancel</button>
+          <button type="submit" disabled={saving || draft.trim() === note}>{saving ? "Saving…" : "Save note"}</button>
+        </div>
+      </form>}
+    {status && <p className="dossier-demeanor-status" role="status">{status}</p>}
+  </section>;
+}
+
+function DossierChevron({ className }: { className: string }) {
+  return <svg className={className} viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 6 6 6-6 6" /></svg>;
+}
+
+function DossierScene({ scene }: { scene: Thread["scene"] }) {
+  const location = scene.presence === "apart" && scene.characterLocation ? scene.characterLocation : scene.location;
+  const presence = scene.presence || "uncertain";
+  const facts = [
+    { label: "Wearing", value: scene.outfit, wide: true },
+    { label: "Activity", value: scene.activity },
+    { label: "Posture", value: scene.posture },
+  ].filter(({ value }) => value?.trim() && !/^(?:unknown|unspecified)$/i.test(value.trim()));
+  return <section className="dossier-scene" aria-labelledby="dossier-scene-title">
+    <div className="dossier-scene-setting">
+      <span id="dossier-scene-title" className="dossier-scene-label">Current scene</span>
+      <div className="dossier-location">
+        <h3><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21S5 14.8 5 9.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21Z" /><circle cx="12" cy="9.5" r="2.5" /></svg><span>{location || "Location unknown"}</span></h3>
+        <span className="dossier-presence" data-presence={presence}>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            {presence === "together" ? <><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6M16 4.6a3.5 3.5 0 0 1 0 6.8m2.5 3c1.9.9 3 2.8 3 5.6" /></> :
+              presence === "apart" ? <><circle cx="12" cy="8" r="3.5" /><path d="M5.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6" /></> :
+              <><circle cx="12" cy="12" r="9" /><path d="M9.5 9a2.5 2.5 0 1 1 4 2c-1 .75-1.5 1-1.5 2m0 3h.01" /></>}
+          </svg>
+          {presence === "together" ? "Together" : presence === "apart" ? "Apart" : "Presence uncertain"}
+        </span>
+      </div>
+      {scene.environment && <p className="dossier-environment">{scene.environment}</p>}
+    </div>
+    {facts.length > 0 && <dl className="dossier-scene-facts">
+      {facts.map(({ label, value, wide }) => <div key={label} className={wide ? "dossier-scene-outfit" : undefined}><dt className="dossier-scene-label">{label}</dt><dd>{value}</dd></div>)}
+    </dl>}
+  </section>;
+}
+
 export function AniMessengerApp() {
+  const [dossierEmbed] = useState(() => {
+    const query = new URLSearchParams(window.location.search);
+    if (window.parent === window || !query.get("dossier") || !query.get("instance")) return null;
+    try {
+      if (window.parent.location.origin !== location.origin) return null;
+    } catch {
+      return null;
+    }
+    return { id: query.get("dossier")!, instance: query.get("instance")! };
+  });
+  const [showImmersive,setShowImmersive]=useState(false);
+  const [immersiveCovered, setImmersiveCovered] = useState(false);
+  const [immersiveReady, setImmersiveReady] = useState(false);
+  const revealImmersive = immersiveCovered && immersiveReady;
+  const immersiveFrameRef=useRef<HTMLIFrameElement>(null);
+
+  const dossierOpenedRef = useRef(false);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [activeId, setActiveId] = useState("");
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
@@ -1570,6 +1709,94 @@ export function AniMessengerApp() {
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<AnimaCharacter[]>([]);
   const [draft, setDraft] = useState("");
+  const visualNovelButtonRef = useRef<HTMLButtonElement>(null);
+  const composerToolsRef = useRef<HTMLDivElement>(null);
+  const composerToolsButtonRef = useRef<HTMLButtonElement>(null);
+  const [showComposerTools, setShowComposerTools] = useState(false);
+  const [fullscreen, setFullscreen] = useState(() => Boolean(document.fullscreenElement));
+  const [canFullscreen, setCanFullscreen] = useState(() => Boolean(document.fullscreenEnabled));
+
+  useEffect(() => {
+    function updateFullscreen() {
+      setFullscreen(Boolean(document.fullscreenElement));
+      setCanFullscreen(Boolean(document.fullscreenEnabled));
+    }
+    document.addEventListener("fullscreenchange", updateFullscreen);
+    return () => document.removeEventListener("fullscreenchange", updateFullscreen);
+  }, []);
+
+  useEffect(() => {
+    async function closeImmersive(event: MessageEvent) {
+      if (event.source !== immersiveFrameRef.current?.contentWindow || event.origin !== location.origin) return;
+      if (event.data?.type === "animessenger:immersive-ready") {
+        setImmersiveReady(true);
+        return;
+      }
+      if (event.data?.type !== "animessenger:immersive-close") return;
+      const frame = immersiveFrameRef.current;
+      const id = activeIdRef.current;
+      if (event.data.view === "chat" && id) {
+        try {
+          const { thread } = await api.setConversationMode(id, "chat");
+          if (frame !== immersiveFrameRef.current || activeIdRef.current !== id) return;
+          mergeThread(thread);
+        } catch {
+          frame?.contentWindow?.postMessage({ type: "animessenger:immersive-switch-error" }, location.origin);
+          return;
+        }
+      } else if (id) {
+        void api.thread(id).then(({ thread }) => mergeThread(thread)).catch(() => undefined);
+      }
+      if (typeof event.data.draft === "string") setDraft(event.data.draft);
+      setShowImmersive(false);
+      requestAnimationFrame(() => {
+        const target = event.data.view === "chat" || event.data.view === "story"
+          ? document.querySelector<HTMLButtonElement>('.composer-mode[aria-pressed="true"]')
+          : visualNovelButtonRef.current;
+        target?.focus({ preventScroll: true });
+      });
+    }
+    window.addEventListener("message", closeImmersive);
+    return () => window.removeEventListener("message", closeImmersive);
+  }, []);
+
+  useEffect(() => {
+    if (!showImmersive || revealImmersive) return;
+    const timer = window.setTimeout(() => {
+      if (immersiveReady) {
+        setImmersiveCovered(true);
+      } else {
+        setShowImmersive(false);
+        setNotice("Visual Novel took too long to open. Please try again.");
+        requestAnimationFrame(() => visualNovelButtonRef.current?.focus({ preventScroll: true }));
+      }
+    }, 6000);
+    return () => window.clearTimeout(timer);
+  }, [showImmersive, revealImmersive, immersiveReady]);
+
+  useEffect(() => {
+    setShowComposerTools(false);
+  }, [activeId, mobileChatOpen, showImmersive]);
+
+  useEffect(() => {
+    if (!showComposerTools) return;
+    composerToolsRef.current?.querySelector<HTMLButtonElement>(".composer-tool-menu button:not(:disabled)")?.focus({ preventScroll: true });
+    function dismissOutside(event: PointerEvent) {
+      if (!composerToolsRef.current?.contains(event.target as Node)) setShowComposerTools(false);
+    }
+    function dismissOnEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      setShowComposerTools(false);
+      composerToolsButtonRef.current?.focus({ preventScroll: true });
+    }
+    document.addEventListener("pointerdown", dismissOutside);
+    document.addEventListener("keydown", dismissOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", dismissOutside);
+      document.removeEventListener("keydown", dismissOnEscape);
+    };
+  }, [showComposerTools]);
+
   const [pendingPhoto, setPendingPhoto] = useState<PendingPhoto | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [typing, setTyping] = useState(false);
@@ -1627,10 +1854,31 @@ export function AniMessengerApp() {
   const [guestSearch, setGuestSearch] = useState("");
   const [cameoUpdating, setCameoUpdating] = useState(false);
   const [showIdentityEditor, setShowIdentityEditor] = useState(false);
+  useEffect(() => {
+    if (!dossierEmbed) return;
+    const reopen = (event: MessageEvent) => {
+      if (event.origin !== location.origin || event.source !== window.parent
+        || event.data?.type !== "animessenger:dossier-open"
+        || event.data?.id !== dossierEmbed.id || event.data?.instance !== dossierEmbed.instance) return;
+      if (dossierOpenedRef.current) setShowProfile(true);
+      void api.thread(dossierEmbed.id).then(({ thread }) => {
+        if (thread.storageInstanceId !== dossierEmbed.instance) return;
+        mergeThread(thread);
+      }).catch(() => undefined);
+    };
+    window.addEventListener("message", reopen);
+    return () => window.removeEventListener("message", reopen);
+  }, [dossierEmbed]);
+  useEffect(() => {
+    if (!dossierEmbed || !dossierOpenedRef.current) return;
+    window.parent.postMessage({ type: showProfile || showIdentityEditor ? "animessenger:dossier-ready" : "animessenger:dossier-closed", ...dossierEmbed }, location.origin);
+  }, [dossierEmbed, showProfile, showIdentityEditor]);
   const [deleteTarget, setDeleteTarget] = useState<Thread | null>(null);
   const [deletingChat, setDeletingChat] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
+  const [vnModelSetup, setVnModelSetup] = useState<{ status: ImagePackStatus | null; modelsDirectory: string } | null>(null);
+  const vnModelsChecked = useRef("");
   const [showEmoji, setShowEmoji] = useState(false);
   const [emojiSearch, setEmojiSearch] = useState("");
   const [recentEmoji, setRecentEmoji] = useState<string[]>(() => {
@@ -1654,6 +1902,8 @@ export function AniMessengerApp() {
   const [memoryActionMenuId, setMemoryActionMenuId] = useState("");
   const [memoryDraft, setMemoryDraft] = useState<MemoryDraft | null>(null);
   const [memorySaving, setMemorySaving] = useState(false);
+  const [memoryFeedback, setMemoryFeedback] = useState<{ text: string; error?: boolean } | null>(null);
+  const [memoryDraftError, setMemoryDraftError] = useState("");
   const [expandedMemorySourceId, setExpandedMemorySourceId] = useState("");
   const memoryPanelRef = useRef<HTMLDivElement>(null);
   const memoryEditorTextRef = useRef<HTMLTextAreaElement>(null);
@@ -1743,6 +1993,7 @@ export function AniMessengerApp() {
   }, [relationshipMilestones]);
 
   const active = threads.find((thread) => thread.id === activeId) ?? threads[0];
+  const immersiveNoticeOwned = useImmersiveNoticeOwner(active?.id || "");
   const activeStreamDraft = streamDraft?.characterId === active?.id
     && active?.messages.some(message => message.id === streamDraft.clientMessageId) ? streamDraft : null;
   const journeyUnread = useJourneyActivity(active?.id, showProfile && profileTab === "journey");
@@ -1767,7 +2018,9 @@ export function AniMessengerApp() {
     return threads.filter((thread) => thread.profile && thread.id !== active?.id && (!query
       || (characterDisplayName(thread.character) + " " + thread.character.name + " " + thread.character.series).toLowerCase().includes(query)));
   }, [active?.id, guestSearch, threads]);
-  const activeVisualIdentity = active?.profile?.visual.userOverrides?.identity ?? active?.profile?.visual.identity ?? [];
+  const activeVisualIdentity = (active?.profile?.visual.userOverrides?.identity ?? active?.profile?.visual.identity ?? [])
+    .filter(trait => !/^(?:\d+(?:girls?|boys?|others?)|solo)$/i.test(trait.trim()))
+    .map(trait => trait.replaceAll("_", " "));
   const activeGallery = useMemo<LightboxItem[]>(() => {
     if (!active) return [];
     return active.messages
@@ -1801,14 +2054,18 @@ export function AniMessengerApp() {
       return timestamp(right.updatedAt || right.createdAt) - timestamp(left.updatedAt || left.createdAt);
     });
   }, [active?.memories, memoryKind, memorySearch, memorySort]);
-  const visibleMessages = useMemo(() => active?.messages.slice(-visibleMessageLimit) ?? [], [active?.messages, visibleMessageLimit]);
+  // The inbox summary contains only the newest message, which can be a large
+  // image. Wait for the history on phones so it is mounted and decoded once.
+  const waitingForMobileHistory = Boolean(mobileChatOpen && active?.summary);
+  const visibleMessages = useMemo(() => waitingForMobileHistory ? [] : active?.messages.slice(-visibleMessageLimit) ?? [],
+    [active?.messages, visibleMessageLimit, waitingForMobileHistory]);
   useLayoutEffect(() => {
     const scroll = scrollRef.current;
     if (scroll && !streamDraft?.story && streamDraft?.characterId === active?.id && followLatestMessageRef.current) {
       scroll.scrollTop = Math.max(0, scroll.scrollHeight - scroll.clientHeight);
     }
   }, [streamDraft, active?.id]);
-  const hiddenMessageCount = Math.max(0, (active?.messages.length ?? 0) - visibleMessages.length);
+  const hiddenMessageCount = waitingForMobileHistory ? 0 : Math.max(0, (active?.messages.length ?? 0) - visibleMessages.length);
   const selectedLightboxImage = fullScreenImage?.items[fullScreenImage.index];
   const filteredEmoji = useMemo(() => {
     const query = emojiSearch.trim().toLowerCase();
@@ -1823,10 +2080,22 @@ export function AniMessengerApp() {
     storyReplyArrivalsRef.current.clear();
     setAnimatedStoryMessageId("");
     setMemoryDraft(null);
+    setMemoryFeedback(null);
+    setMemoryDraftError("");
     setExpandedMemorySourceId("");
     setMemoryOptionsOpen(false);
     setMemoryActionMenuId("");
   }, [activeId]);
+
+  useEffect(() => {
+    if (!memoryFeedback) return;
+    if (!showProfile || profileTab !== "memories") {
+      setMemoryFeedback(null);
+      return;
+    }
+    const timeout = window.setTimeout(() => setMemoryFeedback(null), memoryFeedback.error ? 6000 : 3500);
+    return () => window.clearTimeout(timeout);
+  }, [memoryFeedback, showProfile, profileTab]);
 
   const beginStoryReveal = (messageId: string) => new Promise<void>((resolve) => {
     let settled = false;
@@ -1871,7 +2140,7 @@ export function AniMessengerApp() {
   };
 
   const changeProfileTabFromKeyboard = (event: React.KeyboardEvent<HTMLButtonElement>) => {
-    const tabs = ["profile", "memories", "gallery", "journey"] as const;
+    const tabs = ["profile", "journey", "memories", "gallery"] as const;
     const direction = event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : 0;
     if (!direction) return;
     event.preventDefault();
@@ -1917,8 +2186,25 @@ export function AniMessengerApp() {
   }, [mode, search, threads]);
 
   useEffect(() => {
+    let disposed = false;
+    if (dossierEmbed) {
+      void api.thread(dossierEmbed.id).then(({ thread }) => {
+        if (disposed) return;
+        if (thread.storageInstanceId !== dossierEmbed.instance || !thread.profile) throw new Error("Character dossier unavailable.");
+        setThreads([thread]);
+        setActiveId(thread.id);
+        dossierOpenedRef.current = true;
+        setShowProfile(true);
+      }).catch(() => {
+        if (!disposed) window.parent.postMessage({ type: "animessenger:dossier-error", ...dossierEmbed }, location.origin);
+      });
+      void api.config().then(config => { if (!disposed) setConfig(config); }).catch(() => undefined);
+      void api.health().then(health => { if (!disposed) setHealth(health); }).catch(() => undefined);
+      return () => { disposed = true; };
+    }
     Promise.allSettled([api.threads(), api.config(), api.health()])
       .then(([threadResult, configResult, healthResult]) => {
+        if (disposed) return;
         const loadedThreads = threadResult.status === "fulfilled" ? threadResult.value.threads : [];
         const loadedConfig = configResult.status === "fulfilled" ? configResult.value : null;
         const first = loadedThreads[0];
@@ -1954,18 +2240,22 @@ export function AniMessengerApp() {
           setLoadingThreadId(first.id);
           const load = first.unreadCount ? api.markRead(first.id) : api.thread(first.id);
           void load.then((result) => {
+            if (disposed) return;
             mergeThread(result.thread);
           }).catch(() => undefined).finally(() => setLoadingThreadId((current) => current === first.id ? "" : current));
         }
       });
+    return () => { disposed = true; };
   }, []);
 
   useEffect(() => {
+    if (dossierEmbed) return;
     const syncChangedThreads = async () => {
       const summaries = (await api.threads()).threads;
       for (const summary of summaries) {
         const local = threadsRef.current.find((thread) => thread.id === summary.id);
         if (!local
+          || summary.storageInstanceId !== local.storageInstanceId
           || String(summary.updatedAt || "") > String(local.updatedAt || "")
           || Number(summary.memoryRevision || 0) > Number(local.memoryRevision || 0)) {
           const result = await api.thread(summary.id);
@@ -2100,14 +2390,16 @@ export function AniMessengerApp() {
       settleAtBottom();
       secondFrame = window.requestAnimationFrame(settleAtBottom);
     });
-    const settleTimer = window.setTimeout(settleAtBottom, 180);
+    const settleTimer = window.setTimeout(() => {
+      if (followLatestMessageRef.current) settleAtBottom();
+    }, mobileChatOpen && isMobileLayout() ? 350 : 180);
 
     return () => {
       window.cancelAnimationFrame(firstFrame);
       if (secondFrame) window.cancelAnimationFrame(secondFrame);
       window.clearTimeout(settleTimer);
     };
-  }, [active?.id, active?.messages.length, loadingThreadId, typing, visibleMessageLimit]);
+  }, [active?.id, active?.messages.length, loadingThreadId, mobileChatOpen, typing, visibleMessageLimit]);
 
   const loadEarlierMessages = () => {
     const scroll = scrollRef.current;
@@ -2247,33 +2539,14 @@ export function AniMessengerApp() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [showGuestPicker, cameoUpdating]);
 
+  const threadSnapshots = useMemo(() => createThreadSnapshotMerger(), []);
+
   function mergeThread(next: Thread, activate = false) {
+    if (threadSnapshots.isRetired(next)) return;
     setThreads((current) => {
       const existing = current.find((thread) => thread.id === next.id);
-      const nextUpdatedAt = String(next.updatedAt || "");
-      const existingUpdatedAt = String(existing?.updatedAt || "");
-      const newestSnapshot = !existing || nextUpdatedAt >= existingUpdatedAt ? next : existing;
-      const olderSnapshot = newestSnapshot === next ? existing : next;
-      const messagesById = new Map(
-        (olderSnapshot?.messages || []).map((message) => [message.id, message]),
-      );
-      for (const message of newestSnapshot.messages) {
-        const mergedMessage: Message = { ...messagesById.get(message.id), ...message };
-        if (!Object.hasOwn(message, "delivery")) delete mergedMessage.delivery;
-        messagesById.set(message.id, mergedMessage);
-      }
-      const newestMessageIds = new Set(newestSnapshot.messages.map((message) => message.id));
-      const orderedMessageIds = [
-        ...newestSnapshot.messages.map((message) => message.id),
-        ...(olderSnapshot?.messages || [])
-          .map((message) => message.id)
-          .filter((id) => !newestMessageIds.has(id)),
-      ];
-      const mergedThread = {
-        ...newestSnapshot,
-        ...(newestSnapshot.summary && olderSnapshot && !olderSnapshot.summary ? { profile: olderSnapshot.profile, summary: false } : {}),
-        messages: orderedMessageIds.map((id) => messagesById.get(id)!),
-      };
+      const mergedThread = threadSnapshots.merge(existing, next);
+      if (!mergedThread || mergedThread === existing) return current;
       const merged = existing
         ? current.map((thread) => thread.id === next.id ? mergedThread : thread)
         : [mergedThread, ...current];
@@ -2300,19 +2573,79 @@ export function AniMessengerApp() {
     }
   };
 
-  const toggleConversationMode = async () => {
-    if (!active || conversationModeUpdating || typing) return;
-    const nextMode = active.conversationMode === "story" ? "chat" : "story";
+  useEffect(() => {
+    if (!config || !healthReady || dossierEmbed || showSetup || showSettings) return;
+    if (!["localhost", "127.0.0.1", "[::1]"].includes(location.hostname)) return;
+    if (!config.comfyWorkflowFile || !config.comfyMappingFile
+      || !(config.comfyModelsDir || config.comfyOutputDir || config.comfyDiffusionModel || health.comfy)) return;
+    const key = JSON.stringify([config.comfyModelsDir, config.comfyOutputDir]);
+    if (vnModelsChecked.current === key) return;
+    let disposed = false;
+    void api.visualNovelModels().then(result => {
+      if (disposed) return;
+      vnModelsChecked.current = key;
+      if (!result.status?.allInstalled) setVnModelSetup(result);
+    }).catch(() => {
+      if (!disposed) {
+        vnModelsChecked.current = key;
+        setVnModelSetup({ status: null, modelsDirectory: config.comfyModelsDir });
+      }
+    });
+    return () => { disposed = true; };
+  }, [config?.comfyModelsDir, config?.comfyOutputDir, config?.comfyWorkflowFile, config?.comfyMappingFile, healthReady, health.comfy, dossierEmbed, showSetup, showSettings]);
+
+  const selectConversationView = async (view: "chat" | "story" | "visual-novel") => {
+    if (!active || !activeReadyForChat || conversationModeUpdating || typing) return;
+    const immersive = view === "visual-novel";
+    if (immersive && (active.cameo?.activeGuest || pendingPhoto || photoUploading)) return;
+    const nextMode = view === "chat" ? "chat" : "story";
     setReactionTarget(null);
-    setConversationModeUpdating(true);
     setNotice("");
+    setShowComposerTools(false);
+    setShowEmoji(false);
+    if (immersive || active.conversationMode !== nextMode) {
+      setConversationModeUpdating(true);
+      try {
+        if (immersive) {
+          const { comfy, message } = await api.immersiveAvailability();
+          setHealth(current => ({ ...current, comfy }));
+          if (activeIdRef.current !== active.id) return;
+          if (message) {
+            setNotice(message);
+            return;
+          }
+          const models = await api.visualNovelModels();
+          if (activeIdRef.current !== active.id) return;
+          if (!models.status?.allInstalled) {
+            if (["localhost", "127.0.0.1", "[::1]"].includes(location.hostname)) setVnModelSetup(models);
+            else setNotice("Open AniMessenger on the host computer to download the missing Visual Novel character models.");
+            return;
+          }
+        }
+        if (active.conversationMode !== nextMode) {
+          const result = await api.setConversationMode(active.id, nextMode);
+          mergeThread(result.thread);
+        }
+      } catch (reason) {
+        setNotice(reason instanceof Error ? reason.message : "The conversation mode could not be changed.");
+        return;
+      } finally {
+        setConversationModeUpdating(false);
+      }
+    }
+    if (immersive && activeIdRef.current === active.id) {
+      setImmersiveCovered(false);
+      setImmersiveReady(false);
+      setShowImmersive(true);
+    }
+  };
+
+  const toggleFullscreen = async () => {
     try {
-      const result = await api.setConversationMode(active.id, nextMode);
-      mergeThread(result.thread, true);
-    } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : "The conversation mode could not be changed.");
-    } finally {
-      setConversationModeUpdating(false);
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await document.documentElement.requestFullscreen();
+    } catch {
+      setNotice("Full screen is unavailable in this browser. You can try opening AniMessenger from your Home Screen.");
     }
   };
 
@@ -2424,12 +2757,16 @@ export function AniMessengerApp() {
   };
 
   const beginAddingMemory = () => {
+    setMemoryFeedback(null);
+    setMemoryDraftError("");
     setMemoryActionMenuId("");
     setMemoryOptionsOpen(false);
     setMemoryDraft({ text: "", kind: "shared_event", importance: 3, eventDate: "" });
   };
 
   const beginEditingMemory = (memory: CharacterMemory) => {
+    setMemoryFeedback(null);
+    setMemoryDraftError("");
     setMemoryActionMenuId("");
     setMemoryOptionsOpen(false);
     setMemoryDraft({
@@ -2453,23 +2790,33 @@ export function AniMessengerApp() {
   const saveMemoryDraft = async (event: FormEvent) => {
     event.preventDefault();
     if (!active || !memoryDraft || memorySaving) return;
+    const threadId = active.id;
     setMemorySaving(true);
-    setNotice("");
-    const memory = {
-      text: memoryDraft.text.trim(),
-      kind: memoryDraft.kind,
-      importance: memoryDraft.importance,
-      eventAt: memoryDraft.eventDate ? new Date(memoryDraft.eventDate + "T12:00:00").toISOString() : null,
-    };
+    setMemoryFeedback(null);
+    setMemoryDraftError("");
     try {
+      const memory = {
+        text: memoryDraft.text.trim(),
+        kind: memoryDraft.kind,
+        importance: memoryDraft.importance,
+        eventAt: memoryDraft.eventDate ? new Date(memoryDraft.eventDate + "T12:00:00").toISOString() : null,
+      };
       const result = memoryDraft.id
-        ? await api.editMemory(active.id, memoryDraft.id, memory)
-        : await api.addMemory(active.id, memory);
-      replaceThread(result.thread);
+        ? await api.editMemory(threadId, memoryDraft.id, memory)
+        : await api.addMemory(threadId, memory);
+      mergeThread(result.thread);
+      if (activeIdRef.current !== threadId) return;
+      const alreadySaved = "alreadySaved" in result && result.alreadySaved;
+      if (!memoryDraft.id && !alreadySaved) {
+        setMemorySearch("");
+        setMemoryKind("all");
+        setMemorySort("recent");
+      }
       setMemoryDraft(null);
-      setNotice(memoryDraft.id ? "Memory updated." : "Memory added.");
+      setMemoryFeedback({ text: memoryDraft.id ? "Memory updated." : alreadySaved ? "This memory is already saved." : "Memory added." });
+      requestAnimationFrame(() => memoryPanelRef.current?.querySelector<HTMLButtonElement>(".memory-add-button")?.focus());
     } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : "That memory could not be saved.");
+      if (activeIdRef.current === threadId) setMemoryDraftError(reason instanceof Error ? reason.message : "That memory could not be saved.");
     } finally {
       setMemorySaving(false);
     }
@@ -2477,15 +2824,18 @@ export function AniMessengerApp() {
 
   const forgetActiveMemory = async (memoryId: string) => {
     if (!active) return;
+    const threadId = active.id;
     setMemoryActionMenuId("");
+    setMemoryFeedback(null);
     try {
-      const result = await api.forgetMemory(active.id, memoryId);
-      replaceThread(result.thread);
-      if (memoryDraft?.id === memoryId) setMemoryDraft(null);
-      if (expandedMemorySourceId === memoryId) setExpandedMemorySourceId("");
-      setNotice("Memory forgotten. Automatic review will not add it back.");
+      const result = await api.forgetMemory(threadId, memoryId);
+      mergeThread(result.thread);
+      if (activeIdRef.current !== threadId) return;
+      setMemoryDraft(draft => draft?.id === memoryId ? null : draft);
+      setExpandedMemorySourceId(sourceId => sourceId === memoryId ? "" : sourceId);
+      setMemoryFeedback({ text: "Memory forgotten." });
     } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : "That memory could not be forgotten.");
+      if (activeIdRef.current === threadId) setMemoryFeedback({ text: reason instanceof Error ? reason.message : "That memory could not be forgotten.", error: true });
     }
   };
 
@@ -2717,13 +3067,14 @@ export function AniMessengerApp() {
   };
 
   const openThread = (thread: Thread) => {
+    clearChatListSwipe();
     setPendingPhoto(null);
     if (fileRef.current) fileRef.current.value = "";
     const opened = { ...thread, unreadCount: 0 };
     mergeThread(opened, true);
     if (thread.summary) {
       setLoadingThreadId(thread.id);
-      const load = thread.unreadCount ? api.markRead(thread.id) : api.thread(thread.id);
+      const load = thread.unreadCount ? api.markRead(thread.id).catch(() => api.thread(thread.id)) : api.thread(thread.id);
       void load
         .then((result) => mergeThread(result.thread))
         .catch((reason) => setNotice(reason instanceof Error ? reason.message : "That conversation could not be loaded."))
@@ -2835,6 +3186,10 @@ export function AniMessengerApp() {
     for (let attempt = 0; attempt < 90; attempt += 1) {
       await new Promise((resolve) => window.setTimeout(resolve, 1500));
       const status = await api.imageStatus(promptId);
+      if (status.thread && _thread?.storageInstanceId
+        && status.thread.storageInstanceId !== _thread.storageInstanceId) {
+        throw new Error("This image belongs to a previous conversation that was deleted.");
+      }
       if (status.thread && (status.status === "complete" || status.status === "error")) {
         mergeThread(status.thread, activate);
         if (status.status === "complete" && completionSound) sound(completionSound);
@@ -2877,7 +3232,7 @@ export function AniMessengerApp() {
   };
 
   useEffect(() => {
-    if (!config?.proactiveEnabled || config.proactivePace === "off") return;
+    if (showImmersive || dossierEmbed || !config?.proactiveEnabled || config.proactivePace === "off") return;
     let disposed = false;
     const check = async () => {
       if (disposed || proactiveCheckingRef.current || document.visibilityState === "hidden") return;
@@ -2911,7 +3266,7 @@ export function AniMessengerApp() {
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [config?.proactiveEnabled, config?.proactivePace]);
+  }, [config?.proactiveEnabled, config?.proactivePace, showImmersive]);
 
   const regenerateAvatar = async () => {
     if (!active || !health.comfy || avatarGenerating[active.character.id]) return;
@@ -2972,6 +3327,7 @@ export function AniMessengerApp() {
     setNotice("");
     try {
       await api.deleteThread(deleteTarget.id);
+      threadSnapshots.retire(deleteTarget);
       const remaining = threads.filter((thread) => thread.id !== deleteTarget.id);
       setThreads(remaining);
       setActiveId(remaining[0]?.id ?? "");
@@ -3059,7 +3415,7 @@ export function AniMessengerApp() {
           label: event.label,
         } satisfies RelationshipMilestone));
       });
-      if (newMilestones.length) {
+      if (newMilestones.length && !immersiveNoticeOwned) {
         setRelationshipMilestones((current) => [
           ...current,
           ...newMilestones.filter((milestone) => !current.some((item) => item.id === milestone.id)),
@@ -3186,7 +3542,7 @@ export function AniMessengerApp() {
     primeSoundSystem(config?.soundEnabled ?? false);
     const text = draft.trim();
     const photo = pendingPhoto;
-    if ((!text && !photo) || photoUploading || typing) return;
+    if ((!text && !photo) || photoUploading || typing || sendInFlightRef.current || conversationModeUpdating || showImmersive) return;
     let image: string | undefined;
     if (photo) {
       setPhotoUploading(true);
@@ -3285,6 +3641,7 @@ export function AniMessengerApp() {
   };
 
   const clearChatListSwipe = () => {
+    if (chatListSwipeTimerRef.current !== null) window.clearTimeout(chatListSwipeTimerRef.current);
     const shell = appShellRef.current;
     shell?.classList.remove("is-chat-swiping", "is-chat-settling");
     shell?.style.removeProperty("--mobile-chat-drag");
@@ -3299,7 +3656,7 @@ export function AniMessengerApp() {
     const touch = event.touches[0];
     const target = event.target as HTMLElement;
     if (touch.clientX < 18 || target.closest("button, input, textarea, select, a, [contenteditable='true']")) return;
-    if (chatListSwipeTimerRef.current !== null) window.clearTimeout(chatListSwipeTimerRef.current);
+    clearChatListSwipe();
     chatListSwipeRef.current = {
       startX: touch.clientX,
       startY: touch.clientY,
@@ -3357,7 +3714,19 @@ export function AniMessengerApp() {
   const contactRows = mode === "discover" ? results : visibleThreads.map((thread) => thread.character);
 
   return (
-    <main className="site-frame">
+    <main className={"site-frame" + (dossierEmbed ? " dossier-embed" : "")} inert={showImmersive}>
+      {dossierEmbed && !showProfile && !dossierOpenedRef.current && <p className="dossier-embed-status" role="status">{notice || "Opening character dossier"}</p>}
+      {showImmersive && active && createPortal(
+        <div className="immersive-layer" data-reveal={revealImmersive} aria-busy={!revealImmersive}>
+          <iframe ref={immersiveFrameRef} title="Visual Novel"
+            onLoad={() => immersiveFrameRef.current?.contentWindow?.postMessage({ type: "animessenger:immersive-draft", draft }, location.origin)}
+            src={'/immersive/?id='+encodeURIComponent(active.id)+'&instance='+encodeURIComponent(active.storageInstanceId||'')}
+            referrerPolicy="origin" allow="fullscreen; autoplay" allowFullScreen />
+          <div className="immersive-curtain" aria-hidden="true" onAnimationEnd={event => {
+            if (event.animationName === "immersive-cover") setImmersiveCovered(true);
+          }} />
+        </div>, document.body
+      )}
       <div className="ambient ambient--one" />
       <div className="ambient ambient--two" />
       <section ref={appShellRef} className={"app-shell " + (mobileChatOpen ? "is-chat-open" : "")}>
@@ -3439,16 +3808,16 @@ export function AniMessengerApp() {
             onTouchStart={startChatListSwipe}
             onTouchMove={moveChatListSwipe}
             onTouchEnd={finishChatListSwipe}
-            onTouchCancel={finishChatListSwipe}
+            onTouchCancel={clearChatListSwipe}
           >
             <header className="chat-header">
-              <button className="back-button" onClick={() => setMobileChatOpen(false)} aria-label="Back to messages">‹</button>
-              <button type="button" className="chat-person" onClick={openProfile} disabled={!active.profile} aria-label={active.profile ? "Open " + characterDisplayName(active.character) + " profile" : "Character profile is being prepared"}>
+              <button className="back-button" onClick={() => { clearChatListSwipe(); setMobileChatOpen(false); }} aria-label="Back to messages">‹</button>
+              <button type="button" className="chat-person" onClick={openProfile} disabled={!active.profile} aria-haspopup="dialog" aria-label={active.profile ? "Open " + characterDisplayName(active.character) + " dossier" : "Character profile is being prepared"}>
                 <span className={"chat-avatar " + (avatarGenerating[active.character.id] ? "is-generating" : "")}>
                   <Portrait character={active.character} />
                 </span>
                 <span className="chat-person-copy">
-                  <strong>{characterDisplayName(active.character)}</strong>
+                  <span className="chat-person-name"><strong>{characterDisplayName(active.character)}</strong>{active.profile && <DossierChevron className="dossier-trigger-chevron" />}</span>
                   <small title={sceneContextLabel(active)}>
                     {avatarGenerating[active.character.id]
                       ? "making profile picture…"
@@ -3458,35 +3827,36 @@ export function AniMessengerApp() {
                   </small>
                 </span>
               </button>
-              <button
-                type="button"
-                className={"conversation-mode-control " + (active.conversationMode === "story" ? "is-story" : "is-chat")}
-                onClick={() => void toggleConversationMode()}
-                disabled={!activeReadyForChat || conversationModeUpdating || typing}
-                aria-label={active.conversationMode === "story" ? "Switch to Chat mode" : "Switch to Story mode"}
-                aria-pressed={active.conversationMode === "story"}
-                title={active.conversationMode === "story" ? "Story mode is on · switch to Chat" : "Chat mode is on · switch to Story"}
-              >
-                <ConversationModeIcon mode={active.conversationMode === "story" ? "story" : "chat"} />
-                <small>{conversationModeUpdating ? "…" : active.conversationMode === "story" ? "Story" : "Chat"}</small>
-              </button>
-              <button
-                type="button"
-                className={"guest-control " + (activeGuestThread ? "has-guest" : "")}
-                onClick={() => { setGuestSearch(""); setShowGuestPicker(true); }}
-                disabled={!activeReadyForChat}
-                aria-label={activeGuestThread ? "Manage guest " + characterDisplayName(activeGuestThread.character) : "Invite a guest character"}
-                title={activeGuestThread ? "Guest: " + characterDisplayName(activeGuestThread.character) : "Invite a guest"}
-              >
-                {activeGuestThread ? <Portrait character={activeGuestThread.character} /> : <><GuestIcon /><small>Guest</small></>}
-              </button>
+              {activeGuestThread && (
+                <button
+                  type="button"
+                  className="guest-control has-guest"
+                  onClick={() => { setGuestSearch(""); setShowGuestPicker(true); }}
+                  disabled={!activeReadyForChat}
+                  aria-label={"Manage guest " + characterDisplayName(activeGuestThread.character)}
+                  title={"Guest: " + characterDisplayName(activeGuestThread.character)}
+                >
+                  <Portrait character={activeGuestThread.character} />
+                </button>
+              )}
+              {canFullscreen && (
+                <button
+                  type="button"
+                  className="chat-fullscreen"
+                  onClick={() => void toggleFullscreen()}
+                  aria-label={fullscreen ? "Exit full screen" : "Enter full screen"}
+                  title={fullscreen ? "Exit full screen" : "Enter full screen"}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d={fullscreen ? "M4 9h5V4m6 0v5h5M4 15h5v5m6 0v-5h5" : "M9 4H4v5m11-5h5v5M4 15v5h5m11-5v5h-5"} /></svg>
+                </button>
+              )}
             </header>
             <div className="relationship-strip" style={{ "--accent": relationshipColor(active.relationship) } as React.CSSProperties}>
               <span>{active.relationshipTier || relationshipLabel(active.relationship)}</span>
               <output aria-label="Relationship strength">{active.relationship}%</output>
               <div><i style={{ width: active.relationship + "%" }} /></div>
             </div>
-            {relationshipMilestone && (
+            {relationshipMilestone && !immersiveNoticeOwned && (
               <div className="relationship-milestone" style={{ "--bond-color": relationshipColor(relationshipMilestone.relationship) } as React.CSSProperties} role="status" aria-live="polite">
                 <Portrait character={relationshipMilestone.character} />
                 <span>
@@ -3498,9 +3868,9 @@ export function AniMessengerApp() {
               </div>
             )}
             <AchievementNotification key={`achievement:${active.id}`} thread={active} characterName={characterDisplayName(active.character)}
-              portrait={<Portrait character={active.character} />} config={config} paused={Boolean(relationshipMilestone) || showProfile || showSettings || discoveryPending} />
+              portrait={<Portrait character={active.character} />} config={config} paused={typing || Boolean(animatedStoryMessageId) || Boolean(relationshipMilestone) || showProfile || showSettings || discoveryPending} />
             <DiscoveryNotification key={`discovery:${active.id}`} thread={active} characterName={characterDisplayName(active.character)}
-              portrait={<Portrait character={active.character} />} config={config} paused={Boolean(relationshipMilestone) || showProfile || showSettings}
+              portrait={<Portrait character={active.character} />} config={config} paused={typing || Boolean(animatedStoryMessageId) || Boolean(relationshipMilestone) || showProfile || showSettings}
               onPendingChange={setDiscoveryPending}
               onThreadUpdated={mergeThread} />
             <ServiceRecovery
@@ -3565,7 +3935,9 @@ export function AniMessengerApp() {
                   </div>
                 </div>
               )}
-              {loadingThreadId === active.id && active.summary && <div className="history-loading">Loading conversation…</div>}
+              {active.summary && (loadingThreadId === active.id
+                ? <div className="history-loading" role="status">Loading conversation…</div>
+                : <button type="button" className="load-earlier" onClick={() => openThread(active)}>Retry loading conversation</button>)}
               {hiddenMessageCount > 0 && (
                 <button type="button" className="load-earlier" onClick={loadEarlierMessages}>
                   Load earlier messages <span>{hiddenMessageCount.toLocaleString()} remaining</span>
@@ -3617,14 +3989,30 @@ export function AniMessengerApp() {
                             })}
                             aria-label="View image full screen"
                           >
+                            <span className="shared-image-loading" aria-hidden="true">Loading image…</span>
                             <img
-                              key={message.id + "-" + imageReloadVersion}
+                              key={message.id + "-" + imageReloadVersion + "-" + (imageRetryVersions[message.id] || 0)}
                               src={resilientImageSrc(message.image, message.id)}
-                              loading="lazy"
-                              decoding="async"
+                              loading={mobileChatOpen && message.id === visibleMessages.at(-1)?.id ? "eager" : "lazy"}
+                              decoding={mobileChatOpen ? "auto" : "async"}
                               alt={message.imageOrigin === "opening_scene" ? "Opening scene with " + characterDisplayName(messageSpeakerCharacter(message, active, threads)) : message.imageOrigin === "captured_moment" ? "Captured moment with " + characterDisplayName(messageSpeakerCharacter(message, active, threads)) : message.generated ? characterDisplayName(messageSpeakerCharacter(message, active, threads)) + " shared a generated scene" : "Shared by you"}
                               onError={() => handleImageLoadError(message.id)}
-                              onLoad={() => handleImageLoadSuccess(message.id)}
+                              onLoad={(event) => {
+                                const image = event.currentTarget;
+                                if (!isMobileLayout()) {
+                                  image.dataset.decoded = "true";
+                                  handleImageLoadSuccess(message.id);
+                                  return;
+                                }
+                                const source = image.currentSrc;
+                                void image.decode().then(() => {
+                                  if (!image.isConnected || image.currentSrc !== source) return;
+                                  image.dataset.decoded = "true";
+                                  handleImageLoadSuccess(message.id);
+                                }).catch(() => {
+                                  if (image.isConnected && image.currentSrc === source) handleImageLoadError(message.id);
+                                });
+                              }}
                             />
                           </button>
                         )}
@@ -3720,13 +4108,33 @@ export function AniMessengerApp() {
               {notice && <div className="chat-notice" role="alert">{notice}</div>}
             </div>
             <form className="composer" onSubmit={sendMessage}>
-            <div className="composer-tools" role="group" aria-label="Writing and image tools">
-              <button type="button" className="composer-action" onClick={insertAction} aria-label="Insert an action" disabled={!activeReadyForChat}>[action:]</button>
+            <div className="composer-tools">
+              <div className="composer-modes" role="group" aria-label="Conversation view">
+                {(["chat", "story", "visual-novel"] as const).map((view) => {
+                  const selected = view === "visual-novel" ? showImmersive : !showImmersive && (active.conversationMode || "chat") === view;
+                  const unavailable = view === "visual-novel" && (active.cameo?.activeGuest
+                    ? "Dismiss the guest to open Visual Novel."
+                    : pendingPhoto || photoUploading ? "Send or remove the attached photo before opening Visual Novel." : "");
+                  const comfyNotice = view === "visual-novel" && config && healthReady ? visualNovelBlock(config, health.comfy) : "";
+                  return (
+                    <button key={view} ref={view === "visual-novel" ? visualNovelButtonRef : undefined} type="button"
+                      className="composer-mode" aria-pressed={selected}
+                      disabled={!activeReadyForChat || typing || conversationModeUpdating}
+                      aria-disabled={unavailable || comfyNotice ? true : undefined}
+                      title={unavailable || comfyNotice || undefined}
+                      onClick={() => unavailable ? setNotice(unavailable) : void selectConversationView(view)}
+                    >
+                      <ConversationModeIcon mode={view} />
+                      <span>{view === "visual-novel" ? "Visual Novel" : view === "story" ? "Story" : "Chat"}</span>
+                    </button>
+                  );
+                })}
+              </div>
               <button
                 type="button"
                 className={"capture-moment-button " + (capturingMoment ? "is-capturing" : "")}
                 onClick={() => void captureMoment()}
-                disabled={!activeReadyForChat || !health.comfy || typing || capturingMoment}
+                disabled={!activeReadyForChat || !health.comfy || typing || conversationModeUpdating || capturingMoment}
                 title={!health.comfy ? "Connect ComfyUI in Settings to capture moments" : "Capture this moment"}
                 aria-label={capturingMoment ? "Capturing this moment" : "Capture this moment"}
               >
@@ -3782,7 +4190,23 @@ export function AniMessengerApp() {
                 </div>
               )}
               <input ref={fileRef} type="file" accept="image/*" hidden onChange={attachPhoto} />
-              <button type="button" className="add-button" onClick={() => fileRef.current?.click()} disabled={!activeReadyForChat || typing || photoUploading} aria-label={pendingPhoto ? "Replace attached photo" : active.cameo?.activeGuest ? "Attach a photo for both characters" : "Attach a photo"}>＋</button>
+              <div className="composer-add" ref={composerToolsRef}>
+                <button type="button" className="add-button" ref={composerToolsButtonRef}
+                  onClick={() => { setShowEmoji(false); setShowComposerTools((current) => !current); }}
+                  disabled={!activeReadyForChat} aria-label="Message tools" aria-expanded={showComposerTools}
+                  aria-controls={showComposerTools ? "composer-tool-menu" : undefined}>＋</button>
+                {showComposerTools && (
+                  <div id="composer-tool-menu" className="composer-tool-menu" role="group" aria-label="Message tools">
+                    <button type="button" onClick={() => { setShowComposerTools(false); insertAction(); }}>Insert action</button>
+                    {!active.cameo?.activeGuest && <button type="button" disabled={typing || conversationModeUpdating}
+                      onClick={() => { setShowComposerTools(false); setGuestSearch(""); setShowGuestPicker(true); }}>Invite guest</button>}
+                    <button type="button" disabled={typing || photoUploading}
+                      onClick={() => { setShowComposerTools(false); fileRef.current?.click(); }}>
+                      {pendingPhoto ? "Replace attached photo" : "Attach photo"}
+                    </button>
+                  </div>
+                )}
+              </div>
               <div className="composer-input">
                 <textarea
                   ref={composerRef}
@@ -3805,12 +4229,12 @@ export function AniMessengerApp() {
                 <button
                   type="button"
                   className={"emoji-button " + (showEmoji ? "active" : "")}
-                  onClick={() => setShowEmoji((current) => !current)}
+                  onClick={() => { setShowComposerTools(false); setShowEmoji((current) => !current); }}
                   aria-label={showEmoji ? "Close emoji tray" : "Add emoji"}
                   aria-expanded={showEmoji}
                 >☺</button>
               </div>
-              <button className="send-button" type="submit" disabled={!activeReadyForChat || (!draft.trim() && !pendingPhoto) || typing || photoUploading} aria-label="Send message">
+              <button className="send-button" type="submit" disabled={!activeReadyForChat || (!draft.trim() && !pendingPhoto) || typing || photoUploading || conversationModeUpdating} aria-label="Send message">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M12 19V5M6.5 10.5 12 5l5.5 5.5" />
                 </svg>
@@ -3910,27 +4334,43 @@ export function AniMessengerApp() {
               <div className="dossier-main">
               <div className="profile-tabs" role="tablist" aria-label="Character profile sections">
                 <button id="profile-tab-profile" type="button" role="tab" aria-selected={profileTab === "profile"} aria-controls="profile-panel" tabIndex={profileTab === "profile" ? 0 : -1} className={profileTab === "profile" ? "active" : ""} onKeyDown={changeProfileTabFromKeyboard} onClick={() => setProfileTab("profile")}>Profile</button>
+                <button id="profile-tab-journey" type="button" role="tab" aria-label={journeyUnread ? "Journey — new activity" : "Journey"} aria-selected={profileTab === "journey"} aria-controls="profile-panel" tabIndex={profileTab === "journey" ? 0 : -1} className={profileTab === "journey" ? "active" : ""} onKeyDown={changeProfileTabFromKeyboard} onClick={() => setProfileTab("journey")}>Journey {journeyUnread && <img className="journey-activity-indicator" src="/icons/journey-activity.svg" alt="" aria-hidden="true" />}</button>
                 <button id="profile-tab-memories" type="button" role="tab" aria-selected={profileTab === "memories"} aria-controls="profile-panel" tabIndex={profileTab === "memories" ? 0 : -1} className={profileTab === "memories" ? "active" : ""} onKeyDown={changeProfileTabFromKeyboard} onClick={() => setProfileTab("memories")}>Memories <span>{active.memories?.length || 0}</span></button>
                 <button id="profile-tab-gallery" type="button" role="tab" aria-selected={profileTab === "gallery"} aria-controls="profile-panel" tabIndex={profileTab === "gallery" ? 0 : -1} className={profileTab === "gallery" ? "active" : ""} onKeyDown={changeProfileTabFromKeyboard} onClick={() => setProfileTab("gallery")}>Gallery <span>{activeGallery.length}</span></button>
-                <button id="profile-tab-journey" type="button" role="tab" aria-label={journeyUnread ? "Journey — new activity" : "Journey"} aria-selected={profileTab === "journey"} aria-controls="profile-panel" tabIndex={profileTab === "journey" ? 0 : -1} className={profileTab === "journey" ? "active" : ""} onKeyDown={changeProfileTabFromKeyboard} onClick={() => setProfileTab("journey")}>Journey {journeyUnread && <img className="journey-activity-indicator" src="/icons/journey-activity.svg" alt="" aria-hidden="true" />}</button>
               </div>
+              {profileTab === "memories" && <div className="memory-toast-anchor" role="status" aria-atomic="true">
+                {memoryFeedback && <div className={"memory-toast" + (memoryFeedback.error ? " is-error" : "")}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d={memoryFeedback.error ? "M12 5v8m0 5h.01" : "m5 12 4 4L19 6"} /></svg>
+                  <span>{memoryFeedback.text}</span>
+                </div>}
+              </div>}
               {profileTab === "journey" ? <CharacterJourney key={active.id} thread={active} /> : profileTab === "profile" ? (
                 <div className="profile-section" id="profile-panel" role="tabpanel" aria-labelledby="profile-tab-profile">
+                  <DossierScene scene={active.scene} />
                   <DossierAbout key={active.character.id} summary={active.profile.summary} traits={active.profile.persona.traits} />
-                  <section className="dossier-scene" aria-labelledby="dossier-scene-title">
-                    <header><small id="dossier-scene-title">In this moment</small><span className="dossier-presence"><i aria-hidden="true" />{active.scene.presence === "together" ? "Together" : active.scene.presence === "apart" ? "Apart" : "Presence uncertain"}</span></header>
-                    <div className="dossier-location"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 1 1 14 0Z"/><circle cx="12" cy="10" r="2.5"/></svg><strong>{active.scene.location}</strong></div>
-                    <details className="dossier-disclosure dossier-outfit"><summary><span><b>Now wearing</b><small>{active.scene.outfit}</small></span><i aria-hidden="true">＋</i></summary><div className="dossier-disclosure-body"><p>{active.scene.outfit}</p><dl className="dossier-scene-facts"><div><dt>Activity</dt><dd>{active.scene.activity}</dd></div>{active.scene.posture && active.scene.posture !== "unknown" && <div><dt>Position</dt><dd>{active.scene.posture}</dd></div>}</dl>{active.scene.environment && <p className="dossier-environment">{active.scene.environment}</p>}</div></details>
-                  </section>
-                  <details className="dossier-disclosure dossier-voice"><summary><span><b>Voice & personality</b><small>{active.profile.persona.baselineVoice || active.profile.persona.speechStyle}</small></span><i aria-hidden="true">＋</i></summary><div className="dossier-disclosure-body"><p>{active.profile.persona.baselineVoice || active.profile.persona.speechStyle}</p>{active.profile.persona.mannerisms.length > 0 && <div className="dossier-detail-list"><small>Mannerisms</small><ul>{active.profile.persona.mannerisms.map((mannerism, index) => <li key={index}>{mannerism}</li>)}</ul></div>}</div></details>
-                  <details className="dossier-disclosure dossier-identity"><summary><span><b>Appearance & identity</b><small>{active.profile.visual.userOverrides || active.character.displayName ? "Your corrections are active" : active.profile.visual.grounding?.status === "limited" ? "Limited appearance references" : "Researched character details"}</small></span><i aria-hidden="true">＋</i></summary><div className="dossier-disclosure-body"><p>{activeVisualIdentity.join(" · ") || "No visual details recorded."}</p>{!active.profile.visual.userOverrides && active.profile.visual.grounding?.status === "limited" && <p>Appearance references are limited, so generated images may be approximate. You can add or correct recognizable details below.</p>}<button className="dossier-inline-action" type="button" onClick={() => setShowIdentityEditor(true)}>Edit appearance & default outfit <span aria-hidden="true">↗</span></button></div></details>
+                  <div className="dossier-details">
+                    <details className="dossier-disclosure dossier-voice">
+                      <summary><span><b>Voice & personality</b><small className="dossier-voice-preview">{active.profile.persona.baselineVoice || active.profile.persona.speechStyle || "No voice description recorded."}</small></span><DossierChevron className="dossier-disclosure-chevron" /></summary>
+                      <div className="dossier-disclosure-body">
+                        {active.profile.persona.mannerisms.length > 0 && <div className="dossier-detail-list"><small>Mannerisms</small><ul>{active.profile.persona.mannerisms.map((mannerism, index) => <li key={index}>{mannerism}</li>)}</ul></div>}
+                        <DossierDemeanor key={active.storageInstanceId || active.id} thread={active} onSaved={mergeThread} />
+                      </div>
+                    </details>
+                    <details className="dossier-disclosure dossier-identity">
+                      <summary><span><b>Appearance & identity</b>{(active.profile.visual.userOverrides || active.character.displayName) && <small>Custom details active</small>}</span><DossierChevron className="dossier-disclosure-chevron" /></summary>
+                      <div className="dossier-disclosure-body">
+                        <p>{activeVisualIdentity.join(" · ") || "No visual details recorded."}</p>
+                        {!active.profile.visual.userOverrides && active.profile.visual.grounding?.status === "limited" && <p>Appearance references are limited. Generated images may be approximate.</p>}
+                      </div>
+                    </details>
+                  </div>
                   <small className="fan-note">Character interpretation is created locally from catalogue evidence, optional research, and your selected Ollama model.</small>
                 </div>
               ) : profileTab === "memories" ? (
                 <div ref={memoryPanelRef} className="profile-memories" id="profile-panel" role="tabpanel" aria-labelledby="profile-tab-memories">
                   <div className="memory-intro">
-                    <p>Specific things {characterDisplayName(active.character)} can recall beyond the recent chat window.</p>
-                    <button className="memory-add-button" type="button" onClick={beginAddingMemory} aria-label="Add memory"><span aria-hidden="true">＋</span><b>Add</b></button>
+                    <p>Save details for {characterDisplayName(active.character)} to remember. Memories you add stay active.</p>
+                    <button className="memory-add-button" type="button" onClick={beginAddingMemory} disabled={Boolean(memoryDraft) || memorySaving} aria-label="Add memory"><span aria-hidden="true">＋</span><b>Add</b></button>
                   </div>
                   {memoryDraft ? (
                     <form className="memory-editor" onSubmit={saveMemoryDraft}>
@@ -3938,7 +4378,8 @@ export function AniMessengerApp() {
                       <label><span>Type</span><select value={memoryDraft.kind} onChange={(event) => setMemoryDraft((draft) => draft ? { ...draft, kind: event.target.value as CharacterMemory["kind"] } : draft)}><option value="shared_event">Shared event</option><option value="user_fact">User fact</option><option value="preference">Preference</option><option value="shared_creation">Shared creation</option><option value="promise">Promise</option><option value="open_loop">Open loop</option><option value="boundary">Boundary</option></select></label>
                       <label><span>Importance</span><select value={memoryDraft.importance} onChange={(event) => setMemoryDraft((draft) => draft ? { ...draft, importance: Number(event.target.value) } : draft)}><option value={1}>1 · Minor</option><option value={2}>2 · Useful</option><option value={3}>3 · Lasting</option><option value={4}>4 · Important</option><option value={5}>5 · Critical</option></select></label>
                       <label><span>Event date <small>Optional</small></span><input type="date" value={memoryDraft.eventDate} onChange={(event) => setMemoryDraft((draft) => draft ? { ...draft, eventDate: event.target.value } : draft)} /></label>
-                      <div className="memory-editor-actions"><button type="button" onClick={() => setMemoryDraft(null)} disabled={memorySaving}>Cancel</button><button type="submit" disabled={memorySaving || memoryDraft.text.trim().length < 8}>{memorySaving ? "Saving…" : memoryDraft.id ? "Save changes" : "Add memory"}</button></div>
+                      {memoryDraftError && <p className="memory-save-error" role="alert">{memoryDraftError}</p>}
+                      <div className="memory-editor-actions"><button type="button" onClick={() => { setMemoryDraft(null); setMemoryDraftError(""); }} disabled={memorySaving}>Cancel</button><button type="submit" disabled={memorySaving || memoryDraft.text.trim().length < 8}>{memorySaving ? "Saving…" : memoryDraft.id ? "Save changes" : "Add memory"}</button></div>
                     </form>
                   ) : null}
                   <div className="memory-maintenance" aria-busy={memoryUpdating}><span><strong>Recover missed memories</strong><small>Review the complete saved conversation for lasting facts and shared experiences.</small>{memoryScanStatus ? <small className={"memory-scan-status " + (memoryUpdating ? "is-scanning" : "is-complete")} role="status" aria-live="polite">{memoryScanStatus}</small> : null}</span><button className={memoryUpdating ? "is-scanning" : ""} type="button" onClick={backfillActiveMemories} disabled={memoryUpdating}>{memoryUpdating ? "Scanning…" : active.memoryBackfilledAt ? "Rescan" : "Scan chat"}</button></div>
@@ -4028,7 +4469,7 @@ export function AniMessengerApp() {
               )}
                 <footer className="dossier-footer">
                   <button className="dossier-edit" type="button" onClick={() => setShowIdentityEditor(true)}>Edit character</button>
-                  <button className="dossier-return" type="button" onClick={() => setShowProfile(false)}>Back to {active.conversationMode === "story" ? "story" : "chat"} <span aria-hidden="true">↗</span></button>
+                  <button className="dossier-return" type="button" onClick={() => setShowProfile(false)}>Back to {dossierEmbed ? "scene" : active.conversationMode === "story" ? "story" : "chat"}</button>
                   <details className="dossier-chat-options"><summary aria-label="Chat options">•••</summary><div><button type="button" className="profile-danger" onClick={() => { setDeleteTarget(active); setShowProfile(false); }}>Delete chat</button></div></details>
                 </footer>
               </div>
@@ -4050,6 +4491,9 @@ export function AniMessengerApp() {
             </article>
           </div>
         )}
+        {vnModelSetup && config && !showSetup && !showSettings && !showProfile && !showGuestPicker && !showIdentityEditor && !showImmersive &&
+          <VisualNovelModelSetup initial={config} status={vnModelSetup.status || undefined}
+            directory={vnModelSetup.modelsDirectory} onSaved={setConfig} onClose={() => setVnModelSetup(null)} />}
         {showSettings && config && <Settings
           initial={config}
           onClose={() => setShowSettings(false)}

@@ -14,6 +14,7 @@ export default defineConfig({
       ignored: ["**/release/**", "**/runtime/**", "**/.runtime-cache/**", "**/logs/**", "**/data/**"],
     },
     proxy: {
+      "/immersive": "http://127.0.0.1:5174",
       "/api": "http://127.0.0.1:5174",
     },
   },

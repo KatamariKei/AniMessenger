@@ -31,6 +31,7 @@ const episodeStopWords = new Set([
   "deep", "deeply", "emotional", "meaningful", "profound", "prolonged", "subsequently", "time",
 ]);
 const evidenceAliases = new Map([
+  ["signed", "sign"], ["signing", "sign"], ["signature", "sign"], ["signatures", "sign"], ["autograph", "sign"],
   ["officially", "official"], ["moving", "move"], ["moved", "move"],
   ["measurements", "measurement"], ["measuring", "measurement"], ["measured", "measurement"],
 ]);
@@ -646,7 +647,7 @@ export function explicitMemoryCandidates(userText, characterName = "the characte
 
 export function normalizeMemoryCandidate(candidate, sourceMessageId, now = new Date()) {
   const text = String(candidate?.text || "").replace(/\s+/g, " ").trim();
-  if (text.length < 8 || text.length > 500 || !allowedMemoryText(text)) return null;
+  if (text.length < 8 || text.length > 500 || (!candidate?.userEdited && !allowedMemoryText(text))) return null;
   const kind = allowedKinds.has(candidate?.kind) ? candidate.kind : "shared_event";
   const explicitKeywords = stringList(candidate?.keywords);
   const keywords = [...new Set([...explicitKeywords, ...words(text)])].slice(0, 16);
@@ -824,7 +825,17 @@ export function validateMemoryDecision(target, candidate, messages = []) {
   if (candidate.action === "resolve") {
     if (!isUnresolvedMemory(target) || candidate.kind !== "shared_event" || source.from !== "user") return false;
     if (/\b(?:did not|didn't|not yet|going to|will|would|might|could|should|if|pretend|imagine)\b/i.test(quote)) return false;
-    if (!/\b(?:prepared|cooked|made|served|set|put|finished|completed|delivered|arrived|went|visited|returned|bought|gave|cancelled|canceled|called off|no longer want|decided not to)\b/i.test(quote)) return false;
+    const completion = /\b(?:prepared|cooked|made|served|set|put|finished|completed|delivered|arrived|went|visited|returned|bought|gave|signed|repaired|installed|paid|submitted|cancelled|canceled|called off|no longer want|decided not to)\b/i;
+    // Characters can perform a commitment. A subsequent user acknowledgment,
+    // corroborated by the cited preceding reply, need not repeat a completion verb.
+    const sourceIndex = messages.indexOf(source);
+    const acknowledgedOutcome = /\b(?:thank(?:s| you)|appreciate)\b/i.test(quote)
+      && messages.slice(Math.max(0, sourceIndex - 4), sourceIndex).some(message => {
+        if (message.from !== "character" || !(candidate.sourceMessageIds || []).includes(message.id)) return false;
+        const text = [message.text, message.narration].filter(Boolean).join("\n");
+        return completion.test(text) && decisionTopicOverlap(target.text, text) >= 2;
+      });
+    if (!completion.test(quote) && !acknowledgedOutcome) return false;
     const targetTime = Date.parse(target.eventAt || target.createdAt);
     const sourceTime = Date.parse(source.time);
     if (Number.isFinite(targetTime) && Number.isFinite(sourceTime) && sourceTime < targetTime) return false;
@@ -959,12 +970,23 @@ function combineMemory(target, incoming, now) {
 }
 
 export function addManualMemory(existing, input, now = new Date()) {
-  const candidate = {
+  const candidate = normalizeMemoryCandidate({
     ...input,
     userEdited: true,
     keywords: Array.isArray(input?.keywords) && input.keywords.length ? input.keywords : recallWords(input?.text),
-  };
-  return mergeMemories(existing, [candidate], undefined, now);
+  }, undefined, now);
+  if (!candidate) throw new Error("Write a memory between 8 and 500 characters.");
+  const source = Array.isArray(existing) ? existing : [];
+  const duplicate = source.find(memory => memory.userEdited && memory.kind === candidate.kind
+    && memory.text === candidate.text && (memory.eventAt || undefined) === candidate.eventAt);
+  if (duplicate) return { memories: source, saved: duplicate, alreadySaved: true };
+
+  const context = memoryMergeContext(source, [candidate]);
+  const automatic = source.find(memory => !memory.userEdited && isIncomingMemoryUpdate(memory, candidate, context, new Map()));
+  const saved = automatic ? structuredClone(automatic) : candidate;
+  if (automatic) combineMemory(saved, candidate, now);
+  const memories = retainMemories(automatic ? source.map(memory => memory === automatic ? saved : memory) : [...source, saved]);
+  return { memories, saved, alreadySaved: false };
 }
 
 export function editMemory(memories, memoryId, patch, now = new Date()) {
@@ -972,7 +994,7 @@ export function editMemory(memories, memoryId, patch, now = new Date()) {
   const current = source.find((memory) => memory.id === memoryId);
   if (!current) return source;
   const text = String(patch?.text ?? current.text).replace(/\s+/g, " ").trim();
-  if (text.length < 8 || text.length > 500 || !allowedMemoryText(text)) throw new Error("Write a complete memory between 8 and 500 characters.");
+  if (text.length < 8 || text.length > 500) throw new Error("Write a memory between 8 and 500 characters.");
   const kind = allowedKinds.has(patch?.kind) ? patch.kind : current.kind;
   const importance = Math.max(1, Math.min(5, Math.round(Number(patch?.importance) || Number(current.importance) || 3)));
   const requestedEventAt = patch?.eventAt;
@@ -1041,14 +1063,14 @@ export function mergeMemories(existing, candidates, sourceMessageId, now = new D
   const sourceMap = new Map((Array.isArray(options?.messages) ? options.messages : []).map(message => [message.id, message]));
   const memories = [];
   for (const item of Array.isArray(existing) ? existing : []) {
-    if (!allowedMemoryText(String(item?.text || ""))) continue;
+    if (!item?.userEdited && !allowedMemoryText(String(item?.text || ""))) continue;
     if (isTemporarySceneSummary(item)) continue;
     const copy = { ...item, keywords: [...(item.keywords || [])], sourceMessageIds: [...(item.sourceMessageIds || [])] };
     if (sourceMap.size && candidates?.length) {
       const dated = sourcedEvent(copy, sourceMap);
       if (dated.eventAt) copy.eventAt = dated.eventAt;
     }
-    const match = memories.find((memory) => isDuplicate(memory, copy, mergeContext));
+    const match = memories.find((memory) => !(memory.userEdited && copy.userEdited) && isDuplicate(memory, copy, mergeContext));
     if (match) combineMemory(match, copy, now);
     else memories.push(copy);
   }

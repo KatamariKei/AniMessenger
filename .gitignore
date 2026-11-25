@@ -49,6 +49,7 @@ next-env.d.ts
 /.pnpm-store/
 /.deps-staging/
 /.codex/
+/.codex-temp/
 /.agents/
 /.release-audit/
 /.runtime-cache/

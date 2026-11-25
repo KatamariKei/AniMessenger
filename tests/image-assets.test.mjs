@@ -9,7 +9,9 @@ const manifestUrl = new URL("../workflows/animessenger-anima-assets.json", impor
 test("the recommended ANIMA asset manifest is complete and valid", async () => {
   const manifest = JSON.parse(await fs.readFile(manifestUrl, "utf8"));
   assert.deepEqual(validateImageAssetManifest(manifest), []);
-  assert.equal(manifest.assets.length, 5);
+  assert.equal(manifest.assets.length, 7);
+  assert.ok(manifest.assets.some(asset => asset.filename === "anima_rgba_lora.safetensors" && asset.targetSubdirectory === "loras"));
+  assert.ok(manifest.assets.some(asset => asset.filename === "anima_rgba_vae.safetensors" && asset.targetSubdirectory === "vae"));
   assert.equal(manifest.totalBytes, manifest.assets.reduce((total, asset) => total + asset.bytes, 0));
   assert.ok(manifest.assets.every((asset) => asset.required));
   assert.deepEqual(new Set(manifest.assets.map((asset) => asset.kind)), new Set(["diffusion_model", "text_encoder", "vae", "lora"]));
